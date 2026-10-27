@@ -1,5 +1,8 @@
 // 对话流活动行与分段标题（CONV-ACTIVITY-01）。verb 与 state 的取值由 conversationPresentation.ts 产生。
 export const conversationMessages = {
+  "chat.submission.starting": { "zh-CN": "正在启动聊天", en: "Starting your chat" },
+  "chat.submission.sending": { "zh-CN": "正在发送消息", en: "Sending your message" },
+  "chat.submission.context": { "zh-CN": "附加的上下文", en: "Attached context" },
   "chat.activity.action": {
     "zh-CN":
       "{tense, select, running {正在} done {已} other {}}{verb, select, read {读取} edit {编辑} create {创建} search {搜索} list {列出} command {运行} wait {等待} skillRead {读取技能} planRead {读取计划} readProcess {读取进程输出} terminateProcess {停止进程} browser {使用浏览器} agentSpawn {创建子智能体} agentWait {等待子智能体} image {查看图片} other {调用 {name}}}",

@@ -60,13 +60,29 @@ const server = createServer(async (request, response) => {
 });
 const tracePath = join(scratch, "boundary-trace.jsonl");
 const listGate = join(scratch, "conversation-list.gate");
+const submissionGate = join(scratch, "submission.gate");
+const submissionEntered = join(scratch, "submission-entered.json");
 const bootstrap = `
 const { CoreBackend } = require(${JSON.stringify(join(gui, "app/src/core/backend.cjs"))});
-const { appendFileSync, existsSync } = require('node:fs');
+const { appendFileSync, existsSync, readFileSync, writeFileSync } = require('node:fs');
 let sequence = 0;
 const record = value => appendFileSync(${JSON.stringify(tracePath)}, JSON.stringify({ sequence: ++sequence, at: Date.now(), ...value }) + '\\n');
-const execute = CoreBackend.prototype.executeCommand;
-CoreBackend.prototype.executeCommand = async function(name, params, ...args) {
+const execute = CoreBackend.prototype.dispatchCommand;
+CoreBackend.prototype.dispatchCommand = async function(invocation, ...args) {
+  const { name, request: params } = invocation;
+  const gate = existsSync(${JSON.stringify(submissionGate)}) ? JSON.parse(readFileSync(${JSON.stringify(submissionGate)}, 'utf8')) : null;
+  if (gate?.name === name) {
+    writeFileSync(${JSON.stringify(submissionEntered)}, JSON.stringify({ name }));
+    const deadline = Date.now() + 30000;
+    while (existsSync(${JSON.stringify(submissionGate)})) {
+      if (Date.now() > deadline) throw new Error('Fixture submission gate was not released');
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    if (gate.mode === 'reject') throw new Error('Fixture rejected message before dispatch');
+    if (gate.mode === 'unknown') throw Object.assign(new Error('Fixture submission result unknown'), {
+      submissionUnknown: true, requestId: gate.requestId, code: 'UNKNOWN',
+    });
+  }
   const project = this.projects.get(params?.projectId);
   if (name === 'create' && project?.client && !project.client.__sendAdmissionTrace) {
     record({ boundary: 'createCommand', mode: params.worktree?.mode ?? 'source', requestId: params.requestId });
@@ -102,7 +118,7 @@ CoreBackend.prototype.executeCommand = async function(name, params, ...args) {
       }
     };
   }
-  return execute.call(this, name, params, ...args);
+  return execute.call(this, invocation, ...args);
 };
 `;
 const hash = async () =>
@@ -207,8 +223,26 @@ try {
       project(await snapshot())?.state?.connected,
     "Reloaded isolated preferences",
   );
+  await writeFile(submissionGate, JSON.stringify({ name: "create" }));
   await page.getByTestId("chat-input").fill(originalText);
   await page.getByTestId("chat-send-button").click();
+  await until(() => readFile(submissionEntered, "utf8").catch(() => false), "Create dispatch held");
+  await page.getByTestId("pending-message").waitFor();
+  assert.equal((await editorText()).trim(), "", "Composer clears before thread creation returns");
+  assert.equal(
+    await page.getByTestId("pending-message").locator(".user-bubble").innerText(),
+    originalText,
+  );
+  assert.match(
+    await page.getByTestId("pending-message").getByRole("status").innerText(),
+    /正在启动聊天|Starting your chat/,
+  );
+  assert.equal(requests.length, 0, "Local preview never claims model admission");
+  await capture("create-pending");
+  checks.push(
+    "New-chat content moves to the transcript before real create dispatch; starting status is visible",
+  );
+  await rm(submissionGate);
   await until(
     async () =>
       (await trace()).some((item) => item.boundary === "listGate" && item.phase === "held"),
@@ -337,6 +371,133 @@ try {
   checks.push(
     "An accepted create permits the first message and clears Composer while the list refresh is held",
   );
+  const threadId = await page.getByTestId("areal-workbench").getAttribute("data-thread-id");
+  const draftKey = `areal-gui:draft:${finalProject.id}:${threadId}`;
+  const requestId = "5594d99b-13a1-4ad8-8685-ef43a6580684";
+  for (const mode of ["pass", "reject", "unknown"]) {
+    const text = `Submission feedback ${mode}`;
+    const count = requests.length;
+    await rm(submissionEntered, { force: true });
+    await writeFile(submissionGate, JSON.stringify({ name: "send", mode, requestId }));
+    await page.getByTestId("chat-input").fill(text);
+    await page.locator("input[type=file]").setInputFiles({
+      name: "message.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("retained attachment"),
+    });
+    await page.getByTestId("chat-send-button").click();
+    await until(() => readFile(submissionEntered, "utf8").catch(() => false), "Send dispatch held");
+    const preview = page.getByTestId("pending-message");
+    await preview.waitFor();
+    assert.equal((await editorText()).trim(), "", "In-flight Composer is empty before acceptance");
+    assert.equal(await preview.locator(".user-bubble").innerText(), text);
+    assert.match(await preview.innerText(), /message.txt/);
+    assert.equal(
+      await page.getByTestId("composer-attachments").isVisible(),
+      false,
+      "Attachments move out of Composer during submission",
+    );
+    assert.equal(
+      await page.evaluate((key) => localStorage.getItem(key), draftKey),
+      text,
+      "Recovery draft survives local presentation",
+    );
+    assert.equal(requests.length, count, "Held command cannot reach the model");
+    await page.getByTestId("chat-input").press("Enter");
+    await capture(`send-pending-${mode}`);
+    await rm(submissionGate);
+    await preview.waitFor({ state: "detached" });
+    if (mode === "pass") {
+      await until(
+        async () =>
+          requests.length === count + 1 &&
+          project(await snapshot()).state.threads[threadId].turns.at(-1)?.status === "completed",
+        "Delayed send completes exactly once",
+      );
+      assert.equal((await editorText()).trim(), "");
+      assert.equal(
+        await page.locator(".user-message-body").filter({ hasText: text }).count(),
+        1,
+        "Core history replaces the local preview without duplication",
+      );
+      await page.getByTestId("chat-input").focus();
+      await app.evaluate(async ({ BrowserWindow }) => {
+        const debug = BrowserWindow.getAllWindows()[0].webContents.debugger;
+        debug.attach("1.3");
+        await debug.sendCommand("Input.imeSetComposition", {
+          text: "你好",
+          selectionStart: 2,
+          selectionEnd: 2,
+        });
+      });
+      try {
+        await page.waitForFunction(
+          () =>
+            document
+              .querySelector('[data-testid="chat-input"]')
+              .textContent.replaceAll("\u200b", "") === "你好",
+        );
+        assert.equal(
+          await page.evaluate((key) => localStorage.getItem(key), draftKey),
+          null,
+          "Uncommitted input after send stays out of recovery storage",
+        );
+        await app.evaluate(async ({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()[0].webContents.debugger.sendCommand("Input.insertText", {
+            text: "你好",
+          }),
+        );
+        await page.waitForFunction((key) => localStorage.getItem(key) === "你好", draftKey);
+        assert.equal(
+          requests.length,
+          count + 1,
+          "Committing an input-method candidate never sends it",
+        );
+        checks.push(
+          "After send, native Chromium composition remains local until commitment and never triggers submission",
+        );
+      } finally {
+        await app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()[0].webContents.debugger.detach(),
+        );
+      }
+    } else {
+      await until(
+        async () => (await editorText()).trim() === text,
+        "Rejected or unknown content restored",
+      );
+      assert.equal(
+        await page.getByTestId("composer-attachments").isVisible(),
+        true,
+        "Unaccepted attachments are restored",
+      );
+      assert.equal(requests.length, count, "Failure never resends automatically");
+      await capture(`send-restored-${mode}`);
+      if (mode === "unknown") {
+        assert.equal(
+          await page.evaluate((key) => localStorage.getItem(`${key}:pending`), draftKey),
+          requestId,
+          "Original unknown request is retained for reconciliation",
+        );
+        await page.reload();
+        await page.getByTestId("chat-input").waitFor();
+        await until(
+          async () => (await editorText()).trim() === text,
+          "Unknown draft survives renderer reload",
+        );
+        assert.equal(requests.length, count, "Reload does not replay the unknown request");
+        assert.equal(
+          await page.getByTestId("chat-send-button").isDisabled(),
+          true,
+          "Unknown receipt blocks duplicate submission",
+        );
+      }
+    }
+    checks.push(
+      `Delayed existing-chat ${mode}: text and attachment preview, empty Composer, no duplicate dispatch, ${mode === "pass" ? "Core handoff" : "draft restoration"}`,
+    );
+  }
+  assert.deepEqual(errors, [], "No renderer or fixture errors after submission feedback checks");
   passed = true;
 } catch (error) {
   failure ??= error.stack;
@@ -384,7 +545,7 @@ try {
         cleanup,
         errors,
         boundaries:
-          "Source Electron and real Core. Deterministic loopback model. One filesystem barrier holds a real conversation-list response at the create boundary or after successful thread admission. Native folder picker stubbed. Deadline controls fixture completion, not a latency benchmark. No packaged app or physical input.",
+          "Source Electron and real Core. Deterministic loopback model. Filesystem barriers hold create/send dispatch and a real conversation-list response. Rejection and UNKNOWN are injected before send dispatch; accepted sends use real Core/model requests. Native folder picker stubbed. Deadline controls fixture completion, not a latency benchmark. No packaged app or physical input.",
       },
       null,
       2,
