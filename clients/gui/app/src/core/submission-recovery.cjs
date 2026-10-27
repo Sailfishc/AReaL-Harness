@@ -44,6 +44,7 @@ const workgroupMutationMethods = new Set([
 ]);
 const reconciliationDelays = [500, 1000, 2000, 4000, 8000];
 const {
+  isRemoteControl,
   creationTargets,
   processControls,
   operationOf,
@@ -54,47 +55,6 @@ const {
   receiptResult,
   readReceiptIdentity,
 } = require("./receipt-contract.cjs");
-// 精确 Remote 停止/交互不会重放；保留日志用于核对，不阻塞后续桌面操作。
-/** @param {Pending} entry */
-const isRemoteControl = (entry) =>
-  (entry.method === "turn/interrupt" &&
-    entry.remote?.method === "turn.stop" &&
-    entry.remote.capability === "interrupt" &&
-    typeof entry.operationId === "string" &&
-    typeof entry.params?.turnId === "string" &&
-    entry.remote.target?.expectedTurnId === entry.params.turnId &&
-    typeof entry.params.threadId === "string" &&
-    entry.remote.target.threadId === entry.params.threadId) ||
-  (entry.method === "areal/interaction/respond" &&
-    entry.remote?.method === "interaction.respond" &&
-    entry.remote.capability === "answer" &&
-    typeof entry.operationId === "string" &&
-    typeof entry.params?.requestId === "string" &&
-    entry.remote.target?.interactionId === entry.params.requestId &&
-    typeof entry.params.turnId === "string" &&
-    entry.remote.target.turnId === entry.params.turnId &&
-    typeof entry.params.threadId === "string" &&
-    entry.remote.target.threadId === entry.params.threadId) ||
-  (entry.method === "areal/channel/reply" &&
-    entry.remote?.method === "task.question.reply" &&
-    entry.remote.capability === "answer" &&
-    typeof entry.operationId === "string" &&
-    entry.params?.requestId === entry.operationId &&
-    ["taskId", "runId", "questionId"].every(
-      (key) =>
-        typeof entry.params[key] === "string" && entry.remote?.target?.[key] === entry.params[key],
-    )) ||
-  (entry.method === "areal/task/pause" &&
-    entry.remote?.method === "task.pause" &&
-    entry.remote.capability === "pauseTask" &&
-    typeof entry.operationId === "string" &&
-    entry.params?.requestId === entry.operationId &&
-    ["taskId", "expectedRunId"].every(
-      (key) =>
-        typeof entry.params[key] === "string" && entry.remote?.target?.[key] === entry.params[key],
-    ) &&
-    Number.isSafeInteger(entry.params.expectedRevision) &&
-    entry.remote.target.expectedRevision === entry.params.expectedRevision);
 
 class SubmissionRecovery {
   /** @param {SubmissionHost} host */

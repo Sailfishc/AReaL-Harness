@@ -1,13 +1,11 @@
-import { PendingMessageView, setPendingMessage, usePendingMessage } from "./pendingMessage.js";
+import type { DraftComposerProps } from "./draftComposerTypes.js";
+import { PendingMessageView } from "./UserMessageBody.js";
+import { setPendingMessage, usePendingMessage } from "./pendingMessage.js";
 import { Input } from "@areal/ui";
 import { validateWorkspaceFileReference } from "./lib/workspaceFileComposer.js";
-import {
-  imageAnnotationBlocked,
-  useImageAnnotationRevision,
-  type ImageAnnotationTarget,
-} from "./imageAnnotations.js";
+import { imageAnnotationBlocked, useImageAnnotationRevision } from "./imageAnnotations.js";
 import { resolveDraftProfile } from "./ProfileDetails.js";
-import { resolveNewConversationModel, resolveModelEffort } from "@areal/workbench/model-selection";
+import { draftModelSelection, modelValue } from "./lib/draftModelSelection.js";
 import {
   setApplicationPreferences,
   useApplicationPreferences,
@@ -17,7 +15,7 @@ import { ComposerPermissionMenu } from "./ComposerPermissionMenu.js";
 import { permissionOptions, planModeOptions, type PermissionPreset } from "./permissions.js";
 import { ComposerPlanMode } from "./ComposerPlanMode.js";
 import { FileTree, AttachmentIcon, GoalIcon, PlanModeIcon as Lightbulb } from "./interfaceIcons.js";
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ChatPromptEditor } from "./prompt-editor/ChatPromptEditor.js";
 import {
   ComposerAttachment,
@@ -51,12 +49,8 @@ import {
 import { FeedbackNotice } from "./FeedbackNotice.js";
 import { Button } from "./components/ui/button.js";
 import type { LexicalChatInputHandle } from "./LexicalChatInput.js";
-import type { Action, Data } from "./services.js";
-import type { ComposerCatalogEntry } from "./prompt-editor/ComposerCatalog.js";
-import {
-  conversationReferenceEntries,
-  type ConversationReference,
-} from "./ConversationReferences.js";
+import type { Data } from "./services.js";
+import { conversationReferenceEntries } from "./ConversationReferences.js";
 import {
   isIndependentCreation,
   isTechnicalErrorMessage,
@@ -72,7 +66,6 @@ import {
   useReviewComments,
 } from "./reviewComments.js";
 import { ReviewCommentAttachment } from "./ReviewCommentViews.js";
-import type { WorktreeSelection } from "./WorktreeStarter.js";
 import { WorktreeStatus } from "./WorktreeStatus.js";
 import {
   attachmentDrafts,
@@ -101,24 +94,7 @@ export function DraftComposer({
   surfaceLayout = "default",
   worktree,
   onWorktreeCreated,
-}: {
-  surfaceLayout?: "default" | "compact";
-  project: Data;
-  backendReady?: boolean;
-  action: Action;
-  readAction: Action;
-  onOpen: (pid: string, tid: string) => Promise<void>;
-  onPanel: (panel: string) => void;
-  appEntries?: readonly ComposerCatalogEntry[];
-  conversationReferences?: readonly ConversationReference[];
-  draftKey?: string;
-  prepareProject?: () => Promise<Data>;
-  preparationStatus?: ReactNode;
-  modelCatalogReady?: boolean;
-  onAnnotate?: (target: ImageAnnotationTarget) => void;
-  worktree?: WorktreeSelection;
-  onWorktreeCreated?: () => void;
-}) {
+}: DraftComposerProps) {
   const { t } = useI18n();
   const referenceEntries = conversationReferenceEntries(
     conversationReferences,
@@ -192,38 +168,13 @@ export function DraftComposer({
     localStorage.setItem(`${key}:plan`, String(enabled));
   };
   const [model, setModel] = useState<string | null>(() => localStorage.getItem(`${key}:model`));
-  const modelValue = (item: Data) => `${item.providerId ?? ""}/${item.modelId}`;
-  const initialSelection = resolveNewConversationModel(
-    project.models,
-    project.lastAcceptedModel,
-    project.state?.connected === true,
+  const { effectiveModel, currentModel, effort, notice } = draftModelSelection(
+    project,
+    chosenProfile,
+    model,
+    efforts,
   );
-  const initialModel = chosenProfile?.model
-    ? project.models.find(
-        (item: Data) =>
-          item.providerId === chosenProfile.model.providerId &&
-          item.modelId === chosenProfile.model.modelId,
-      )
-    : initialSelection.candidate;
-  const effectiveModel =
-    model ??
-    (chosenProfile?.model
-      ? `${chosenProfile.model.providerId}/${chosenProfile.model.modelId}`
-      : initialModel
-        ? modelValue(initialModel)
-        : "");
-  const currentModel =
-    project.models.find((item: Data) => modelValue(item) === effectiveModel) ??
-    (initialModel && modelValue(initialModel) === effectiveModel ? initialModel : undefined);
-  const rememberedEffort =
-    !chosenProfile?.model && model === null ? initialSelection.rememberedEffort : undefined;
-  const effort = resolveModelEffort(currentModel, efforts[effectiveModel] ?? rememberedEffort);
-  const preferenceNotice =
-    model === null && !chosenProfile?.model
-      ? initialSelection.notice === "effort-unsupported"
-        ? t("chat.composer.previousEffortUnsupported")
-        : ""
-      : "";
+  const preferenceNotice = notice ? t("chat.composer.previousEffortUnsupported") : "";
   const [unknown, setUnknown] = useState(() => localStorage.getItem(`${key}:pending-create`));
   const [checkingCreation, setCheckingCreation] = useState(false);
   const [creationChecked, setCreationChecked] = useState(false);
@@ -673,7 +624,7 @@ export function DraftComposer({
         </div>
       )}
       {activeCreation?.worktree && (busy || creationStatus) && (
-        <div className="worktree-creation-preview" data-testid="worktree-creation-progress">
+        <div className="worktree-creation-preview min-w-0" data-testid="worktree-creation-progress">
           <div className="user-message">
             <div className="user-message-content">
               <div className="user-bubble">{activeCreation.text}</div>

@@ -8,9 +8,6 @@
   gap: 0;
   padding: var(--spacing-inline);
 }
-.worktree-creation-preview {
-  min-width: 0;
-}
 .worktree-creation-preview .user-message {
   margin-bottom: var(--spacing-field);
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Button } from "@areal/ui";
-import { Dialog, DialogContent, DialogTitle } from "@areal/ui/experimental";
+import { Dialog, DialogContent, DialogTitle } from "@areal/ui";
 import { ConversationComposer } from "../ConversationComposer.js";
 import { ComposerPermissionMenu } from "../ComposerPermissionMenu.js";
 import { ComposerQueue } from "../ComposerQueue.js";
@@ -117,7 +117,7 @@ export function MobileComposer({
   return (
     <>
       <div
-        className="mobile-composer composer-dock"
+        className="mobile-composer flex-[0_0_auto] min-w-0 composer-dock"
         data-field="composer"
         data-config-revision={snapshot?.configRevision}
         data-active-turn={snapshot?.activeTurnId ?? ""}
@@ -125,7 +125,7 @@ export function MobileComposer({
         {command.error && <p role="alert">{t(errors[command.error] ?? "mobile.commandFailed")}</p>}
         {pending.map((value) => (
           <div
-            className="mobile-command-notice"
+            className="mobile-command-notice flex items-center gap-inline"
             key={value.commandId}
             data-command-state={value.admissionState}
             data-command-id={value.commandId}
@@ -139,7 +139,7 @@ export function MobileComposer({
             </p>
             {value.admissionState !== "pending" && (
               <Button
-                className="mobile-touch"
+                className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
                 variant="outline"
                 data-action="query-command"
                 disabled={!connected || command.recovering}
@@ -151,10 +151,10 @@ export function MobileComposer({
           </div>
         ))}
         {intent && (
-          <div className="mobile-header">
+          <div className="mobile-header flex items-center justify-between gap-inline">
             <p className="text-fixed-caption text-foreground-subtle">{t("mobile.applyOnSend")}</p>
             <Button
-              className="mobile-touch"
+              className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
               variant="ghost"
               disabled={blocked || command.busy}
               onClick={() => commands.setIntent(projectId, threadId, undefined)}
@@ -180,7 +180,7 @@ export function MobileComposer({
           modelControl={
             <Button
               variant="ghost"
-              className="mobile-touch text-fixed-caption"
+              className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)] text-fixed-caption"
               data-action="model-sheet"
               disabled={disabled || command.busy || blocked}
               onClick={choose}
@@ -191,7 +191,7 @@ export function MobileComposer({
           leadingActions={
             <Button
               variant="ghost"
-              className="mobile-touch text-fixed-caption"
+              className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)] text-fixed-caption"
               data-action="permission-sheet"
               disabled={disabled || command.busy || blocked}
               onClick={choose}
@@ -230,7 +230,7 @@ export function MobileComposer({
           submitControl={
             running && !draft.trim() ? (
               <Button
-                className="mobile-touch composer-primary-action composer-stop-action"
+                className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)] composer-primary-action composer-stop-action"
                 size="icon"
                 variant="secondary"
                 aria-label={t("mobile.stop")}
@@ -242,7 +242,7 @@ export function MobileComposer({
               </Button>
             ) : (
               <Button
-                className="mobile-touch composer-primary-action"
+                className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)] composer-primary-action"
                 size="icon"
                 aria-label={t(running ? "mobile.enqueue" : "mobile.send")}
                 data-testid="mobile-chat-send"
@@ -273,12 +273,16 @@ export function MobileComposer({
           {isNew && (
             <p className="text-fixed-caption text-foreground-subtle">{t("mobile.applyOnSend")}</p>
           )}
-          <div className="mobile-sheet-scroll mobile-stack">
-            <div className="mobile-stack" role="group" aria-label={t("mobile.models")}>
+          <div className="mobile-sheet-scroll min-h-0 overflow-y-auto mobile-stack flex flex-col gap-field">
+            <div
+              className="mobile-stack flex flex-col gap-field"
+              role="group"
+              aria-label={t("mobile.models")}
+            >
               {models.map((value) => (
                 <Button
                   key={`${value.providerId}/${value.modelId}`}
-                  className="mobile-touch mobile-model-choice"
+                  className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)] mobile-model-choice justify-between"
                   variant={
                     value.providerId === sheetModel?.providerId &&
                     value.modelId === sheetModel?.modelId
@@ -307,12 +311,16 @@ export function MobileComposer({
               ))}
             </div>
             {!!selectedModel?.reasoningEffortOptions?.length && (
-              <div className="mobile-stack">
+              <div className="mobile-stack flex flex-col gap-field">
                 <h3 className="text-fixed-label">{t("mobile.reasoning")}</h3>
-                <div className="mobile-efforts" role="group" aria-label={t("mobile.reasoning")}>
+                <div
+                  className="mobile-efforts flex flex-wrap gap-inline"
+                  role="group"
+                  aria-label={t("mobile.reasoning")}
+                >
                   {selectedModel.reasoningEffortOptions.map((value: string) => (
                     <Button
-                      className="mobile-touch"
+                      className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
                       key={value}
                       variant={selectedEffort === value ? "secondary" : "ghost"}
                       aria-pressed={selectedEffort === value}
@@ -342,7 +350,7 @@ export function MobileComposer({
             />
           </div>
           <Button
-            className="mobile-touch"
+            className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
             data-action="model-done"
             disabled={command.busy || (running && !!Object.keys(sheet ?? {}).length)}
             onClick={() => void save()}

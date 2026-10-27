@@ -2664,10 +2664,10 @@
     },
     {
       "id": "R-DIALOG-002",
-      "title": "保留Base UI焦点约束与恢复",
+      "title": "设置、附件预览、命令选择和移动模型面板复用同一稳定 API",
       "owner": "clients/gui/packages/ui/src/components/dialog/dialog.md#行为",
       "strength": "default",
-      "textSha256": "8af02bdd0240d757b05119dc5dca92fbb9b6d8f681cb663c6702b786a867d9a0"
+      "textSha256": "fec322c090ca361e32fc7fcbbccd03a3e1e879c123076de5caf00d4e3795aadd"
     },
     {
       "id": "R-DIFFVIEWER-001",

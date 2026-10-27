@@ -1,3 +1,12 @@
+import { HISTORY_NAVIGATION_UPDATE_TAG, PROGRAMMATIC_UPDATE_TAG } from "./lib/editorUpdateTags.js";
+import {
+  shouldSubmitLexicalEnter,
+  shouldSubmitLexicalModifiedEnter,
+  shouldResetLexicalEditorAfterSubmit,
+  shouldNormalizeLeadingChineseSlashAliasInput,
+  STANDARD_SLASH_TRIGGER,
+  type LexicalSubmitResult,
+} from "./lib/lexicalInputPolicy.js";
 /* eslint-disable max-lines */
 /**
  * LexicalChatInput — 基于 Lexical 的聊天输入框
@@ -93,91 +102,6 @@ export interface LexicalChatInputHandle {
   setEditorStateJson: (editorStateJson: string) => void;
   setSkillMention: (skillName: string, markdown?: string, trailingText?: string) => void;
   setSlashCommandMention: (commandName: string, markdown?: string, trailingText?: string) => void;
-}
-
-interface LexicalEnterSubmitOptions {
-  allowSubmitWhenEmpty?: boolean;
-  ctrlKey?: boolean;
-  enterSubmits: boolean;
-  isComposing?: boolean;
-  metaKey?: boolean;
-  shiftKey?: boolean;
-  text: string;
-}
-
-interface LexicalModifiedEnterSubmitOptions {
-  allowSubmitWhenEmpty?: boolean;
-  ctrlKey?: boolean;
-  isComposing?: boolean;
-  metaKey?: boolean;
-  modifiedEnterSubmits: boolean;
-  shiftKey?: boolean;
-  text: string;
-}
-
-type LexicalSubmitResult = boolean | void;
-
-interface LeadingChineseSlashAliasInputOptions {
-  data: string | null;
-  inputType: string;
-  isAtEditorStart: boolean;
-  isComposing?: boolean;
-}
-
-const CHINESE_SLASH_ALIAS = "、";
-const STANDARD_SLASH_TRIGGER = "/";
-
-import { HISTORY_NAVIGATION_UPDATE_TAG, PROGRAMMATIC_UPDATE_TAG } from "./lib/editorUpdateTags.js";
-
-function shouldSubmitLexicalEnter({
-  allowSubmitWhenEmpty = false,
-  ctrlKey = false,
-  enterSubmits,
-  isComposing = false,
-  metaKey = false,
-  shiftKey = false,
-  text,
-}: LexicalEnterSubmitOptions): boolean {
-  if (!enterSubmits) {
-    return false;
-  }
-  if (shiftKey || ctrlKey || metaKey || isComposing) {
-    return false;
-  }
-  return Boolean(text.trim() || allowSubmitWhenEmpty);
-}
-
-function shouldSubmitLexicalModifiedEnter({
-  allowSubmitWhenEmpty = false,
-  ctrlKey = false,
-  isComposing = false,
-  metaKey = false,
-  modifiedEnterSubmits,
-  shiftKey = false,
-  text,
-}: LexicalModifiedEnterSubmitOptions): boolean {
-  return (
-    modifiedEnterSubmits &&
-    (ctrlKey || metaKey) &&
-    !shiftKey &&
-    !isComposing &&
-    Boolean(text.trim() || allowSubmitWhenEmpty)
-  );
-}
-
-function shouldResetLexicalEditorAfterSubmit(result: LexicalSubmitResult): boolean {
-  return result !== false;
-}
-
-function shouldNormalizeLeadingChineseSlashAliasInput({
-  data,
-  inputType,
-  isAtEditorStart,
-  isComposing = false,
-}: LeadingChineseSlashAliasInputOptions): boolean {
-  return (
-    data === CHINESE_SLASH_ALIAS && inputType === "insertText" && isAtEditorStart && !isComposing
-  );
 }
 
 /** 提取编辑器内容；mention 节点会在这里输出 markdown */

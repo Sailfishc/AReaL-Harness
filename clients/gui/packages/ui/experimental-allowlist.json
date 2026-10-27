@@ -648,66 +648,6 @@
     "exitCondition": "Evaluate CommandShortcut against its component contract and Base admission before graduation, or remove this consumer."
   },
   {
-    "file": "renderer/src/components/ui/dialog.tsx",
-    "symbol": "Dialog",
-    "owner": "renderer/src/components/ui/dialog.tsx",
-    "exitCondition": "Evaluate Dialog against its component contract and Base admission before graduation, or remove this consumer."
-  },
-  {
-    "file": "renderer/src/components/ui/dialog.tsx",
-    "symbol": "DialogClose",
-    "owner": "renderer/src/components/ui/dialog.tsx",
-    "exitCondition": "Evaluate DialogClose against its component contract and Base admission before graduation, or remove this consumer."
-  },
-  {
-    "file": "renderer/src/components/ui/dialog.tsx",
-    "symbol": "DialogContent",
-    "owner": "renderer/src/components/ui/dialog.tsx",
-    "exitCondition": "Evaluate DialogContent against its component contract and Base admission before graduation, or remove this consumer."
-  },
-  {
-    "file": "renderer/src/components/ui/dialog.tsx",
-    "symbol": "DialogDescription",
-    "owner": "renderer/src/components/ui/dialog.tsx",
-    "exitCondition": "Evaluate DialogDescription against its component contract and Base admission before graduation, or remove this consumer."
-  },
-  {
-    "file": "renderer/src/components/ui/dialog.tsx",
-    "symbol": "DialogFooter",
-    "owner": "renderer/src/components/ui/dialog.tsx",
-    "exitCondition": "Evaluate DialogFooter against its component contract and Base admission before graduation, or remove this consumer."
-  },
-  {
-    "file": "renderer/src/components/ui/dialog.tsx",
-    "symbol": "DialogHeader",
-    "owner": "renderer/src/components/ui/dialog.tsx",
-    "exitCondition": "Evaluate DialogHeader against its component contract and Base admission before graduation, or remove this consumer."
-  },
-  {
-    "file": "renderer/src/components/ui/dialog.tsx",
-    "symbol": "DialogOverlay",
-    "owner": "renderer/src/components/ui/dialog.tsx",
-    "exitCondition": "Evaluate DialogOverlay against its component contract and Base admission before graduation, or remove this consumer."
-  },
-  {
-    "file": "renderer/src/components/ui/dialog.tsx",
-    "symbol": "DialogPortal",
-    "owner": "renderer/src/components/ui/dialog.tsx",
-    "exitCondition": "Evaluate DialogPortal against its component contract and Base admission before graduation, or remove this consumer."
-  },
-  {
-    "file": "renderer/src/components/ui/dialog.tsx",
-    "symbol": "DialogTitle",
-    "owner": "renderer/src/components/ui/dialog.tsx",
-    "exitCondition": "Evaluate DialogTitle against its component contract and Base admission before graduation, or remove this consumer."
-  },
-  {
-    "file": "renderer/src/components/ui/dialog.tsx",
-    "symbol": "DialogTrigger",
-    "owner": "renderer/src/components/ui/dialog.tsx",
-    "exitCondition": "Evaluate DialogTrigger against its component contract and Base admission before graduation, or remove this consumer."
-  },
-  {
     "file": "renderer/src/components/ui/diff-viewer.tsx",
     "symbol": "DiffViewer",
     "owner": "renderer/src/components/ui/diff-viewer.tsx",
@@ -880,23 +820,5 @@
     "symbol": "SettingsToolbar",
     "owner": "renderer/src/settings/common.tsx",
     "exitCondition": "Evaluate SettingsToolbar against its component contract and Base admission before graduation, or remove this consumer."
-  },
-  {
-    "file": "renderer/src/mobile/MobileComposer.tsx",
-    "symbol": "Dialog",
-    "owner": "renderer/src/mobile/MobileComposer.tsx",
-    "exitCondition": "Review the mobile model sheet against Dialog accessibility and touch acceptance before Base admission, or remove this consumer."
-  },
-  {
-    "file": "renderer/src/mobile/MobileComposer.tsx",
-    "symbol": "DialogContent",
-    "owner": "renderer/src/mobile/MobileComposer.tsx",
-    "exitCondition": "Review the mobile model sheet against Dialog accessibility and touch acceptance before Base admission, or remove this consumer."
-  },
-  {
-    "file": "renderer/src/mobile/MobileComposer.tsx",
-    "symbol": "DialogTitle",
-    "owner": "renderer/src/mobile/MobileComposer.tsx",
-    "exitCondition": "Review the mobile model sheet against Dialog accessibility and touch acceptance before Base admission, or remove this consumer."
   }
 ]

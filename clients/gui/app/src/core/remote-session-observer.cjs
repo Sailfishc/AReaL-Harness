@@ -1,6 +1,7 @@
 // @ts-check
 "use strict";
 const decoder = require("./remote-core-decoder.cjs");
+const { failure } = decoder;
 /** @typedef {import('@areal/runtime-client/core').CoreClient} Client */
 /** @typedef {import('./project-state.cjs').CoreProject} CoreProject */
 /** @typedef {CoreProject & {client:Client}} ReadyProject */
@@ -15,13 +16,14 @@ const decoder = require("./remote-core-decoder.cjs");
 const { randomUUID } = require("node:crypto");
 const WebSocket = require("ws");
 const {
+  modelCatalog,
   snapshot,
   update,
   historyPage,
   constrain,
   publicBody,
 } = require("./remote-session-projection.cjs");
-const { LIMITS: TASK_QUESTION_LIMITS } = require("./remote-task-questions.cjs");
+const { readTaskQuestion } = require("./remote-task-questions.cjs");
 const METHODS = ["session.open", "session.history", "session.body", "subscription.close"];
 const LIMITS = Object.freeze({
   observerConnections: 16,
@@ -40,8 +42,6 @@ const READ_METHODS = new Set([
   "areal/task/read",
   "areal/channel/read",
 ]);
-/** @param {string} code @param {string} message */
-const failure = (code, message) => Object.assign(new Error(message), { code });
 
 class SessionObservers {
   /** @param {InstanceType<typeof import("./remote.cjs").RemoteControl>} remote */
@@ -78,7 +78,7 @@ class SessionObservers {
     )
       throw failure("FORBIDDEN", "此项目未获授权");
     const project = remote.backend.projects?.get(projectId);
-    if (remote.backend.closing || !readyProject(project))
+    if (remote.backend.closing || !decoder.readyProject(project))
       throw failure("CORE_UNAVAILABLE", "项目 Core 当前不可用");
     if (
       !project.client.capabilities?.features?.atomicObserveOwnership ||
@@ -211,7 +211,7 @@ class SessionObservers {
             event: "session.invalidated",
             ...this.keys(viewer),
             sequence: ++viewer.sequence,
-            error: { code: errorCode(error), message: error.message },
+            error: { code: decoder.errorCode(error), message: error.message },
             history: { truncated: true, unavailable: true },
           });
         } catch {
@@ -356,7 +356,7 @@ class SessionObservers {
         },
       });
     } catch (error) {
-      const code = errorCode(error);
+      const code = decoder.errorCode(error);
       // 超时未取消服务端观察；关闭专用连接，不能遗忘未知是否创建的订阅。
       if (client.closed || code === "RESPONSE_UNKNOWN" || code === "DISCONNECTED")
         this.invalidate(entry, entry.failureCode);
@@ -374,29 +374,6 @@ class SessionObservers {
       );
     }
   }
-  /** @param {CoreProject} project */
-  modelCatalog(project) {
-    const models = project.models ?? [];
-    const catalog = decoder.modelCatalog(
-      this.remote.backend.providers?.catalog(models, project) ?? models,
-    );
-    return catalog
-      .slice(0, 200)
-      .map((model) =>
-        Object.fromEntries(
-          [
-            "providerId",
-            "modelId",
-            "displayName",
-            "reasoningEffortOptions",
-            "available",
-            "unavailableReason",
-          ]
-            .filter((key) => model[key] !== undefined)
-            .map((key) => [key, model[key]]),
-        ),
-      );
-  }
   /** @param {RemoteConnection} connection @param {string} projectId @param {(value:unknown)=>void} publish */
   models(connection, projectId, publish) {
     const project = this.authorize(connection, projectId);
@@ -407,7 +384,7 @@ class SessionObservers {
       gatewayGeneration: connection.gatewayGeneration,
       grantRevision: connection.grantRevision,
       serviceGeneration: generation,
-      models: this.modelCatalog(project),
+      models: modelCatalog(this.remote.backend.providers, project),
     };
     if (
       this.authorize(connection, projectId) !== project ||
@@ -426,7 +403,7 @@ class SessionObservers {
     if (!["ordinary", "task"].includes(result.ownership?.kind))
       throw failure("CORE_INCOMPATIBLE", "Core 未返回原子会话归属");
     thread.state = snapshot(result.thread, this.scope(entry, thread.id), result.ownership);
-    thread.state.models = this.modelCatalog(entry.project);
+    thread.state.models = modelCatalog(this.remote.backend.providers, entry.project);
     constrain(thread.state, this.scope(entry, thread.id));
   }
   /** @param {ObserverEntry} entry @param {ThreadObserver} thread */
@@ -594,87 +571,8 @@ class SessionObservers {
     }
   }
   /** @template T @param {RemoteConnection} connection @param {string} projectId @param {{taskId:string,runId?:string,questionId?:string}} params @param {(result:TaskQuestionRead,entry:ObserverEntry)=>T} publish */
-  async taskQuestion(connection, projectId, params, publish) {
-    const project = this.authorize(connection, projectId);
-    if (
-      !["areal/task/read", ...(params.questionId ? ["areal/channel/read"] : [])].every((method) =>
-        project.client.capabilities?.methods?.includes(method),
-      )
-    )
-      throw failure("CORE_INCOMPATIBLE", "Core 不支持 Task 问题读取");
-    const entry = this.entry(connection, projectId);
-    entry.readers++;
-    try {
-      return await this.enqueue(entry, async () => {
-        const check = () => {
-          this.check(entry);
-          if (this.authorize(connection, projectId) !== entry.project)
-            throw failure("RESYNC_REQUIRED", "项目已变化");
-        };
-        check();
-        const task = decoder.taskRead(
-          await this.rpc(entry, "areal/task/read", { taskId: params.taskId }),
-        );
-        check();
-        if (Buffer.byteLength(JSON.stringify(task)) > LIMITS.nativeHistoryBytes)
-          throw failure("RESOURCE_UNAVAILABLE", "Task 超过读取上限");
-        if (
-          task.id !== params.taskId ||
-          (params.runId && !task.runs?.some((run) => run.id === params.runId))
-        )
-          throw failure("TARGET_CHANGED", "原 Task Run 已不存在");
-        if (!params.questionId) return publish({ task, complete: true }, entry);
-        let afterSequence = 0,
-          item,
-          complete = false,
-          bytes = 0;
-        // 有界读取独立 Channel；不打开、订阅或恢复协调 Session。
-        for (let page = 0; page < TASK_QUESTION_LIMITS.taskQuestionPages; page++) {
-          const result = decoder.channelRead(
-            await this.rpc(entry, "areal/channel/read", {
-              taskId: params.taskId,
-              afterSequence,
-              limit: 100,
-            }),
-          );
-          check();
-          bytes += Buffer.byteLength(JSON.stringify(result));
-          if (bytes > LIMITS.nativeHistoryBytes) break;
-          if (
-            result.taskId !== params.taskId ||
-            !Array.isArray(result.data) ||
-            result.data.length > 100
-          )
-            throw failure("TARGET_CHANGED", "Channel 身份或分页无效");
-          item = result.data.find(
-            (value) =>
-              value.id === params.questionId &&
-              value.runId === params.runId &&
-              value.kind === "question",
-          );
-          if (item) {
-            complete = true;
-            break;
-          }
-          if (!result.hasMore) {
-            complete = true;
-            break;
-          }
-          if (!Number.isSafeInteger(result.nextSequence) || result.nextSequence <= afterSequence)
-            break;
-          afterSequence = result.nextSequence;
-        }
-        check();
-        return publish({ task, item, complete }, entry);
-      });
-    } finally {
-      entry.readers--;
-      if (
-        !entry.readers &&
-        ![...entry.threads.values()].some((value) => value.viewers.size || value.pushWatches?.size)
-      )
-        this.invalidate(entry);
-    }
+  taskQuestion(connection, projectId, params, publish) {
+    return readTaskQuestion(this, connection, projectId, params, publish);
   }
   /** @template T @param {RemoteConnection} connection @param {string} projectId @param {string} threadId @param {(thread:import("./remote-core-decoder.cjs").Thread,entry:ObserverEntry,check:()=>void,read:()=>Promise<import("./remote-core-decoder.cjs").Thread>)=>T} work */
   async reviewThread(connection, projectId, threadId, work) {
@@ -864,7 +762,8 @@ class SessionObservers {
   /** @param {string} projectId @param {string} threadId @param {()=>boolean} authorized @param {(method:string,params:unknown)=>void} receive */
   watchPush(projectId, threadId, authorized, receive) {
     const project = this.remote.backend.projects.get(projectId);
-    if (!authorized() || !readyProject(project)) throw failure("FORBIDDEN", "推送观察未获授权");
+    if (!authorized() || !decoder.readyProject(project))
+      throw failure("FORBIDDEN", "推送观察未获授权");
     const count = [...this.projects.values()].reduce(
       (sum, entry) =>
         sum +
@@ -917,18 +816,5 @@ class SessionObservers {
     for (const entry of this.projects.values()) this.invalidate(entry);
     this.closed = true;
   }
-}
-/** @param {CoreProject|undefined} project @returns {project is ReadyProject} */
-function readyProject(project) {
-  return (
-    !!project?.client?.ready &&
-    !project.client.closed &&
-    !!project.model.state.connected &&
-    !project.resourceInitializing
-  );
-}
-/** @param {unknown} error */
-function errorCode(error) {
-  return error && typeof error === "object" && "code" in error ? error.code : undefined;
 }
 module.exports = { SessionObservers, METHODS, LIMITS };

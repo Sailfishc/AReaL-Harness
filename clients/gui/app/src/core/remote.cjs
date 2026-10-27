@@ -3,7 +3,12 @@
 const { randomBytes, randomUUID, timingSafeEqual } = require("node:crypto");
 const { readFile } = require("node:fs/promises");
 const { join } = require("node:path");
-const { parseRemoteConfig } = require("./remote-config.cjs");
+const {
+  parseRemoteConfig,
+  migrateLegacyDevices,
+  strings,
+  failureCode,
+} = require("./remote-config.cjs");
 const { RemotePush } = require("./remote-push.cjs");
 const { RelayTransport } = require("./remote-relay.cjs");
 const { request: httpsRequest } = require("node:https");
@@ -95,24 +100,7 @@ class RemoteControl {
     }
     this.config ??= { enabled: false, devices: [] };
     if (this.config.schemaVersion !== 2 && this.config.devices?.length) {
-      const grants = [...(this.config.deviceGrants ?? [])];
-      for (const device of this.config.devices)
-        if (!grants.some((grant) => grant.devicePeerId === device.id))
-          grants.push({
-            devicePeerId: device.id,
-            displayName: device.name,
-            projectIds: [...(device.projects ?? [])],
-            capabilities: [],
-            revision: 1,
-            status: "reviewRequired",
-          });
-      const migrated = {
-        ...this.config,
-        schemaVersion: 2,
-        enabled: false,
-        directEnabled: false,
-        deviceGrants: grants,
-      };
+      const migrated = migrateLegacyDevices(this.config);
       try {
         await this.save(migrated);
       } catch {
@@ -963,18 +951,4 @@ class RemoteControl {
 }
 /** @typedef {Record<string,unknown>} RemoteSettingsFields */
 /** @typedef {import('@areal/workbench/desktop-contract/desktop-control').RemoteRequest} RemoteSettingsRequest */
-/** @param {unknown} value @returns {value is string[]} */
-function strings(value) {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-/** @param {unknown} error @param {string} fallback */
-function failureCode(error, fallback) {
-  return error &&
-    typeof error === "object" &&
-    "code" in error &&
-    typeof error.code === "string" &&
-    error.code
-    ? error.code
-    : fallback;
-}
 module.exports = { RemoteControl };

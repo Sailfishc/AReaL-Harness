@@ -220,12 +220,14 @@ kbd {
   color: var(--color-foreground);
   cursor: var(--interactive-cursor, pointer);
 }
-.project-label > svg {
+.project-label > svg,
+.header-context > svg {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
   color: var(--color-foreground-subtle);
 }
+
 .project-label span {
   white-space: nowrap;
   overflow: hidden;
@@ -268,12 +270,6 @@ kbd {
   align-items: center;
   gap: 8px;
   min-width: 0;
-}
-.header-context > svg {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  color: var(--color-foreground-subtle);
 }
 .header-task {
   white-space: nowrap;
@@ -403,11 +399,13 @@ kbd {
   flex-shrink: 0;
 }
 .composer-workspace-branch,
-.composer-workspace-branch > span {
+.composer-workspace-branch > span,
+.turn-activity > .execution-status > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 .composer-project {
   display: inline-flex;
   align-items: center;
@@ -2756,12 +2754,15 @@ button[aria-label="停止"] {
 .new-task-action:hover:not(:disabled) > svg {
   color: var(--color-foreground);
 }
-.new-task-action > span {
+.new-task-action > span,
+.composer-catalog-name,
+.composer-catalog-description {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .new-task-action:hover:not(:disabled) {
   background: var(--color-sidebar-item, var(--color-hover));
   color: var(--color-foreground);
@@ -3308,11 +3309,13 @@ button[aria-label="停止"] {
 .review-comment-attachment-trigger:hover {
   background: var(--color-history-comment-hover, var(--color-card));
 }
-.review-comment-attachment-trigger > svg {
+.review-comment-attachment-trigger > svg,
+.sent-review-comments [data-slot="button"] > svg {
   width: 14px;
   height: 14px;
   color: color-mix(in srgb, var(--color-foreground) 50%, transparent);
 }
+
 .review-comment-attachment-trigger > span {
   min-width: 0;
   padding-inline-end: 4px;
@@ -3338,11 +3341,6 @@ button[aria-label="停止"] {
 }
 .sent-review-comments [data-slot="button"]:hover {
   background: var(--color-history-comment-hover, var(--color-card));
-}
-.sent-review-comments [data-slot="button"] > svg {
-  width: 14px;
-  height: 14px;
-  color: color-mix(in srgb, var(--color-foreground) 50%, transparent);
 }
 .sent-review-comments [data-slot="button"] > span {
   padding-inline-end: 4px;
@@ -3962,13 +3960,6 @@ button[aria-label="停止"] {
 }
 .composer-catalog-name {
   max-width: 48%;
-}
-.composer-catalog-name,
-.composer-catalog-description {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .composer-catalog-description {
   flex: 1;
@@ -4647,11 +4638,6 @@ button[aria-label="停止"] {
   gap: 6px;
   min-width: 0;
   white-space: nowrap;
-}
-.turn-activity > .execution-status > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 /* 需要注意的状态：橙色只用于图标，文字改用正文色保证对比度。 */
 .turn-activity > .execution-status[data-tone] {

@@ -25,7 +25,7 @@ export async function runUiLibrary(page, scratch, checks) {
       ["ContextMenu", "stable", "index", "core"],
       ["ControlHintTooltip", "stable", "index", "core"],
       ["DecisionCard", "experimental", "compositions", "conversation"],
-      ["Dialog", "experimental", "experimental", "core"],
+      ["Dialog", "stable", "index", "core"],
       ["DiffViewer", "experimental", "experimental", "core"],
       ["Disclosure", "experimental", "experimental", "core"],
       ["DropdownMenu", "stable", "index", "core"],

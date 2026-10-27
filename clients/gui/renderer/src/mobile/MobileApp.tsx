@@ -86,12 +86,12 @@ function MobileApp() {
               : "mobile.blocked";
   return (
     <main
-      className="mobile-page bg-background text-foreground font-sans text-fixed-body"
+      className="mobile-page flex flex-col gap-section [padding:calc(env(safe-area-inset-top)+var(--spacing-panel))_var(--spacing-panel)_calc(env(safe-area-inset-bottom)+var(--spacing-panel))] min-h-dvh box-border bg-background text-foreground font-sans text-fixed-body"
       data-state={state.kind}
       data-remembered={state.kind === "connected" ? state.remembered : undefined}
     >
       {(state.kind !== "connected" || settings || view.page.kind === "projects") && (
-        <header className="mobile-header">
+        <header className="mobile-header flex items-center justify-between gap-inline">
           <h1
             className={
               state.kind === "connected" && !settings
@@ -113,7 +113,7 @@ function MobileApp() {
           </h1>
           {state.kind !== "unpaired" && state.kind !== "pairing" && (
             <Button
-              className="mobile-touch"
+              className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
               variant="ghost"
               data-action="settings"
               onClick={() => setSettings(!settings)}
@@ -125,27 +125,30 @@ function MobileApp() {
       )}
       {error && <FeedbackNotice tone="error" message={t(error)} />}
       {state.kind === "unpaired" && !settings ? (
-        <section className="mobile-stack">
+        <section className="mobile-stack flex flex-col gap-field">
           {state.cleared && <FeedbackNotice tone="info" message={t("mobile.cleared")} />}
           {state.error && (
             <FeedbackNotice tone="error" message={t(`mobile.${state.error}` as MessageId)} />
           )}
           <p>{t("mobile.instructions")}</p>
-          <label className="mobile-field">
+          <label className="mobile-field flex flex-col gap-inline">
             {t("mobile.deviceName")}
             <Input
-              className="mobile-touch text-mobile-input-safe md:text-mobile-input-safe"
+              className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)] text-mobile-input-safe md:text-mobile-input-safe"
               aria-label={t("mobile.deviceName")}
               value={name}
               maxLength={80}
               onChange={(event) => setName(event.target.value)}
             />
           </label>
-          <Button className="mobile-touch" onClick={() => void scan()}>
+          <Button
+            className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
+            onClick={() => void scan()}
+          >
             {t("mobile.scan")}
           </Button>
           <Button
-            className="mobile-touch"
+            className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
             variant="outline"
             data-action="paste"
             onClick={() => setPaste(!paste)}
@@ -154,16 +157,16 @@ function MobileApp() {
           </Button>
           {paste && (
             <form
-              className="mobile-stack"
+              className="mobile-stack flex flex-col gap-field"
               onSubmit={(event) => {
                 event.preventDefault();
                 pair(link);
               }}
             >
-              <label className="mobile-field">
+              <label className="mobile-field flex flex-col gap-inline">
                 {t("mobile.link")}
                 <Input
-                  className="mobile-touch text-mobile-input-safe md:text-mobile-input-safe"
+                  className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)] text-mobile-input-safe md:text-mobile-input-safe"
                   autoComplete="off"
                   autoCapitalize="none"
                   spellCheck={false}
@@ -174,7 +177,7 @@ function MobileApp() {
                 />
               </label>
               <Button
-                className="mobile-touch"
+                className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
                 data-action="pair"
                 type="submit"
                 disabled={!link.trim()}
@@ -186,17 +189,17 @@ function MobileApp() {
           <p className="text-foreground-subtle">{t("mobile.access")}</p>
         </section>
       ) : state.kind === "pairing" ? (
-        <section className="mobile-stack">
+        <section className="mobile-stack flex flex-col gap-field">
           <p role="status">{t("mobile.fingerprint")}</p>
           <code
-            className="mobile-fingerprint font-mono bg-hover rounded-[var(--radius-card)]"
+            className="mobile-fingerprint [overflow-wrap:anywhere] p-field font-mono bg-hover rounded-[var(--radius-card)]"
             data-field="fingerprint"
           >
             {state.fingerprint}
           </code>
           <p>{t("mobile.access")}</p>
           <Button
-            className="mobile-touch"
+            className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
             variant="outline"
             onClick={() => {
               client.disconnect();
@@ -207,13 +210,13 @@ function MobileApp() {
           </Button>
         </section>
       ) : settings ? (
-        <section className="mobile-stack">
+        <section className="mobile-stack flex flex-col gap-field">
           <SettingsGroupCard>
             <SettingsRow label={t("mobile.deviceName")} control={name} />
             <SettingsRow label={t("mobile.notificationUnavailable")} control={null} />
           </SettingsGroupCard>
           <Button
-            className="mobile-touch"
+            className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
             variant="outline"
             data-action="clear"
             onClick={() => setClearConfirm(true)}
@@ -227,7 +230,7 @@ function MobileApp() {
               actions={
                 <>
                   <Button
-                    className="mobile-touch"
+                    className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
                     variant="destructive"
                     data-action="confirm-clear"
                     onClick={() => void clear()}
@@ -235,7 +238,7 @@ function MobileApp() {
                     {t("mobile.clear")}
                   </Button>
                   <Button
-                    className="mobile-touch"
+                    className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
                     variant="ghost"
                     onClick={() => setClearConfirm(false)}
                   >
@@ -247,13 +250,13 @@ function MobileApp() {
           )}
         </section>
       ) : (
-        <section className="mobile-stack">
+        <section className="mobile-stack flex flex-col gap-field">
           {(state.kind !== "connected" || view.page.kind === "projects") && (
-            <p role="status" className="mobile-status">
+            <p role="status" className="mobile-status inline-flex gap-inline items-center">
               {state.kind === "connected" && (
                 <span
                   aria-hidden="true"
-                  className="mobile-status-dot rounded-[var(--radius-status-dot)] bg-success"
+                  className="mobile-status-dot w-[var(--size-status-dot)] h-[var(--size-status-dot)] rounded-[var(--radius-status-dot)] bg-success"
                 />
               )}
               {t(statusKey)}
@@ -266,7 +269,10 @@ function MobileApp() {
             <MobileWorkspaceView workspace={workspace} client={client} commands={commands} />
           )}
           {["offline", "blocked"].includes(state.kind) && (
-            <Button className="mobile-touch" onClick={() => void client.setActive(true)}>
+            <Button
+              className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
+              onClick={() => void client.setActive(true)}
+            >
               {t("mobile.retry")}
             </Button>
           )}

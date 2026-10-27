@@ -10,13 +10,7 @@
 
 `R-CHECK-003` 减少页面单点设计依靠四个环节相接：唯一设计源、有限组件/组合、可执行约束、独立效果验证。只统一颜色不限制组合；只做截图又会退回逐页修补。结构化数据负责消除歧义和驱动派生物，不能自动替人决定产品任务与视觉质量。
 
-## Cindy 的机制
-
-见[冻结参考研究](../../../design/archive/gui/automation-research.md#cindy-的机制)。
-
-## Product Design Skills 的方法
-
-见[冻结参考研究](../../../design/archive/gui/automation-research.md#product-design-skills-的方法)。
+方法见[冻结参考研究](../../../design/archive/gui/automation-research.md)。
 
 ## AReaL v1 已接入的闭环
 
@@ -63,13 +57,13 @@ pnpm --dir clients/gui verify:design
 
 `R-CHECK-014` 后续页面工作按[结构化流程](structured-flow.md#执行顺序与每步完成条件)执行选定的B路线；准入与裁决只在[governance](governance.md#差异筛选准入)维护。可复用入口为[分析提示词](templates/video-analysis.prompt.md)、[候选输出schema](templates/video-analysis.schema.json)和[本地核查记录模板](templates/evidence-review.template.json)。它们是设计期材料，尚未接入`verify:design`作为视觉判断或强制模型调用；目录检查不能自动核实帧内容、拒绝误判或证明流程已执行。
 
-`Q-CONVERSATION-VIDEO-AB-07`采用相同任务/Base/三段录像比较独立生成与视频分析后集成。核查拒绝了对既有子面板、完成收敛、主动回看和人工工具展开的误判，确认图片缺少缩放控制，并沿共享附件所有者修复；实际验收和规则采纳见[复合题](exercises/conversation-flow.md#视频分析辅助的双路线实验)。样本用于选择可审查的工作流程，不用于推导模型准确率、供应商排名或整体效率结论。
+`Q-CONVERSATION-VIDEO-AB-07` 的三段录像、误判裁决与图片缩放修复见[复合题](exercises/conversation-flow.md#视频分析辅助的双路线实验)。样本仅支持工作流程选择。
 
 `R-CHECK-016` 视频观察器与页面实现者分工：前者提名视觉事件/差异，后者结合合同、原件和日志裁决并实现。工具可以复用本机已授权的Antigravity或其它可处理视频的接口；启动前确认当前能力与素材范围，保留实际模型、强度、输入读取方式和采样限制。页面实现/采集不因采用本流程而获得新的外发、登录、执行或发布权限。
 
 ## 无障碍与主题证据
 
-当前准入与检查边界引用[无障碍验收](accessibility.md)（[English](accessibility.en.md)）。历史调色板与报告模式记录见[原始自动化研究](../../../design/archive/gui/automation-research.md#无障碍与主题证据)。
+当前准入与检查边界引用[无障碍验收](accessibility.md)（[English](accessibility.en.md)）。历史报告见[冻结研究](../../../design/archive/gui/automation-research.md#无障碍与主题证据)。
 
 ## 弹出层锚点覆盖
 

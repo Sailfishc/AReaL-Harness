@@ -1,5 +1,6 @@
 // @ts-check
 "use strict";
+const { requiresCurrentCommands } = require("./service-command-compatibility.cjs");
 const diagnostics = require("./diagnostics.cjs");
 const { commandSemantics, desktopError } = require("@areal/workbench/desktop-contract");
 const { startupTrace } = require("./startup-timing.cjs");
@@ -25,32 +26,6 @@ const { sameOwner, scrubOwnerEnvironment } = require("./application-owner.cjs");
 const { checkHostPrerequisites } = require("./host-prerequisites.cjs");
 /** @param {number} ms */
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const currentCommands = new Set([
-  "send",
-  "editMessage",
-  "continue",
-  "prepareCreator",
-  "feedback",
-  "create",
-  "configure",
-]);
-const currentManagePrefixes = ["plugin", "marketplace", "mcpApp", "mcpForm"];
-const currentManageOperations = new Set([
-  "mcpExtensionCall",
-  "mcpToolResult",
-  "connectorConfigure",
-  "connectorCredential",
-  "hookAcknowledge",
-  "taskCreate",
-  "taskUpdate",
-  "taskPause",
-  "taskResume",
-  "taskStopRun",
-  "taskResumeRun",
-  "taskCancel",
-  "taskDelete",
-  "taskReply",
-]);
 /** @param {unknown} value @returns {value is string} */
 const uuid = (value) =>
   typeof value === "string" &&
@@ -83,26 +58,6 @@ const lifecycleMessage = (phase) =>
     partial: "部分后台已完成，仍有目标需要检查。",
     completed: "后台操作已完成。",
   })[phase];
-
-/** @param {string} name @param {Record<string,unknown>} request */
-function requiresCurrentCommands(name, request) {
-  return (
-    currentCommands.has(name) ||
-    (name === "tasks" &&
-      ["preview", "observe"].some((operation) => operation === request.operation)) ||
-    (name === "side" && ["create", "close"].some((operation) => operation === request.operation)) ||
-    (["steer", "queueEdit"].includes(name) &&
-      Array.isArray(request.mcpContent) &&
-      request.mcpContent.length > 0) ||
-    (name === "trajectory" && request.operation === "setEnabled") ||
-    (name === "providers" && request.operation === "defaultAndApply") ||
-    (name === "manage" &&
-      ((typeof request.operation === "string" && currentManageOperations.has(request.operation)) ||
-        currentManagePrefixes.some(
-          (prefix) => typeof request.operation === "string" && request.operation.startsWith(prefix),
-        )))
-  );
-}
 
 /** @param {string} home @param {{desktopGeneration?:unknown,token?:unknown}} metadata */
 async function waitForServiceExit(home, metadata) {

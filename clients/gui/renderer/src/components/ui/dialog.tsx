@@ -1,6 +1,6 @@
 import type { ComponentProps } from "react";
 import { useI18n } from "../../i18n/IntlProvider.js";
-import { DialogContent as Content, DialogFooter as Footer } from "@areal/ui/experimental";
+import { DialogContent as Content, DialogFooter as Footer } from "@areal/ui";
 export {
   Dialog,
   DialogClose,
@@ -10,7 +10,7 @@ export {
   DialogPortal,
   DialogTitle,
   DialogTrigger,
-} from "@areal/ui/experimental";
+} from "@areal/ui";
 export function DialogContent(props: ComponentProps<typeof Content>) {
   const { t } = useI18n();
   return <Content closeLabel={t("common.closeDialog")} {...props} />;

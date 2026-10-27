@@ -1,3 +1,12 @@
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@areal/ui";
 import { useState } from "react";
 import { ConversationNavigation } from "../views/ConversationNavigation.js";
 import { createNavigationWorkspace } from "../state/navigationWorkspace.js";
@@ -34,13 +43,6 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
   DiffViewer,
   EmptySettings,
   FeedbackNotice,

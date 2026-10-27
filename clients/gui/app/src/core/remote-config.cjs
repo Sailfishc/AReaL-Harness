@@ -115,4 +115,46 @@ function pushCommand(value) {
     typeof value.registered === "boolean"
   );
 }
-module.exports = { parseRemoteConfig, pushRegistration };
+/** @param {RemoteConfig} config */
+function migrateLegacyDevices(config) {
+  const grants = [...(config.deviceGrants ?? [])];
+  for (const device of config.devices ?? [])
+    if (!grants.some((grant) => grant.devicePeerId === device.id))
+      grants.push({
+        devicePeerId: device.id,
+        displayName: device.name,
+        projectIds: [...(device.projects ?? [])],
+        capabilities: [],
+        revision: 1,
+        status: "reviewRequired",
+      });
+  return {
+    ...config,
+    schemaVersion: 2,
+    enabled: false,
+    directEnabled: false,
+    deviceGrants: grants,
+  };
+}
+/** @param {unknown} value @returns {value is string[]} */
+function strings(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+/** @param {unknown} error @param {string} fallback */
+function failureCode(error, fallback) {
+  return error &&
+    typeof error === "object" &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    error.code
+    ? error.code
+    : fallback;
+}
+
+module.exports = {
+  migrateLegacyDevices,
+  strings,
+  failureCode,
+  parseRemoteConfig,
+  pushRegistration,
+};

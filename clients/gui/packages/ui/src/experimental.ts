@@ -51,18 +51,7 @@ export {
   CommandShortcut,
   CommandSeparator,
 } from "./components/command/command.js";
-export {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogOverlay,
-  DialogPortal,
-  DialogTitle,
-  DialogTrigger,
-} from "./components/dialog/dialog.js";
+
 export { Spinner } from "./components/spinner/spinner.js";
 export { HoverActions } from "./components/hover-actions/hover-actions.js";
 export {

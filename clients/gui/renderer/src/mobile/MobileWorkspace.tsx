@@ -45,11 +45,11 @@ function Status({ row }: { row: Data }) {
   const { t } = useI18n();
   const status = rowStatus(row);
   return (
-    <span className="mobile-status text-foreground-subtle text-fixed-caption">
+    <span className="mobile-status inline-flex gap-inline items-center text-foreground-subtle text-fixed-caption">
       {status !== "idle" && (
         <span
           aria-hidden="true"
-          className={`mobile-status-dot rounded-[var(--radius-status-dot)] ${dot[status]}`}
+          className={`mobile-status-dot w-[var(--size-status-dot)] h-[var(--size-status-dot)] rounded-[var(--radius-status-dot)] ${dot[status]}`}
         />
       )}
       {t(`mobile.status.${status}`)}
@@ -112,7 +112,7 @@ export function MobileWorkspaceView({
   return (
     <TooltipProvider>
       <section
-        className={`mobile-workspace mobile-stack ${["session", "new"].includes(page.kind) ? "mobile-session" : ""}`}
+        className={`mobile-workspace min-h-0 flex-1 overflow-y-auto overscroll-y-contain mobile-stack flex flex-col gap-field ${["session", "new"].includes(page.kind) ? "mobile-session overflow-hidden min-h-0" : ""}`}
         data-page={page.kind}
         data-current-thread={page.kind === "session" ? page.threadId : undefined}
         onTouchStart={(event) => {
@@ -133,9 +133,9 @@ export function MobileWorkspaceView({
           <h2 className="text-fixed-page-title">{t("mobile.projects")}</h2>
         )}
         {page.kind !== "projects" && (
-          <div className="mobile-header">
+          <div className="mobile-header flex items-center justify-between gap-inline">
             <Button
-              className="mobile-touch"
+              className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
               variant="ghost"
               data-action="workspace-back"
               onClick={() =>
@@ -156,7 +156,7 @@ export function MobileWorkspaceView({
         {view.loading && <p role="status">{t("mobile.loading")}</p>}
         {!["session", "new"].includes(page.kind) && (
           <Button
-            className="mobile-touch mobile-refresh"
+            className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)] mobile-refresh self-end"
             variant="ghost"
             data-action="refresh"
             disabled={view.loading}
@@ -166,7 +166,7 @@ export function MobileWorkspaceView({
           </Button>
         )}
         {page.kind === "projects" && (
-          <div className="mobile-stack">
+          <div className="mobile-stack flex flex-col gap-field">
             {!view.projects.length && !view.loading && <p>{t("mobile.noProjects")}</p>}
             {view.projects.map((project) => {
               const rows = view.groups[project.projectId]?.data ?? [];
@@ -183,7 +183,7 @@ export function MobileWorkspaceView({
               return (
                 <Button
                   key={project.projectId}
-                  className="mobile-project-card mobile-touch bg-hover rounded-[var(--radius-card)] text-foreground"
+                  className="mobile-project-card h-auto whitespace-normal text-start justify-start gap-field p-field mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)] bg-hover rounded-[var(--radius-card)] text-foreground"
                   variant="ghost"
                   data-project-id={project.projectId}
                   aria-busy={
@@ -192,7 +192,7 @@ export function MobileWorkspaceView({
                   onClick={() => workspace.navigate({ kind: "work", projectId: project.projectId })}
                 >
                   <ProjectFolderIcon />
-                  <span className="mobile-card-copy">
+                  <span className="mobile-card-copy flex flex-1 min-w-0 flex-col gap-inline items-start">
                     <span className="text-fixed-emphasis">{project.name}</span>
                     <span className="text-fixed-caption text-foreground-subtle">
                       {project.connectionState === "online"
@@ -210,7 +210,7 @@ export function MobileWorkspaceView({
         {page.kind === "work" && (
           <>
             <Button
-              className="mobile-touch"
+              className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
               data-action="new-session"
               disabled={
                 connection.kind !== "connected" || !connection.ready.capabilities.includes("submit")
@@ -220,12 +220,12 @@ export function MobileWorkspaceView({
               {t("mobile.newSession")}
             </Button>
             <h3 className="text-fixed-label text-foreground-subtle">{t("mobile.recent")}</h3>
-            <div className="mobile-stack">
+            <div className="mobile-stack flex flex-col gap-field">
               {!group?.data.length && !view.loading && <p>{t("mobile.noSessions")}</p>}
               {(group?.data ?? []).map((row: Data) => (
                 <Button
                   variant="ghost"
-                  className="mobile-work-row mobile-touch"
+                  className="mobile-work-row h-auto whitespace-normal text-start justify-start gap-field p-field mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
                   key={row.kind === "taskRun" ? `${row.taskId}/${row.runId}` : row.threadId}
                   data-thread-id={row.threadId}
                   data-task-id={row.taskId}
@@ -242,7 +242,7 @@ export function MobileWorkspaceView({
                     )
                   }
                 >
-                  <span className="mobile-card-copy">
+                  <span className="mobile-card-copy flex flex-1 min-w-0 flex-col gap-inline items-start">
                     <span className="text-fixed-control">
                       {row.kind === "taskRun" && `${t("mobile.task")} · `}
                       {row.title || t("mobile.untitled")}
@@ -256,7 +256,7 @@ export function MobileWorkspaceView({
             {group?.nextCursor && (
               <Button
                 variant="ghost"
-                className="mobile-touch"
+                className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
                 data-action="more-sessions"
                 disabled={view.loading}
                 onClick={() => void workspace.more()}
@@ -271,7 +271,7 @@ export function MobileWorkspaceView({
             <p className="text-fixed-caption text-foreground-subtle">{project?.name}</p>
             {view.bodyError && (
               <Button
-                className="mobile-touch"
+                className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
                 variant="ghost"
                 onClick={() => workspace.bodies.retry()}
               >
@@ -310,7 +310,7 @@ export function MobileWorkspaceView({
           </>
         )}
         {page.kind === "new" && (
-          <div className="mobile-new-session">
+          <div className="mobile-new-session flex flex-1 flex-col items-center justify-center gap-field text-center">
             <ProjectFolderIcon />
             <h2 className="text-fixed-section-title">
               {t("mobile.newPrompt", { project: project?.name ?? "" })}
@@ -322,12 +322,12 @@ export function MobileWorkspaceView({
           <MobileComposer client={client} workspace={workspace} commands={commands} />
         )}
         {page.kind === "task" && task && (
-          <div className="mobile-stack">
+          <div className="mobile-stack flex flex-col gap-field">
             <p>{t(taskStatus[task.runStatus] ?? "mobile.taskUnavailable")}</p>
             <p>{t("mobile.taskReadOnly")}</p>
             {task.threadId && (
               <Button
-                className="mobile-touch"
+                className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
                 onClick={() =>
                   workspace.navigate({
                     kind: "session",
