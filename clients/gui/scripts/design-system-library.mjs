@@ -30,6 +30,7 @@ export async function runUiLibrary(page, scratch, checks) {
       ["Disclosure", "experimental", "experimental", "core"],
       ["DropdownMenu", "stable", "index", "core"],
       ["FeedbackNotice", "experimental", "experimental", "core"],
+      ["HoverActions", "experimental", "experimental", "core"],
       ["ImageDisclosure", "experimental", "experimental", "conversation"],
       ["Input", "stable", "index", "core"],
       ["InputGroup", "experimental", "experimental", "core"],

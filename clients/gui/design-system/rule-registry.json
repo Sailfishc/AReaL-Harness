@@ -749,6 +749,27 @@
       "textSha256": "b2b35185b419d1bc9800147dce49c8b861373eb61489654dfd796040560dc438"
     },
     {
+      "id": "R-HOVERACTIONS-001",
+      "title": "悬停出现的行内按钮放进 HoverActions",
+      "owner": "clients/gui/packages/ui/src/components/hover-actions/hover-actions.md#何时使用",
+      "strength": "must",
+      "textSha256": "84e32c4e6c4c8c874b26b06527e14d2f1c15f73b883da282422393367610a759"
+    },
+    {
+      "id": "R-HOVERACTIONS-002",
+      "title": "只用 opacity 隐藏，锚点位置不变",
+      "owner": "clients/gui/packages/ui/src/components/hover-actions/hover-actions.md#状态",
+      "strength": "must",
+      "textSha256": "2db770898aaadaac8d815363e0928d64d644a6ce39ad539380b0fc9b605cb820"
+    },
+    {
+      "id": "R-HOVERACTIONS-003",
+      "title": "弹出层打开期间保持可见，认 data-popup-open",
+      "owner": "clients/gui/packages/ui/src/components/hover-actions/hover-actions.md#行为",
+      "strength": "must",
+      "textSha256": "04ec72b5cd77459d767d3ebb5b8f8df72417b039e8a6cd5a7a3fb79fe1edf93b"
+    },
+    {
       "id": "R-TOKEN-001",
       "title": "共同的内容层级、表面、资产、动效和可达性由设计基础维护",
       "owner": "clients/gui/design-system/foundations.md#视觉语言",

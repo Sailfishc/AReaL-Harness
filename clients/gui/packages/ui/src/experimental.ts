@@ -63,6 +63,7 @@ export {
   DialogTrigger,
 } from "./components/dialog/dialog.js";
 export { Spinner } from "./components/spinner/spinner.js";
+export { HoverActions } from "./components/hover-actions/hover-actions.js";
 export {
   SettingsLockedValue,
   SettingsBadge,

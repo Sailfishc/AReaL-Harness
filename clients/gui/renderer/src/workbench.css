@@ -184,26 +184,20 @@ kbd {
   transition: background-color 0.15s ease;
 }
 .project-row:hover,
-.project-row:has([data-state="open"]),
+.project-row:has([data-popup-open]),
 .project-row:has(> .project-label[aria-current="page"]) {
   background: var(--color-sidebar-item, var(--color-hover));
 }
+/* 显隐交给 HoverActions；绝对定位让锚点不随悬停移动，标题只在悬停时让出空间。 */
 .project-actions {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
   gap: 8px;
-  width: 0;
-  overflow: hidden;
-  opacity: 0;
 }
-.project-row:hover .project-actions,
-.project-row:has(:focus-visible) .project-actions,
-.project-actions:focus-within,
-.project-actions:has([data-state="open"]) {
-  width: auto;
-  overflow: visible;
-  opacity: 1;
+.project-row:is(:hover, :has(:focus-visible), :has([data-popup-open])) > .project-label {
+  padding-right: 52px;
 }
 .project-actions .icon-button {
   width: 20px;
@@ -438,7 +432,7 @@ button.composer-project {
   cursor: var(--interactive-cursor, pointer);
 }
 button.composer-project:hover,
-.composer-project[data-state="open"] {
+.composer-project[data-popup-open] {
   color: var(--color-foreground);
   background: var(--color-hover);
 }
@@ -448,7 +442,7 @@ button.composer-project:hover,
   transition: color 0.15s ease;
 }
 button.composer-project:hover > svg,
-.composer-project[data-state="open"] > svg {
+.composer-project[data-popup-open] > svg {
   color: var(--color-foreground);
 }
 .composer-project > span {
@@ -3250,7 +3244,8 @@ button[aria-label="停止"] {
   opacity: 0;
 }
 .review-comment-card:hover .review-comment-menu,
-.review-comment-card:focus-within .review-comment-menu {
+.review-comment-card:focus-within .review-comment-menu,
+.review-comment-card:has([data-popup-open]) .review-comment-menu {
   opacity: 1;
 }
 .review-comment-actions .review-comment-delete-editing {

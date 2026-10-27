@@ -720,6 +720,12 @@
     "exitCondition": "Evaluate DiffViewerSelectedLineRange against its component contract and Base admission before graduation, or remove this consumer."
   },
   {
+    "file": "renderer/src/components/ui/hover-actions.tsx",
+    "symbol": "HoverActions",
+    "owner": "renderer/src/components/ui/hover-actions.tsx",
+    "exitCondition": "Evaluate HoverActions against its component contract and Base admission before graduation, or remove this consumer."
+  },
+  {
     "file": "renderer/src/components/ui/input-group.tsx",
     "symbol": "InputGroup",
     "owner": "renderer/src/components/ui/input-group.tsx",

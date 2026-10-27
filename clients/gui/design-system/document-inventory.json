@@ -351,6 +351,11 @@
     "status": "active"
   },
   {
+    "path": "clients/gui/packages/ui/src/components/hover-actions/hover-actions.md",
+    "role": "consumer",
+    "status": "active"
+  },
+  {
     "path": "clients/gui/packages/ui/src/components/input/input.md",
     "role": "consumer",
     "status": "active"
