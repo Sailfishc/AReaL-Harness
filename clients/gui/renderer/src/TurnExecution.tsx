@@ -124,14 +124,14 @@ export function TurnExecution({
   // 失败的步骤留在原位，由所在活动行写明结果（CONV-ACTIVITY-01），过程标题不另作提示。
   const visibleItems = items;
   const tools = visibleItems.filter((item) => item.type === "dynamicToolCall");
-  const unconfirmed = tools.some((item) => toolPresentation(item).status === "结果待确认");
+  const unconfirmed = tools.some((item) => toolPresentation(item).state === "unsettled");
   const rows = timelineItems(visibleItems);
   const canAnimate = canAnimateTurn(project, threadId, turn);
   if (!rows.length) return null;
   const status = unconfirmed ? (
-    <p role="status">结果待确认</p>
+    <p role="status">{t("chat.activity.status", { state: "unsettled" })}</p>
   ) : unfinished && turn.status !== "inProgress" ? (
-    <p role="status">仍在运行</p>
+    <p role="status">{t("chat.activity.stillRunning")}</p>
   ) : turn.status === "failed" ? (
     <p role="status">{t("common.turn.failed")}</p>
   ) : null;
@@ -160,7 +160,7 @@ export function TurnExecution({
             presentation={grouped ? "collapsible" : "inline"}
             label={
               run.key !== null
-                ? activityRunLabel(run, live && last)
+                ? activityRunLabel(run, t, live && last)
                 : run.items[0].type === "reasoningGroup"
                   ? t("common.turn.reasoning")
                   : t("common.turn.activity")

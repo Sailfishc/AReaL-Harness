@@ -1,3 +1,4 @@
+import type { Translate } from "./i18n/IntlProvider.js";
 import type { Data } from "./services.js";
 
 export function goalBudgetMessage(reason: string | null | undefined): string | undefined {
@@ -67,6 +68,29 @@ const categoryLabels: Record<ToolKind, string> = {
   tool: "调用工具",
 };
 
+// 行动作的语义标识；文字由 chat.activity.action 按界面语言给出。
+const specificVerbs: Readonly<Record<string, string>> = {
+  skill_read: "skillRead",
+  plan_read: "planRead",
+  read_process: "readProcess",
+  terminate_process: "terminateProcess",
+  browser_v1: "browser",
+  agent_spawn: "agentSpawn",
+  agent_spawn_configured: "agentSpawn",
+  agent_wait: "agentWait",
+  agent_wait_any: "agentWait",
+};
+export function toolVerb(item: Data): string {
+  if (hasToolImage(item)) return "image";
+  if (Object.hasOwn(specificVerbs, item.tool)) return specificVerbs[item.tool];
+  if (item.tool === "fs_create") return "create";
+  return toolPresentation(item).kind;
+}
+type Tense = "running" | "done" | "plain";
+export function toolActionText(item: Data, tense: Tense, t: Translate): string {
+  return t("chat.activity.action", { tense, verb: toolVerb(item), name: item.tool ?? "" });
+}
+
 const exploreTools = new Set([
   "fs_read",
   "read_file",
@@ -132,17 +156,22 @@ export function activityRuns(
  * 段的进行与完成看阶段边界，不看瞬时子项：子项仍在运行，或它是运行中回合最新一段的最后一段
  * （后面还没有出现可见的其他内容），都算进行中，避免模型在两次调用之间思考时标题来回翻转。
  */
-export function activityRunLabel(run: { key: string | null; items: Data[] }, open = false): string {
+export function activityRunLabel(
+  run: { key: string | null; items: Data[] },
+  t: Translate,
+  open = false,
+): string {
   const action = run.key ?? "执行活动";
   const views = run.items.map((item) => ({ item, view: toolPresentation(item) }));
   const active = open || views.some(({ view }) => view.running);
-  const done = views.filter(({ view }) => view.status === "已完成").map(({ item }) => item);
+  const tense = active ? "running" : "done";
+  const done = views.filter(({ view }) => view.state === "completed").map(({ item }) => item);
   const failures = views.filter(({ view }) => view.failed).length;
   const count = (tools: string[]) => done.filter((item) => tools.includes(item.tool)).length;
-  const failed = failures ? `${failures} 个失败` : "";
+  const failed = failures ? t("chat.activity.part.failures", { count: failures }) : "";
   const join = (head: string, parts: string[]) => {
-    const tail = parts.filter(Boolean).join("，");
-    return tail ? `${head} · ${tail}` : head;
+    const tail = parts.filter(Boolean).join(t("chat.activity.part.separator"));
+    return tail ? t("chat.activity.run.withDetails", { action: head, parts: tail }) : head;
   };
   if (action === "探索") {
     const files = count(["fs_read", "read_file"]);
@@ -150,27 +179,29 @@ export function activityRunLabel(run: { key: string | null; items: Data[] }, ope
     const lists = count(["fs_list"]);
     const skills = count(["skill_read"]);
     const plans = count(["plan_read"]);
-    return join(active ? "正在探索" : "已探索", [
-      files ? `${files} 个文件` : "",
-      searches ? `${searches} 次搜索` : "",
-      lists ? `${lists} 个目录` : "",
-      skills ? `${skills} 个技能` : "",
-      plans ? "计划" : "",
+    return join(t("chat.activity.run.explore", { tense }), [
+      files ? t("chat.activity.part.files", { count: files }) : "",
+      searches ? t("chat.activity.part.searches", { count: searches }) : "",
+      lists ? t("chat.activity.part.directories", { count: lists }) : "",
+      skills ? t("chat.activity.part.skills", { count: skills }) : "",
+      plans ? t("chat.activity.part.plan") : "",
       failed,
     ]);
   }
   if (action === "运行命令")
-    return active
-      ? join("正在运行命令", [failed])
-      : join(done.length ? `已运行 ${done.length} 条命令` : "已运行命令", [failed]);
+    return join(t("chat.activity.run.commands", { tense, count: done.length }), [failed]);
   if (action === "修改文件") {
     const paths = new Set(done.map((item) => toolPresentation(item).detail).filter(Boolean));
-    return active
-      ? join("正在修改文件", [failed])
-      : join(paths.size ? `已修改 ${paths.size} 个文件` : "已修改文件", [failed]);
+    return join(t("chat.activity.run.edits", { tense, count: paths.size }), [failed]);
   }
-  return join(`${active ? "正在" : "已"}${action}`, [
-    !active && done.length > 1 ? `${done.length} 次` : "",
+  const label =
+    action === "执行活动"
+      ? t("chat.activity.run.generic", { tense })
+      : action === "等待任务"
+        ? t("chat.activity.run.wait", { tense })
+        : toolActionText(run.items[0], tense, t);
+  return join(label, [
+    !active && done.length > 1 ? t("chat.activity.part.times", { count: done.length }) : "",
     failed,
   ]);
 }
@@ -308,6 +339,21 @@ export function toolPresentation(item: Data) {
         : name.startsWith("agent_") && Object.hasOwn(specificActions, name)
           ? ""
           : String(target),
+    // 状态的语义值；文字由 chat.activity.status 按界面语言给出。status 保留中文供既有数据属性使用。
+    state: running
+      ? "running"
+      : failed
+        ? "failed"
+        : unsettled
+          ? "unsettled"
+          : stopped
+            ? "stopped"
+            : "completed",
+    // 文件与目录类行只显示末段名称，完整路径在悬停提示里。
+    path:
+      ["read", "edit", "list"].includes(kind) && typeof (args.path ?? args.file_path) === "string"
+        ? String(args.path ?? args.file_path)
+        : undefined,
     status: running
       ? "执行中"
       : failed

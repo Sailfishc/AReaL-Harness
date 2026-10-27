@@ -1,3 +1,6 @@
+import { createIntl } from "react-intl";
+import { catalogs } from "./i18n/messages.js";
+import type { Translate } from "./i18n/IntlProvider.js";
 import { describe, expect, it } from "vite-plus/test";
 import type { Data } from "./services.js";
 import {
@@ -6,6 +9,9 @@ import {
   statusTarget,
   toolPresentation,
 } from "./conversationPresentation.js";
+
+const intl = createIntl({ locale: "zh-CN", messages: catalogs["zh-CN"] });
+const t: Translate = (id, values) => intl.formatMessage({ id }, values);
 
 describe("statusTarget", () => {
   it("keeps a one-line command as is, with collapsed whitespace", () => {
@@ -51,15 +57,15 @@ const read = (id: string, status = "completed") =>
 describe("activityRunLabel stage boundary", () => {
   it("stays in progress between calls while the segment is still open", () => {
     const run = { key: "探索", items: [read("a"), read("b")] };
-    expect(activityRunLabel(run, true)).toBe("正在探索 · 2 个文件");
+    expect(activityRunLabel(run, t, true)).toBe("正在探索 · 2 个文件");
   });
   it("completes once later visible content closes the segment", () => {
     const run = { key: "探索", items: [read("a"), read("b")] };
-    expect(activityRunLabel(run, false)).toBe("已探索 · 2 个文件");
+    expect(activityRunLabel(run, t, false)).toBe("已探索 · 2 个文件");
   });
   it("still reports a running child even when not the open segment", () => {
     const run = { key: "探索", items: [read("a"), read("b", "inProgress")] };
-    expect(activityRunLabel(run, false)).toBe("正在探索 · 1 个文件");
+    expect(activityRunLabel(run, t, false)).toBe("正在探索 · 1 个文件");
   });
 });
 
@@ -105,7 +111,7 @@ describe("activityRunLabel counts", () => {
         tool("l", "fs_list"),
       ],
     };
-    expect(activityRunLabel(run)).toBe("已探索 · 2 个文件，1 次搜索，1 个目录");
+    expect(activityRunLabel(run, t)).toBe("已探索 · 2 个文件，1 次搜索，1 个目录");
   });
   it("counts commands and states failures in the same title", () => {
     const failed = tool("c3", "run_command", { success: false, execution: { exitCode: 1 } });
@@ -113,7 +119,7 @@ describe("activityRunLabel counts", () => {
       key: "运行命令",
       items: [tool("c1", "run_command"), tool("c2", "run_command"), failed],
     };
-    expect(activityRunLabel(run)).toBe("已运行 2 条命令 · 1 个失败");
+    expect(activityRunLabel(run, t)).toBe("已运行 2 条命令 · 1 个失败");
   });
   it("counts distinct edited files", () => {
     const edit = (id: string, path: string) => tool(id, "fs_write", { arguments: { path } });
@@ -121,14 +127,14 @@ describe("activityRunLabel counts", () => {
       key: "修改文件",
       items: [edit("e1", "a.ts"), edit("e2", "a.ts"), edit("e3", "b.ts")],
     };
-    expect(activityRunLabel(run)).toBe("已修改 2 个文件");
+    expect(activityRunLabel(run, t)).toBe("已修改 2 个文件");
   });
   it("omits counts when nothing has completed", () => {
     const run = {
       key: "运行命令",
       items: [tool("c1", "run_command", { status: "inProgress", success: undefined })],
     };
-    expect(activityRunLabel(run)).toBe("正在运行命令");
+    expect(activityRunLabel(run, t)).toBe("正在运行命令");
   });
 });
 

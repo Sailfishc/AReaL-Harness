@@ -80,3 +80,15 @@
   flex: 1;
   min-width: 0;
 }
+/* 带完整值提示的对象像链接一样可辨认；提示里的路径或命令用等宽字体并允许断行。 */
+.areal-activity-row-detail[data-hint] {
+  text-decoration-line: underline;
+  text-decoration-color: var(--color-border);
+}
+.areal-activity-row:is(:hover, :focus-within) .areal-activity-row-detail[data-hint] {
+  text-decoration-color: currentColor;
+}
+.areal-activity-row-hint {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}

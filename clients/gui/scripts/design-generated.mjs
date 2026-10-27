@@ -23,9 +23,14 @@ export const blocks = [
             return target ? `${name}(${target})` : name;
           })
           .join("、");
-        return `| ${cell(entry.name)} | ${cell(tools)} | ${cell(entry.runs.map((run) => run.label).join(" / "))} |`;
+        const labels = (locale) => cell(entry.runs.map((run) => run.label[locale]).join(" / "));
+        return `| ${cell(entry.name)} | ${cell(tools)} | ${labels("zh-CN")} | ${labels("en")} |`;
       });
-      return ["| 情形 | 工具序列 | 分段标题 |", "| --- | --- | --- |", ...rows].join("\n");
+      return [
+        "| 情形 | 工具序列 | 中文标题 | English |",
+        "| --- | --- | --- | --- |",
+        ...rows,
+      ].join("\n");
     },
   },
 ];

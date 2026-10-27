@@ -43,7 +43,10 @@
       "runs": [
         {
           "items": ["r1", "r2", "r3", "l1", "s1"],
-          "label": "已探索 · 3 个文件，1 次搜索，1 个目录"
+          "label": {
+            "zh-CN": "已探索 · 3 个文件，1 次搜索，1 个目录",
+            "en": "Explored · 3 files, 1 search, 1 directory"
+          }
         }
       ]
     },
@@ -82,7 +85,10 @@
       "runs": [
         {
           "items": ["s1", "l1", "l2", "l3"],
-          "label": "已探索 · 1 次搜索，3 个目录"
+          "label": {
+            "zh-CN": "已探索 · 1 次搜索，3 个目录",
+            "en": "Explored · 1 search, 3 directories"
+          }
         }
       ]
     },
@@ -128,15 +134,24 @@
       "runs": [
         {
           "items": ["c1", "c2"],
-          "label": "已运行 2 条命令"
+          "label": {
+            "zh-CN": "已运行 2 条命令",
+            "en": "Ran 2 commands"
+          }
         },
         {
           "items": ["r1", "r2"],
-          "label": "已探索 · 2 个文件"
+          "label": {
+            "zh-CN": "已探索 · 2 个文件",
+            "en": "Explored · 2 files"
+          }
         },
         {
           "items": ["c3"],
-          "label": "已运行 1 条命令"
+          "label": {
+            "zh-CN": "已运行 1 条命令",
+            "en": "Ran 1 command"
+          }
         }
       ]
     },
@@ -165,7 +180,10 @@
       "runs": [
         {
           "items": ["c1", "c2"],
-          "label": "正在运行命令"
+          "label": {
+            "zh-CN": "正在运行命令",
+            "en": "Running commands"
+          }
         }
       ]
     },
@@ -197,7 +215,10 @@
       "runs": [
         {
           "items": ["e1", "e2", "e3"],
-          "label": "已修改 2 个文件"
+          "label": {
+            "zh-CN": "已修改 2 个文件",
+            "en": "Edited 2 files"
+          }
         }
       ]
     },
@@ -211,11 +232,17 @@
       "runs": [
         {
           "items": ["x1", "x2"],
-          "label": "已调用 lookup_ticket · 2 次"
+          "label": {
+            "zh-CN": "已调用 lookup_ticket · 2 次",
+            "en": "Called lookup_ticket · 2 times"
+          }
         },
         {
           "items": ["y1"],
-          "label": "已调用 post_comment"
+          "label": {
+            "zh-CN": "已调用 post_comment",
+            "en": "Called post_comment"
+          }
         }
       ]
     },
@@ -240,7 +267,10 @@
       "runs": [
         {
           "items": ["k1", "r1"],
-          "label": "已探索 · 1 个文件，1 个技能"
+          "label": {
+            "zh-CN": "已探索 · 1 个文件，1 个技能",
+            "en": "Explored · 1 file, 1 skill"
+          }
         }
       ]
     },
@@ -271,7 +301,10 @@
       "runs": [
         {
           "items": ["c1", "c2"],
-          "label": "已运行 1 条命令 · 1 个失败"
+          "label": {
+            "zh-CN": "已运行 1 条命令 · 1 个失败",
+            "en": "Ran 1 command · 1 failure"
+          }
         }
       ]
     }

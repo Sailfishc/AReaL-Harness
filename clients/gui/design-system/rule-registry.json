@@ -2977,7 +2977,7 @@
       "title": "摘要与活动行同为一行对话文字高（--text-conversation × --conversation-line），相",
       "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#组成",
       "strength": "default",
-      "textSha256": "2aeaf8f7495ab64656400559b3d40d5b42cf5ae42f4b0f9354377724a306ebe6"
+      "textSha256": "eaae34dbed35c044a205a1646dbab28f64c0a18149077e2cf384370084c6212a"
     },
     {
       "id": "R-ACTIVITYGROUP-033",
@@ -4622,7 +4622,7 @@
       "title": "两条消息之间的工具活动按\"连续同一工作阶段\"分段",
       "owner": "clients/gui/renderer/src/Messages.md#对话信息流",
       "strength": "must",
-      "textSha256": "da0e3d51b3113e696aeab6fed42f22b1296df4772e64641d828d308aa3926c7a",
+      "textSha256": "ce2d12f34d8f58e8f965ff1f47780cd916ba40554a04a5988de5112d30124af3",
       "check": "clients/gui/scripts/activity-runs.test.mjs"
     },
     {
@@ -6568,6 +6568,14 @@
       "strength": "must",
       "textSha256": "8e0b2594fd9cd70c9f0ba7416aaa95da984f0d619f7319b88219bc3160a9baf3",
       "check": "clients/gui/design-system/verified-components.json"
+    },
+    {
+      "id": "R-ACTIVITYROW-006",
+      "title": "文件和目录行只写末段名称，完整路径和完整命令放在 detailHint 悬停提示里",
+      "owner": "clients/gui/packages/ui/src/conversation/activity-row/activity-row.md#内容",
+      "strength": "must",
+      "textSha256": "53630dc6d6f0304d70c8c1485c96eb3cf906fdd8b671de9cf8a3ceb89d1d15a0",
+      "check": "clients/gui/scripts/design-system-conversation-system.mjs"
     }
   ]
 }

@@ -6,6 +6,7 @@ import {
   ActivityRow,
   ActivityRowButton,
   ActivityRowChevron,
+  ActivityRowHint,
   ActivityRowStatus,
   ActivityRowText,
   ImageDisclosure,
@@ -14,7 +15,7 @@ import "@areal/ui/conversation.css";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { AgentAvatar, agentName, agentTask, spawnedAgent } from "./AgentIdentity.js";
 import { ActivityIcon } from "./ActivityIcon.js";
-import { agentSettlements, toolPresentation } from "./conversationPresentation.js";
+import { agentSettlements, toolActionText, toolPresentation } from "./conversationPresentation.js";
 import { CommandDetails } from "./CommandDetails.js";
 import { ToolCallDuration } from "./ToolCallDuration.js";
 import { Button } from "./components/ui/button.js";
@@ -24,6 +25,11 @@ import { MessageActions } from "./MessageActions.js";
 import { SentAttachment } from "./MessageAttachment.js";
 import type { McpResultSource, McpResultState } from "./mcp-app-services.js";
 import type { Action, Data } from "./services.js";
+/** 文件和目录只显示末段名称；完整路径放在悬停提示里。 */
+function fileName(path: string): string {
+  return path.replace(/\/+$/, "").split("/").at(-1) || path;
+}
+
 export function ToolEvent({
   item,
   onFile,
@@ -183,7 +189,7 @@ export function ToolEvent({
           <Button
             variant="ghost"
             className="agent-spawn-record"
-            aria-label={t("common.tools.rawRecord")}
+            aria-label={t("chat.activity.rawRecord")}
             aria-expanded={open}
             aria-controls={recordId}
             onClick={toggle}
@@ -214,7 +220,7 @@ export function ToolEvent({
                 <Button
                   variant="ghost"
                   className="agent-spawn-record"
-                  aria-label="查看工具原始记录"
+                  aria-label={t("chat.activity.rawRecord")}
                   aria-expanded={open}
                   aria-controls={recordId}
                   onClick={toggle}
@@ -253,7 +259,7 @@ export function ToolEvent({
             data-slot={undefined}
             type="button"
             className="agent-spawn-record"
-            aria-label="查看工具原始记录"
+            aria-label={t("chat.activity.rawRecord")}
             aria-expanded={open}
             aria-controls={recordId}
             onClick={toggle}
@@ -266,16 +272,17 @@ export function ToolEvent({
           className="tool-summary-row tool-file-row"
           icon={<ActivityIcon kind={readOnly ? "read" : "edit"} />}
         >
-          <span>{readOnly ? "已读取" : item.tool === "fs_create" ? "已创建" : "已编辑"}</span>
-          <Button
-            variant="ghost"
-            className="tool-file-link"
-            aria-label={`打开 ${file.path}`}
-            title={file.path}
-            onClick={() => onFile?.(file.path)}
-          >
-            {file.path.split("/").at(-1)}
-          </Button>
+          <span className="areal-activity-row-action">{toolActionText(item, "done", t)}</span>
+          <ActivityRowHint hint={file.path}>
+            <Button
+              variant="ghost"
+              className="tool-file-link"
+              aria-label={t("chat.activity.openFile", { path: file.path })}
+              onClick={() => onFile?.(file.path)}
+            >
+              {fileName(file.path)}
+            </Button>
+          </ActivityRowHint>
           {current && !current.error && (
             <Button
               variant="ghost"
@@ -302,8 +309,8 @@ export function ToolEvent({
           <Button
             variant="ghost"
             className="tool-file-record"
-            aria-label="查看工具原始记录"
-            title={t("common.tools.rawRecord")}
+            aria-label={t("chat.activity.rawRecord")}
+            title={t("chat.activity.rawRecord")}
             aria-expanded={open}
             aria-controls={recordId}
             onClick={toggle}
@@ -317,19 +324,29 @@ export function ToolEvent({
           className="tool-summary-row"
           aria-expanded={open}
           onClick={toggle}
-          title={item.tool}
           icon={<ActivityIcon kind={view.icon} />}
         >
           <ActivityRowText
-            action={`${view.running ? "正在" : view.status === "已完成" || view.failed ? "已" : ""}${view.label}`}
-            detail={view.detail}
+            action={toolActionText(
+              item,
+              view.running
+                ? "running"
+                : view.state === "completed" || view.failed
+                  ? "done"
+                  : "plain",
+              t,
+            )}
+            detail={view.path ? fileName(view.path) : view.detail}
+            detailHint={view.path ?? (view.detail || undefined)}
             running={view.running}
           />
           <ActivityRowStatus
             tone={view.failed ? "failed" : undefined}
-            hidden={!view.failed && (view.status === "已完成" || view.running)}
+            hidden={!view.failed && (view.state === "completed" || view.running)}
           >
-            {view.failed && view.exitCode != null ? `失败 · exit ${view.exitCode}` : view.status}
+            {view.failed && view.exitCode != null
+              ? t("chat.activity.failedExit", { code: view.exitCode })
+              : t("chat.activity.status", { state: view.state })}
           </ActivityRowStatus>
           <ActivityRowChevron open={open} />
         </ActivityRowButton>

@@ -109,6 +109,12 @@
   },
   {
     "file": "renderer/src/ToolEvent.tsx",
+    "symbol": "ActivityRowHint",
+    "owner": "renderer/src/ToolEvent.tsx",
+    "exitCondition": "Evaluate ActivityRowHint against the ActivityRow contract and Base admission before graduation, or remove this consumer."
+  },
+  {
+    "file": "renderer/src/ToolEvent.tsx",
     "symbol": "ActivityRowChevron",
     "owner": "renderer/src/ToolEvent.tsx",
     "exitCondition": "Evaluate ActivityRowChevron against the ActivityRow contract and Base admission before graduation, or remove this consumer."

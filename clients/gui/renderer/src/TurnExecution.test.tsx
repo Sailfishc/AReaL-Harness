@@ -1,9 +1,16 @@
+import type { Translate } from "./i18n/IntlProvider.js";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { TurnExecution } from "./TurnExecution.js";
 
-vi.mock("./i18n/IntlProvider.js", () => ({ useI18n: () => ({ t: (id: string) => id }) }));
+vi.mock("./i18n/IntlProvider.js", async () => {
+  const { createIntl } = await import("react-intl");
+  const { catalogs } = await import("./i18n/messages.js");
+  const intl = createIntl({ locale: "zh-CN", messages: catalogs["zh-CN"] });
+  const t: Translate = (id, values) => intl.formatMessage({ id }, values);
+  return { useI18n: () => ({ t }) };
+});
 
 const project = { state: { connected: true, threads: { thread: { executionConnected: true } } } };
 const read = (id: string) => ({
