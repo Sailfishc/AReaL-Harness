@@ -38,6 +38,24 @@ macOS native smoke tests require Seatbelt; Linux native smoke tests require `/us
 
 Linux host checks use `make verify CARGO_TEST_ARGS='--exclude areal-runtime-exec-native'`. Native backend tests require `/usr/bin/bwrap` and user namespaces; a separate CI job builds the Dockerfile's `runtime-tests` target and runs every backend test, including `outer-container-perf`, inside the controlled Bubblewrap container. It also enables `areal-runtime/native-tests` and runs the daemon's `native_transport` target. That target starts the real daemon over private stdio with the complete Runtime bundle, so Linux resolves the reaper beside the daemon. Its native sandbox test keeps the ordinary-command/hook progress and foreign-writer exclusion assertions; the four portable transport tests remain in the default suite. `make verify-native` builds the bundle before explicitly running the same native target on macOS. The feature selects this test target only and changes no production behavior. Excluding native tests from the portable host lane alone does not complete validation.
 
+## Local verification artifacts and startup diagnostics
+
+After Cargo succeeds, `make build` / `make release` writes `target/<profile>/verification-build.json`, binding the existing Core `inputHash`, build revision and SHA-256 of the complete Core/Runtime set. GUI builds extend the existing bundle analysis plugin with `renderer/dist/verification-build.json`, recording GUI inputs and output hashes; source changes during a build fail it.
+
+From the repository root, deploy matching artifacts into a separate fixed slot, then diagnose startup:
+
+```sh
+python3 scripts/verification.py deploy --source-dir "$PWD/target/debug" --bin-dir "$PWD/.local/dev-bin/verification" --evidence "$PWD/.scratch/verification/deployment.json"
+make gui-build
+python3 scripts/verification.py doctor --core "$PWD/.local/dev-bin/verification/areal" --report "$PWD/.scratch/verification/startup-1.json"
+```
+
+Deployment reuses existing process/open-file inspection and rejects occupied slots, missing components and artifacts changed since the build. Verification helpers hold the slot's `.verification-lock` for the entire run; deployment uses the same lock. Locks do not expire automatically. After interruption, inspect `owner.json` and confirm its processes and services have stopped before removing a leftover lock. Existing local fixed-path deployment and doctor entry points delegate to these versioned implementations. Isolating test directories does not establish build identity. Direct `cargo build` does not create the batch receipt; use `make build`.
+
+Before Electron starts, doctor checks Core's embedded input identity, all component hashes, Renderer inputs and output hashes. Reports include each of the three programs' path, SHA, probe command, exit code or signal, and macOS signature check. A failed probe does not discard remaining diagnostics and produces a nonzero exit. Use a new report filename for each attempt; existing reports cannot be overwritten. The file helper's no-request probe checks startup without performing a file operation. Neither exit zero nor a valid signature proves manual authorization. `authorization` defaults to `unknown`; after actual human observation, record each component separately with options such as `--authorization-observation areal=allowed`. SIGKILL is recorded as a signal without attributing it to endpoint protection. Reports do not replace real Runtime, provider or packaged-app acceptance.
+
+The task catalog smoke fixture lives in `clients/gui/renderer/test-fixtures/scheduled-workspace.tsx`, is typechecked with Renderer, and is loaded directly by the existing browser runner. It checks new intents routed through `onStartDraft`, project defaults, explicit reconciliation and observed receipts for legacy requests. Only the IPC boundary is replaced by the fixture.
+
 ## GUI test registry and platform qualification
 
 `clients/gui/scripts/test-manifest.json` registers every `test:*` command in the root GUI `package.json`. `layer` distinguishes pure unit tests, contracts without a GUI, and browser/Electron end-to-end boundaries. `platforms`, `areas`, and `requires` declare runnable platforms, covered areas, and prerequisites. Entries limited to one platform require `platformReason`. A platform declaration is not acceptance evidence. Headless tests that need Core remain contract tests.

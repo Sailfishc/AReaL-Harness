@@ -42,10 +42,12 @@ fetch: ## 下载 Cargo.lock 中的依赖
 build: ## 构建整个 workspace（debug）
 	python3 scripts/prepare-runtime-shell.py --profile debug
 	cargo build --locked --workspace
+	python3 scripts/verification.py record-core --profile debug
 
 release: ## 构建整个 workspace（release）
 	python3 scripts/prepare-runtime-shell.py --profile release
 	cargo build --locked --workspace --release
+	python3 scripts/verification.py record-core --profile release
 
 check: ## 类型检查整个 workspace 和测试目标
 	cargo check --locked --workspace --all-targets
