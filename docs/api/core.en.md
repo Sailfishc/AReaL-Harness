@@ -84,6 +84,7 @@ Core persists the claim before requesting a name. Failure, cancellation, UNKNOWN
 | `AGENT_RUN_TIMEOUT` | Explicit Goal or research-worker deadline, `class=agent` |
 | `LLM_RESPONSE_FAILED` | Other recognized model failures, distinguished by details; invalid tool indices retain `invalid_tool_call_index` and are not classified as context overflow or invalid tool JSON |
 | `MODEL_REQUEST_TOO_LARGE` | Wire-size budget: `core_request_budget` rejects before send; `provider_http` represents a sent HTTP 413. Local rejection details retain stage, bytes/lower bound, limit and requestSent; provider 413 retains HTTP status and the sent marker |
+| `MODEL_SHARED_BUDGET_EXHAUSTED` | The model service explicitly reports `budget_exhausted`, with `class=agent`; no automatic retry or budget reset. A rejection carrying valid final zero usage settles as known zero; missing final usage remains UNKNOWN |
 | `HARNESS_INTERNAL_ERROR` | Unclassified Core error, persistence failure or recovered UNKNOWN tool outcome, `class=infrastructure` |
 
 Provider HTTP error bodies are read with a 64 KiB / two-second bound. Only allowlisted code/type/reason labels are retained; raw bodies, Provider messages and credentials are excluded from outcome. HTTP status is retained in `details.httpStatus`. Classification does not enable retries, promote failures to success, continue the task or run scoring. Unknown codes should remain unknown.

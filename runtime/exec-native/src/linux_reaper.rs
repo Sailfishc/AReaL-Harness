@@ -2,7 +2,7 @@
 use areal_runtime_protocol::{Error, ErrorCode};
 use std::{
     fs::File,
-    io::{self, Read},
+    io::{self, Read, Seek, Write},
     os::{
         fd::{AsRawFd, FromRawFd},
         unix::process::ExitStatusExt,
@@ -24,6 +24,7 @@ pub struct Reaper {
     lifetime: Option<File>,
     child_lifetime: Option<File>,
     child_receipt: Option<File>,
+    child_arguments: Option<File>,
     receipt: AsyncFd<File>,
     buffer: Vec<u8>,
     startup: Option<String>,
@@ -66,8 +67,53 @@ pub fn prepare(argv: &[String], tty: bool, filter: Option<&File>) -> io::Result<
             "empty execution",
         ));
     }
+    if argv
+        .iter()
+        .try_fold(0usize, |size, argument| {
+            size.checked_add(argument.len() + 1)
+        })
+        .is_none_or(|size| size > 16 * 1024 * 1024)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "execution arguments exceed limit",
+        ));
+    }
     let (child_lifetime, lifetime) = pipe()?;
     let (receipt, child_receipt) = pipe()?;
+    // 不把用户命令复制进回收进程的 cmdline，避免按命令行清理工作负载时误杀回收者。
+    // 密封匿名文件只供 helper 读取，payload exec 前关闭，不增加公开路径或继承描述符。
+    let descriptor = unsafe {
+        libc::memfd_create(
+            c"areal-command".as_ptr(),
+            libc::MFD_CLOEXEC | libc::MFD_ALLOW_SEALING,
+        )
+    };
+    if descriptor < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut arguments = unsafe { File::from_raw_fd(descriptor) };
+    for argument in argv {
+        if argument.as_bytes().contains(&0) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "NUL in execution argument",
+            ));
+        }
+        arguments.write_all(argument.as_bytes())?;
+        arguments.write_all(&[0])?;
+    }
+    arguments.rewind()?;
+    if unsafe {
+        libc::fcntl(
+            arguments.as_raw_fd(),
+            libc::F_ADD_SEALS,
+            libc::F_SEAL_SEAL | libc::F_SEAL_SHRINK | libc::F_SEAL_GROW | libc::F_SEAL_WRITE,
+        )
+    } < 0
+    {
+        return Err(io::Error::last_os_error());
+    }
     // AsyncFd 必须使用非阻塞描述符，才能在取消后安全继续读取同一份回执。
     if unsafe { libc::fcntl(receipt.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK) } < 0 {
         return Err(io::Error::last_os_error());
@@ -76,6 +122,7 @@ pub fn prepare(argv: &[String], tty: bool, filter: Option<&File>) -> io::Result<
         child_lifetime.as_raw_fd(),
         child_receipt.as_raw_fd(),
         filter.map_or(-1, AsRawFd::as_raw_fd),
+        arguments.as_raw_fd(),
     ];
     let mut command = Command::new(helper_path()?);
     command
@@ -83,8 +130,7 @@ pub fn prepare(argv: &[String], tty: bool, filter: Option<&File>) -> io::Result<
         .arg(child_fds[1].to_string())
         .arg(if tty { "1" } else { "0" })
         .arg(child_fds[2].to_string())
-        .arg("--")
-        .args(argv)
+        .arg(child_fds[3].to_string())
         .kill_on_drop(false);
     // 这里只执行 async-signal-safe fcntl；复杂回收逻辑在 exec 后的独立进程中运行。
     unsafe {
@@ -103,6 +149,7 @@ pub fn prepare(argv: &[String], tty: bool, filter: Option<&File>) -> io::Result<
             lifetime: Some(lifetime),
             child_lifetime: Some(child_lifetime),
             child_receipt: Some(child_receipt),
+            child_arguments: Some(arguments),
             receipt: AsyncFd::new(receipt)?,
             buffer: Vec::new(),
             startup: None,
@@ -117,6 +164,7 @@ impl Reaper {
     pub fn spawned(&mut self) {
         self.child_lifetime.take();
         self.child_receipt.take();
+        self.child_arguments.take();
     }
 
     pub fn terminate(&mut self) {

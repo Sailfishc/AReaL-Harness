@@ -843,6 +843,27 @@ mod truncated_usage_tests {
     }
 
     #[test]
+    fn local_budget_rejection_is_known_zero_usage_and_agent_limit() {
+        let event = json!({"type":"response.failed","response":{
+            "status":"failed","output":[],
+            "usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0},
+            "error":{"code":"budget_exhausted","type":"budget_exhausted"}
+        }});
+        let mut decoder = Decoder::Responses(ResponsesDecoder::default());
+        let events = decoder
+            .feed(format!("data: {event}\n\n").as_bytes())
+            .unwrap();
+        assert!(
+            matches!(events.as_slice(), [ModelEvent::Usage(u)] if u.input_tokens == 0 && u.output_tokens == 0)
+        );
+        let error = decoder.finish().unwrap_err();
+        assert!(error.is::<FinalUsageError>());
+        let outcome = terminal_outcome(&error).unwrap();
+        assert_eq!(outcome.code, "MODEL_SHARED_BUDGET_EXHAUSTED");
+        assert_eq!(outcome.class, "agent");
+    }
+
+    #[test]
     fn final_usage_marker_requires_terminal_framing() {
         for (tail, known) in [("data: [DONE]\n\n", true), ("", true), ("data: {", false)] {
             let mut decoder = Decoder::Chat(ChatDecoder::default());

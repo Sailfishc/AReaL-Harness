@@ -1,7 +1,10 @@
 use std::{
     fs::File,
-    io::{self, Write},
-    os::{fd::FromRawFd, unix::process::CommandExt},
+    io::{self, Read, Write},
+    os::{
+        fd::FromRawFd,
+        unix::{ffi::OsStringExt, process::CommandExt},
+    },
     process::Command,
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
@@ -182,9 +185,13 @@ fn supervise(leader: i32, control: i32, receipt: &mut Receipt) -> i32 {
 pub fn run() -> i32 {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     let descriptor = |index: usize| args.get(index)?.to_str()?.parse::<i32>().ok();
-    let (Some(control), Some(receipt), Some(tty), Some(filter)) =
-        (descriptor(0), descriptor(1), descriptor(2), descriptor(3))
-    else {
+    let (Some(control), Some(receipt), Some(tty), Some(filter), Some(arguments)) = (
+        descriptor(0),
+        descriptor(1),
+        descriptor(2),
+        descriptor(3),
+        descriptor(4),
+    ) else {
         return 1;
     };
     if control < 3
@@ -194,16 +201,33 @@ pub fn run() -> i32 {
         || (filter != -1 && filter < 3)
         || filter == control
         || filter == receipt
-        || args.len() < 6
-        || args[4] != "--"
+        || arguments < 3
+        || arguments == control
+        || arguments == receipt
+        || arguments == filter
+        || args.len() != 5
     {
         return 1;
     }
     let _control = unsafe { File::from_raw_fd(control) };
     let mut receipt = Receipt(Some(unsafe { File::from_raw_fd(receipt) }));
-    let result = setup(filter).and_then(|()| {
-        let mut command = Command::new(&args[5]);
-        command.args(&args[6..]);
+    let result = (|| {
+        let mut bytes = Vec::new();
+        let file = unsafe { File::from_raw_fd(arguments) };
+        file.take(16 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
+        if bytes.len() > 16 * 1024 * 1024 || bytes.last() != Some(&0) || bytes.len() < 2 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid execution arguments",
+            ));
+        }
+        let argv: Vec<_> = bytes[..bytes.len() - 1]
+            .split(|byte| *byte == 0)
+            .map(|argument| std::ffi::OsString::from_vec(argument.to_vec()))
+            .collect();
+        setup(filter)?;
+        let mut command = Command::new(&argv[0]);
+        command.args(&argv[1..]);
         unsafe {
             command.pre_exec(move || {
                 if libc::setsid() < 0 || (tty == 1 && libc::ioctl(0, libc::TIOCSCTTY as _, 0) < 0) {
@@ -213,7 +237,7 @@ pub fn run() -> i32 {
             });
         }
         command.spawn()
-    });
+    })();
     let child = match result {
         Ok(child) => child,
         Err(error) => {

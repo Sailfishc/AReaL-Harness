@@ -129,6 +129,7 @@ impl StreamError {
                 name @ ("rate_limit_exceeded"
                 | "rate_limit_error"
                 | "insufficient_quota"
+                | "budget_exhausted"
                 | "context_length_exceeded"
                 | "invalid_request_error"
                 | "invalid_api_key"
@@ -211,6 +212,8 @@ fn stream_outcome(detail: &StreamError, source: &str) -> areal_protocol::TurnOut
         ("LLM_CONTEXT_WINDOW_EXCEEDED", "agent")
     } else if has("max_tokens") || has("max_output_tokens") {
         ("LLM_OUTPUT_TOKEN_LIMIT_EXCEEDED", "agent")
+    } else if has("budget_exhausted") {
+        ("MODEL_SHARED_BUDGET_EXHAUSTED", "agent")
     } else {
         ("LLM_RESPONSE_FAILED", "infrastructure")
     };

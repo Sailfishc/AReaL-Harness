@@ -84,6 +84,7 @@ Core 在请求前持久化领取标记。失败、取消、UNKNOWN 或重启均�
 | `AGENT_RUN_TIMEOUT` | 显式 Goal 或研究 worker 时间预算到期，`class=agent` |
 | `LLM_RESPONSE_FAILED` | 其他已识别模型故障，具体原因由 details 表达；非法 tool index 保留 `invalid_tool_call_index`，不归为 context overflow 或 invalid tool JSON |
 | `MODEL_REQUEST_TOO_LARGE` | 实际请求字节限额；`core_request_budget` 在发送前拒绝，`provider_http` 为已发送的 HTTP 413。本地拒绝的 details 保留阶段、字节/下界、上限与 requestSent；供应商 413 保留 HTTP 状态与已发送标记 |
+| `MODEL_SHARED_BUDGET_EXHAUSTED` | 模型服务明确返回 `budget_exhausted`，`class=agent`；不自动重试或解除预算。带合法最终零 usage 的拒绝按已知零结算，未提供最终 usage 仍保持 UNKNOWN |
 | `HARNESS_INTERNAL_ERROR` | 未分类 Core 错误、持久化失败或恢复到 UNKNOWN 工具结果，`class=infrastructure` |
 
 Provider HTTP 错误体最多读取 64 KiB、等待 2 秒，仅保留白名单 code/type/reason；原始响应体、Provider message、鉴权信息不写入 outcome。HTTP 状态码保留在 `details.httpStatus`。错误分类不启用重试、不将失败转换为成功、不自动续轮或评分；未识别的 code 应保留为未知原因。
