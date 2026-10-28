@@ -60,7 +60,7 @@ The validation target is explicitly `working-tree`. Index contents affect select
 
 Provider replay fixtures in `core/engine/tests/fixtures/provider-replay` exercise real HTTP bytes, production decoder/Engine, and temporary storage for retained text before errors, disconnects after finish events, and late answers after cancellation. Notifications control request arrival/release instead of fixed sleeps. Pure timer policy uses paused Tokio time while real HTTP timeout tests preserve I/O coverage. Server write chunks do not guarantee operating-system network packet boundaries.
 
-Real Runtime write recovery requires a deployed and verified fixed bundle from the same build, selected explicitly:
+`make test` first prepares a matching Core/Runtime bundle through `make build` and passes `target/debug` as the default `AREAL_TEST_BIN_DIR` to workspace tests. Direct Runtime write recovery requires a deployed and verified fixed bundle from the same build, selected explicitly:
 
 ```sh
 AREAL_TEST_BIN_DIR=/absolute/verified/bin cargo test --locked -p areal-engine --features test-support --test provider_replay persisted_runtime_write_survives_disconnect_and_reopen_without_replay

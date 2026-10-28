@@ -174,7 +174,7 @@ class PreflightExecution(unittest.TestCase):
             "with open(os.environ['COMMAND_LOG'], 'a') as log:\n"
             " log.write(json.dumps({'tool': pathlib.Path(sys.argv[0]).name, "
             "'args': sys.argv[1:], 'base': os.environ.get('AREAL_DESIGN_BASE'), "
-            "'core': os.environ.get('AREAL_CORE_BIN')}) + '\\n')\n"
+            "'core': os.environ.get('AREAL_CORE_BIN'), 'runtimeBin': os.environ.get('AREAL_TEST_BIN_DIR')}) + '\\n')\n"
             "sys.exit(43 if os.environ.get('FAIL_ARG') and "
             "os.environ['FAIL_ARG'] in sys.argv[1:] else 0)\n"
         )
@@ -218,6 +218,25 @@ class PreflightExecution(unittest.TestCase):
             [json.loads(line) for line in self.log.read_text().splitlines()]
             if self.log.exists()
             else []
+        )
+
+    def test_workspace_tests_require_build_and_receive_runtime_directory(self):
+        result = self.make("test", AREAL_TEST_BIN_DIR="")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.calls()
+        build = next(
+            i for i, row in enumerate(calls) if row["tool"] == "cargo" and "build" in row["args"]
+        )
+        tests = next(
+            i for i, row in enumerate(calls) if row["tool"] == "cargo" and "test" in row["args"]
+        )
+        self.assertLess(build, tests)
+        self.assertEqual(calls[tests]["runtimeBin"], str(self.root.resolve() / "target/debug"))
+        self.log.unlink()
+        result = self.make("test", FAIL_ARG="build")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(
+            any(row["tool"] == "cargo" and "test" in row["args"] for row in self.calls())
         )
 
     def test_static_requires_base_and_uses_one_merge_base_with_health_fallback(self):

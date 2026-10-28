@@ -58,7 +58,7 @@ pnpm --dir clients/gui test:unit renderer/src/readingViews.test.ts
 
 Provider 回放夹具位于 `core/engine/tests/fixtures/provider-replay`，经真实 HTTP 字节、生产 decoder/Engine 和临时存储验证错误前文本、终止事件后断流、取消后迟到回答。请求到达与放行使用通知，不以固定 sleep 猜测。纯计时策略复用 Tokio 暂停时间；真实 HTTP 超时测试保留其 I/O 边界。字节块是服务器写入边界，不能假设操作系统一定保持网络分包。
 
-真实 Runtime 写入恢复需要已部署并验证的同批固定 bundle，使用显式 feature 运行：
+`make test` 先通过 `make build` 准备同批 Core/Runtime，并将 `target/debug` 作为默认 `AREAL_TEST_BIN_DIR` 传给 workspace 测试。直接运行真实 Runtime 写入恢复时，使用已部署并验证的同批固定 bundle 和显式 feature：
 
 ```sh
 AREAL_TEST_BIN_DIR=/absolute/verified/bin cargo test --locked -p areal-engine --features test-support --test provider_replay persisted_runtime_write_survives_disconnect_and_reopen_without_replay

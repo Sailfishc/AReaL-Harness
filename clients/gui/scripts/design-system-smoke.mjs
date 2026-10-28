@@ -1048,6 +1048,11 @@ try {
       assert.equal(await activityToggle.getAttribute("aria-expanded"), "false");
       assert.equal(await activity.isVisible(), false);
       await activityToggle.click();
+      // 滚动时间线在展开后的渲染阶段更新，先等待其可观察状态再采样。
+      await page.waitForFunction(
+        (list) => getComputedStyle(list).getPropertyValue("--areal-activity-list-fade") === "24px",
+        await activity.elementHandle(),
+      );
       const activitySize = await activity.evaluate((el) => ({
         height: el.clientHeight,
         full: el.scrollHeight,
