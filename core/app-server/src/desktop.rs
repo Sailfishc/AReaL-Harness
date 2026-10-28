@@ -115,6 +115,7 @@ struct Id {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct RequestRead {
+    creation_admission: Option<CreationAdmission>,
     thread_id: Option<String>,
     request_id: String,
 }
@@ -968,7 +969,16 @@ async fn dispatch_inner(
         }
         "areal/request/read" => {
             let p: RequestRead = parse(params)?;
-            if let Some(thread) = p.thread_id {
+            if let Some(original) = p.creation_admission {
+                if p.thread_id.is_some() {
+                    return Err(RpcError::invalid(
+                        "creationAdmission requires unscoped request lookup",
+                    ));
+                }
+                engine
+                    .resolve_creation_admission(identity, &p.request_id, original)
+                    .await
+            } else if let Some(thread) = p.thread_id {
                 engine
                     .request_status(identity, &thread, &p.request_id)
                     .await

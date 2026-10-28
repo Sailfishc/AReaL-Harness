@@ -548,7 +548,30 @@ impl Engine {
     ) -> Result<Thread> {
         self.mutate(move |engine| async move {
             let _serial = engine.desktop.creation.lock().await;
+            if !valid_id(&request.request_id) {
+                return Err(Error::Rejected(Box::new(invalid("invalid requestId"))));
+            }
+            if let Some(original) = &request.creation_admission
+                && original != &engine.creation_admission(&identity).await
+            {
+                return Err(Error::Rejected(Box::new(invalid(
+                    "STALE_CREATION_INSTANCE: original Core instance has retired",
+                ))));
+            }
             let hash = digest(&request)?;
+            if let Some(thread_id) = engine
+                .creation_result(&identity, &request.request_id, &hash)
+                .await?
+            {
+                return Ok(engine
+                    .raw_cell(&thread_id)
+                    .await?
+                    .state
+                    .lock()
+                    .await
+                    .thread
+                    .clone());
+            }
             let cells: Vec<_> = engine.threads.read().await.values().cloned().collect();
             for cell in cells {
                 let state = cell.state.lock().await;
@@ -582,15 +605,16 @@ impl Engine {
                     .resolve_config(
                         request
                             .agent_profile
+                            .clone()
                             .or_else(|| engine.desktop.default_profile.read().unwrap().clone()),
-                        request.model,
-                        request.parameters,
+                        request.model.clone(),
+                        request.parameters.clone(),
                         1,
                     )
                     .map_err(|error| Error::Rejected(Box::new(error)))?,
                 ..Default::default()
             };
-            data.configuration.options = request.options.unwrap_or_default();
+            data.configuration.options = request.options.clone().unwrap_or_default();
             engine.apply_client_permissions(&mut data.configuration)?;
             engine.pin_desktop_default(&mut data.configuration);
             data.configuration.allow_plugin_skills = allow_plugin_skills
@@ -643,6 +667,19 @@ impl Engine {
                     .validate_start(&start)
                     .map_err(invalid)?;
             }
+            #[cfg(test)]
+            engine
+                .desktop
+                .submissions
+                .creation_checkpoint("beforeAdmission");
+            engine
+                .begin_creation(&identity, &request, hash.clone())
+                .await?;
+            #[cfg(test)]
+            engine
+                .desktop
+                .submissions
+                .creation_checkpoint("afterAdmission");
             let (thread, _) = engine
                 .create_inner(
                     request.cwd.unwrap_or_else(|| engine.default_cwd()),
@@ -653,8 +690,28 @@ impl Engine {
                     Some(data),
                     false,
                 )
+                .await.map_err(|error| {
+                    tracing::warn!(%error, request_id = %request.request_id, "thread creation remains unconfirmed");
+                    engine.creation_unconfirmed(&request.request_id)
+                })?;
+            #[cfg(test)]
+            engine
+                .desktop
+                .submissions
+                .creation_checkpoint("afterSnapshot");
+            let thread = engine.ensure_profile_workflow(thread, &hash).await.map_err(|error| {
+                tracing::warn!(%error, request_id = %request.request_id, "thread workflow creation remains unconfirmed");
+                engine.creation_unconfirmed(&request.request_id)
+            })?;
+            engine
+                .complete_creation(&identity, &request.request_id, &thread.id)
                 .await?;
-            engine.ensure_profile_workflow(thread, &hash).await
+            #[cfg(test)]
+            engine
+                .desktop
+                .submissions
+                .creation_checkpoint("afterCompletion");
+            Ok(thread)
         })
         .await
     }
@@ -1260,6 +1317,13 @@ impl Engine {
                         let mut v = json!(receipt);
                         v["threadId"] = json!(state.thread.id);
                         normalize_thread_receipt(&mut v, &state.thread.id)?;
+                        if receipt.method == "areal/thread/start" {
+                            // 会话快照与创建回执原子提交，优先于未结算的日志标记。
+                            management["data"]
+                                .as_array_mut()
+                                .unwrap()
+                                .retain(|entry| entry["method"] != "areal/thread/start");
+                        }
                         management["data"].as_array_mut().unwrap().push(v);
                     }
                 }
@@ -1270,7 +1334,8 @@ impl Engine {
             .unwrap()
             .extend(self.task_receipts(identity, request_id).await?);
         management["retention"] = json!("threadAndDeploymentLifetime");
-        management["capacities"] = json!({"thread":1024,"management":4096,"task":8192});
+        management["capacities"] =
+            json!({"thread":1024,"management":4096,"submissionJournal":4096,"task":8192});
         Ok(management)
     }
     pub async fn request_status(

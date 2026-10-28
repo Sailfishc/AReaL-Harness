@@ -12,6 +12,7 @@ const {
 const { RemotePush } = require("./remote-push.cjs");
 const { RelayTransport } = require("./remote-relay.cjs");
 const { request: httpsRequest } = require("node:https");
+const { desktopTlsOptions } = require("./desktop-network.cjs");
 const { createHash } = require("node:crypto");
 const QRCode = require("qrcode");
 const { SessionAcceptor } = require("./remote-session-acceptor.cjs");
@@ -439,6 +440,7 @@ class RemoteControl {
         const req = httpsRequest(
           `${relay}/enroll`,
           {
+            ...desktopTlsOptions(),
             method: "POST",
             headers: {
               "content-type": "application/json",

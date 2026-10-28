@@ -945,6 +945,14 @@ async fn task_request_lookup_filters_shared_principal_identity_by_thread_visibil
     )
     .await;
     assert_eq!(project["result"]["data"], json!([]), "{project}");
+    let (proof, _) = call(&mut socket, 7, "areal/request/read", json!({
+        "requestId":"missing-creation", "creationAdmission":engine.creation_admission("shared-owner").await
+    })).await;
+    assert_eq!(proof["result"]["data"], json!([]));
+    assert!(
+        proof["result"].get("creationAdmission").is_none(),
+        "Thread-scoped observers cannot obtain project admission evidence"
+    );
     let mut other_request = format!("ws://{addr}").into_client_request().unwrap();
     other_request.headers_mut().insert(
         "Authorization",
@@ -1158,8 +1166,113 @@ async fn configure_preserves_legacy_management_receipts_after_reopen() {
     );
     let saved: Value = serde_json::from_slice(&std::fs::read(journal_path).unwrap()).unwrap();
     assert_eq!(
-        saved.as_object().unwrap().len(),
+        saved["entries"].as_object().unwrap().len(),
         journal.len() + 1,
         "new configure must use the Thread receipt store; only archive adds a management record"
     );
+}
+
+#[tokio::test]
+async fn creation_journal_protocol_distinguishes_retired_absence_from_unknown() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut original_binding = Value::Null;
+    let mut original_thread = Value::Null;
+    for generation in 0..2 {
+        let engine = Engine::open(dir.path(), Arc::new(TextModel), Limits::default()).unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let stop = CancellationToken::new();
+        let server = tokio::spawn(areal_app_server::serve(
+            listener,
+            engine.clone(),
+            stop.clone(),
+        ));
+        let (mut socket, _) = tokio_tungstenite::connect_async(format!("ws://{addr}"))
+            .await
+            .unwrap();
+        call(
+            &mut socket,
+            1,
+            "initialize",
+            json!({"clientInfo":{"name":"creation-journal","version":"1"}}),
+        )
+        .await;
+        socket
+            .send(Wire::Text(
+                json!({"method":"initialized"}).to_string().into(),
+            ))
+            .await
+            .unwrap();
+        let (cap, _) = call(&mut socket, 2, "areal/capabilities", json!({})).await;
+        let journal = &cap["result"]["features"]["threadCreationJournal"];
+        assert_eq!(journal["version"], 1);
+        let binding = journal["binding"].clone();
+        if generation == 0 {
+            original_binding = binding.clone();
+        } else {
+            assert_eq!(binding["journalEpoch"], original_binding["journalEpoch"]);
+            assert_ne!(
+                binding["coreInstanceId"],
+                original_binding["coreInstanceId"]
+            );
+        }
+        let (missing, _) = call(
+            &mut socket,
+            3,
+            "areal/request/read",
+            json!({"requestId":"not-dispatched","creationAdmission":original_binding}),
+        )
+        .await;
+        assert_eq!(
+            missing["result"]["creationAdmission"]["status"],
+            if generation == 0 {
+                "unconfirmed"
+            } else {
+                "notAdmitted"
+            }
+        );
+        assert!(missing["result"]["data"].as_array().unwrap().is_empty());
+        if generation == 0 {
+            let parameters = json!({"requestId":"created-once","creationAdmission":binding});
+            let (created, _) = call(&mut socket, 4, "areal/thread/start", parameters.clone()).await;
+            original_thread = created["result"]["thread"]["id"].clone();
+            assert!(original_thread.is_string(), "{created}");
+            let (duplicate, _) = call(&mut socket, 5, "areal/thread/start", parameters).await;
+            assert_eq!(duplicate["result"]["thread"]["id"], original_thread);
+        } else {
+            let (late, _) = call(
+                &mut socket,
+                4,
+                "areal/thread/start",
+                json!({"requestId":"not-dispatched","creationAdmission":original_binding}),
+            )
+            .await;
+            assert_eq!(late["error"]["data"]["outcome"]["kind"], "rejected");
+            let (found, _) = call(
+                &mut socket,
+                5,
+                "areal/request/read",
+                json!({"requestId":"created-once","creationAdmission":original_binding}),
+            )
+            .await;
+            assert_eq!(found["result"]["data"].as_array().unwrap().len(), 1);
+            assert_eq!(found["result"]["data"][0]["threadId"], original_thread);
+            assert_eq!(found["result"]["data"][0]["status"], "completed");
+            let (legacy, _) = call(
+                &mut socket,
+                6,
+                "areal/request/read",
+                json!({"requestId":"not-dispatched"}),
+            )
+            .await;
+            assert!(legacy["result"].get("creationAdmission").is_none());
+            assert!(legacy["result"]["data"].as_array().unwrap().is_empty());
+        }
+        assert_eq!(engine.list(None, 100, None).await.unwrap().0.len(), 1);
+        drop(socket);
+        stop.cancel();
+        server.await.unwrap().unwrap();
+        engine.shutdown().await;
+        drop(engine);
+    }
 }

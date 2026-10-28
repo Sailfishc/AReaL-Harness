@@ -1,5 +1,6 @@
 // @ts-check
 "use strict";
+const { nativeText } = require("./native-i18n.cjs");
 const { randomUUID } = require("node:crypto");
 const {
   createProjectState,
@@ -471,18 +472,14 @@ class SubmissionRecovery {
     try {
       beforeReceipt?.(entry);
       // 精确查询原生键，不打开 Thread、不配置、不重放；离线只返回已有日志。
-      const value = readReceipts(
-        await client.request("areal/request/read", {
-          requestId: entry.params.requestId,
-          ...(entry.method !== "areal/thread/start" ? { threadId: entry.params.threadId } : {}),
-        }),
-      );
+      const receipt = await this.readReceipt(project, entry, client);
       if (project.client !== client || project.service?.generation !== generation) return entry;
-      const receipt = matchingReceipt(
-        entry,
-        value.data,
-        entry.method !== "areal/thread/start" ? entry.params.threadId : undefined,
-      );
+      if (receipt?.accepted === false)
+        return await this.rememberRemoteOutcome(project, entry, undefined, {
+          ...receipt.error,
+          outcome: { kind: "rejected" },
+        });
+      /** @type {import('./receipt-contract.cjs').ReceiptResponse|null|undefined} */
       const response =
         entry.method === "areal/thread/start" && typeof receipt?.threadId === "string"
           ? { result: { thread: { id: receipt.threadId } } }
@@ -508,6 +505,7 @@ class SubmissionRecovery {
     const entry = {
       method,
       operationId,
+      createdAt: new Date().toISOString(),
       params: {
         ...structuredClone(parameters),
         ...(["turn/interrupt", "turn/steer", "areal/interaction/respond"].includes(method)
@@ -594,9 +592,16 @@ class SubmissionRecovery {
         submissionUnknown: false,
       });
     }
+    const journal =
+      method === "areal/thread/start"
+        ? project.client?.capabilities?.features?.threadCreationJournal
+        : undefined;
+    const boundParameters = journal
+      ? { ...parameters, creationAdmission: { ...journal.binding } }
+      : parameters;
     if (remote) {
       if (!dispatch) throw new Error("Remote 提交入口缺失");
-      return this.submitRemote(project, method, parameters, remote, dispatch);
+      return this.submitRemote(project, method, boundParameters, remote, dispatch);
     }
     const semantics = project.client?.capabilities?.methodSemantics?.[method];
     if (semantics && semantics.effect !== "mutation") throw new Error("此方法不是业务写入");
@@ -605,8 +610,14 @@ class SubmissionRecovery {
       (typeof requestId !== "string" || !/^[0-9a-f-]{36}$/.test(requestId))
     )
       throw new Error("无效请求标识");
-    const params = { ...parameters, requestId: requestId ?? randomUUID() };
-    const entry = { method, params, operation: operationOf(method, params) };
+    const params = { ...boundParameters, requestId: requestId ?? randomUUID() };
+
+    const entry = {
+      method,
+      params,
+      operation: operationOf(method, params),
+      createdAt: new Date().toISOString(),
+    };
     // 活跃请求仅保存在内存；重启后仍在恢复日志中的请求应显示为结果未知。
     this.host.awaitingResponses.add(entry);
     try {
@@ -832,6 +843,12 @@ class SubmissionRecovery {
       }
       if (receipt && receiptStatus(receipt) === "failed") {
         const failure = receipt.error ?? receipt.response?.error;
+        if (receipt.accepted === false)
+          throw Object.assign(error, {
+            message: failure?.message ?? error.message,
+            outcome: { kind: "rejected", operation: receipt.operation ?? entry.operation },
+            submissionUnknown: false,
+          });
         Object.assign(error, {
           message: failure?.message ?? error.message,
           outcome: { kind: "admitted", operation: receipt.operation ?? entry.operation },
@@ -847,7 +864,7 @@ class SubmissionRecovery {
     }
   }
 
-  /** @param {Project} project @param {Pending} entry @param {Client|null|undefined} client @param {number} [timeoutMs] */
+  /** @param {Project} project @param {Pending} entry @param {Client|null|undefined} client @param {number} [timeoutMs] @returns {Promise<Receipt|undefined>} */
   async readReceipt(project, entry, client, timeoutMs = 2500) {
     if (!client) throw new Error("Core 连接尚未就绪");
     const family = client.capabilities?.methodSemantics?.[entry.method]?.receipt;
@@ -864,12 +881,49 @@ class SubmissionRecovery {
         {
           requestId: entry.params.requestId,
           ...(scopedThreadId ? { threadId: scopedThreadId } : {}),
+          ...(entry.method === "areal/thread/start" &&
+          entry.params.creationAdmission &&
+          client.capabilities?.features?.threadCreationJournal
+            ? { creationAdmission: entry.params.creationAdmission }
+            : {}),
         },
         { timeoutMs },
       ),
     );
     this.host.requireConnection(project, client);
-    return matchingReceipt(entry, result.data, scopedThreadId);
+    const receipt = matchingReceipt(entry, result.data, scopedThreadId);
+    // 普通回执只证明已受理；只有下面核验过的独立证明能生成 accepted:false。
+    if (receipt) return { ...receipt, accepted: true };
+    const proof = result.creationAdmission;
+    const original = entry.params.creationAdmission;
+    const coverage = client.capabilities?.features?.threadCreationJournal?.binding;
+    if (
+      entry.method === "areal/thread/start" &&
+      client.capabilities?.features?.threadCreationJournal &&
+      original &&
+      proof?.status === "notAdmitted" &&
+      coverage?.identity === original.identity &&
+      proof.identity === original.identity &&
+      coverage.journalEpoch === original.journalEpoch &&
+      coverage.coreInstanceId !== original.coreInstanceId &&
+      proof.requestId === entry.params.requestId &&
+      proof.journalEpoch === original.journalEpoch &&
+      proof.coreInstanceId === original.coreInstanceId &&
+      result.data.length === 0
+    ) {
+      return {
+        method: entry.method,
+        requestId: entry.params.requestId,
+        status: "failed",
+        accepted: false,
+        operation: entry.operation ?? operationOf(entry.method, entry.params),
+        error: {
+          message: nativeText("recovery.creationNotAdmitted"),
+          data: { reason: "NOT_ADMITTED" },
+        },
+      };
+    }
+    return undefined;
   }
 
   /** @param {Project} project @param {string} method @param {Params & {requestId:string}} params */
@@ -905,7 +959,7 @@ class SubmissionRecovery {
     const error = failure ? desktopError(failure) : undefined;
     return {
       confirmed: true,
-      accepted: true,
+      accepted: receipt.accepted !== false,
       status,
       operation: receipt.operation ?? entry.operation,
       ...(error ? { error, message: error.message } : { result: receiptResult(receipt) }),
@@ -947,7 +1001,8 @@ class SubmissionRecovery {
       return {
         ...outcomes,
         [requestId]: {
-          accepted: true,
+          accepted: receipt.accepted !== false,
+          ...(receipt.accepted === false ? { admissionState: "notAdmitted" } : {}),
           status,
           operation,
           method: entry.method,

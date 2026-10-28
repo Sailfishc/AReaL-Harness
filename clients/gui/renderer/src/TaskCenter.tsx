@@ -9,7 +9,7 @@ import {
   ScheduledTaskSummary,
 } from "./ScheduledTasks.js";
 import { scheduleZone, runZone } from "./TaskRunConversations.js";
-import { useI18n } from "./i18n/IntlProvider.js";
+import { useI18n, type MessageId, type Translate } from "./i18n/IntlProvider.js";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { Button } from "./components/ui/button.js";
@@ -37,6 +37,7 @@ import { SidebarToggleIcon } from "./homeChromeIcons.js";
 import { TaskDraft, triggerExplanation, type TaskConversationRenderer } from "./TaskDraft.js";
 import { stageComposerDraft } from "./composerDraftStorage.js";
 import "./TaskCenter.css";
+import { TaskCatalogNotice } from "./TaskCatalogNotice.js";
 import type { Action, Data } from "./services.js";
 import type { ObservedCatalogOwner } from "@areal/workbench/desktop-contract/catalog";
 import { GoalUsageSummary } from "./GoalUsage.js";
@@ -104,16 +105,16 @@ const catalogTrace = (
   );
 };
 
-const statusLabels: Record<string, string> = {
-  queued: "已受理，等待开始",
-  running: "运行中",
-  waitingForInput: "等待回答",
-  waitingForAgents: "等待 worker",
-  paused: "已暂停",
-  blocked: "受阻",
-  completed: "已完成",
-  failed: "失败",
-  cancelled: "已取消",
+const statusLabels: Record<string, MessageId> = {
+  queued: "operations.schedules.statusQueued",
+  running: "operations.schedules.statusRunning",
+  waitingForInput: "operations.schedules.statusWaitingInput",
+  waitingForAgents: "operations.schedules.statusWaitingAgents",
+  paused: "operations.schedules.pausedGroup",
+  blocked: "operations.schedules.statusBlocked",
+  completed: "operations.schedules.statusCompleted",
+  failed: "operations.schedules.statusFailed",
+  cancelled: "operations.schedules.statusCancelled",
 };
 const terminal = (run?: Data) => !!run && ["completed", "failed", "cancelled"].includes(run.status);
 const missedOnce = (task: Data) =>
@@ -145,20 +146,23 @@ const date = (seconds: number | null, zone?: string) => {
 };
 // Shutdown can retain a paused flag on finished tasks. Preserve the outcome;
 // a recurring schedule with another run still has a meaningful paused state.
-const taskStatus = (task: Data) =>
-  stopping(task)
-    ? task.cancelled
-      ? "正在取消，等待执行结算"
-      : "正在暂停，等待执行结算"
-    : task.cancelled
-      ? "已取消"
-      : missedOnce(task)
-        ? "已错过"
-        : finished(task)
-          ? statusLabels[(task.latestRun ?? task.runs?.at(-1))?.status]
-          : task.paused
-            ? "已暂停"
-            : (statusLabels[(task.latestRun ?? task.runs?.at(-1))?.status] ?? "等待计划时间");
+const taskStatus = (task: Data, t: Translate) =>
+  t(
+    stopping(task)
+      ? task.cancelled
+        ? "operations.schedules.statusCancelling"
+        : "operations.schedules.statusPausing"
+      : task.cancelled
+        ? "operations.schedules.statusCancelled"
+        : missedOnce(task)
+          ? "operations.schedules.statusMissed"
+          : finished(task)
+            ? statusLabels[(task.latestRun ?? task.runs?.at(-1))?.status]
+            : task.paused
+              ? "operations.schedules.pausedGroup"
+              : (statusLabels[(task.latestRun ?? task.runs?.at(-1))?.status] ??
+                "operations.schedules.statusScheduled"),
+  );
 const runReasons: Record<string, string> = {
   "task token budget exhausted":
     "任务总 Token 预算已用完。本次运行不能增加额度；如需更多预算，请创建新任务。",
@@ -699,9 +703,6 @@ export function TaskCenter({
         ownerRows(catalog[project.id])?.source === "live" &&
         ownerRows(catalog[project.id])?.coverage.kind === "complete",
     );
-  const unobserved = projects.some(
-    (project) => ownerRows(catalog[project.id])?.source === "published",
-  );
   const hasMore = projects.some((project) => ownerRows(catalog[project.id])?.hasMore);
   const [selected, setSelected] = useState(
       () => sessionStorage.getItem("areal-gui:selected-global-task") ?? "",
@@ -1685,7 +1686,7 @@ export function TaskCenter({
                 className="grid gap-1 rounded-control border border-border p-2"
               >
                 <div className="flex flex-wrap justify-between gap-1">
-                  <span>{statusLabels[run.status] ?? run.status}</span>
+                  <span>{statusLabels[run.status] ? t(statusLabels[run.status]) : run.status}</span>
                   <span className="text-foreground-subtle">
                     {run.trigger === "manual" ? t("operations.manual") : t("operations.scheduled")}
                     ：{date(run.scheduledAt, runZone(run, task))} · 开始：
@@ -1814,7 +1815,7 @@ export function TaskCenter({
   return (
     <section
       ref={layout}
-      aria-label="自动化中心"
+      aria-label={t("operations.schedules.center")}
       className={`task-center text-ui-base ${detailOpen ? "has-detail" : ""} ${narrow ? "is-narrow" : ""}`}
     >
       <div className="task-center-toolbar">
@@ -1824,7 +1825,7 @@ export function TaskCenter({
           data-slot={undefined}
           type="submit"
           className="icon-button"
-          aria-label="前进"
+          aria-label={t("operations.schedules.forward")}
           disabled
         >
           <ArrowRight size={16} />
@@ -1834,7 +1835,7 @@ export function TaskCenter({
           data-slot={undefined}
           type="submit"
           className="icon-button"
-          aria-label="切换任务侧栏"
+          aria-label={t("operations.schedules.toggleSidebar")}
           aria-expanded={!navCollapsed}
           onClick={() => setNavCollapsed(!navCollapsed)}
         >
@@ -1848,12 +1849,12 @@ export function TaskCenter({
           hidden={navCollapsed || (narrow && detailOpen)}
         >
           <header className="task-list-heading">
-            <h1>定时任务</h1>
+            <h1>{t("operations.schedules.title")}</h1>
             <Button
               unstyled
               data-slot={undefined}
               type="submit"
-              aria-label="搜索定时任务"
+              aria-label={t("operations.schedules.search")}
               onClick={() => setSearching(!searching)}
             >
               <Search size={16} />
@@ -1865,8 +1866,8 @@ export function TaskCenter({
               data-slot={undefined}
               autoFocus
               className="task-search"
-              aria-label="搜索定时任务"
-              placeholder="搜索"
+              aria-label={t("operations.schedules.search")}
+              placeholder={t("operations.schedules.search")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => {
@@ -1882,7 +1883,7 @@ export function TaskCenter({
             data-slot={undefined}
             type="submit"
             className="task-new"
-            aria-label="新建自动化"
+            aria-label={t("operations.schedules.newLabel")}
             aria-pressed={creating}
             disabled={!connected}
             onClick={() => void beginCreate()}
@@ -1892,7 +1893,7 @@ export function TaskCenter({
           </Button>
 
           <div className="task-list-subheading">
-            <span>任务目录</span>
+            <span>{t("operations.schedules.catalog")}</span>
           </div>
           <div className="task-list-scroll">
             {pending.length > 0 && (
@@ -1919,87 +1920,49 @@ export function TaskCenter({
             {connected && !catalogSupported && (
               <p role="status">{t("operations.schedules.backendUpdateRequired")}</p>
             )}
-            {catalogSupported && failedProjects.length > 0 && (
-              <div className="task-catalog-error" role="status">
-                <p>{t("operations.schedules.partialLoad")}</p>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={!connected || loading}
-                  onClick={() =>
-                    void (async () => {
-                      for (const id of failedProjects) await refresh(false, id);
-                    })()
+            {!connected && <p role="status">{t("operations.schedules.disconnectedCatalog")}</p>}
+            {projects.map((owner) => {
+              const read = catalog[owner.id];
+              const saved = ownerRows(read);
+              return (
+                <TaskCatalogNotice
+                  key={owner.id}
+                  projectName={projectLabel(owner)}
+                  published={saved?.source === "published"}
+                  taskCount={saved?.data.length ?? 0}
+                  error={
+                    catalogSupported && read?.status === "error"
+                      ? read.message || t("operations.schedules.readFailed")
+                      : undefined
                   }
-                  aria-label={t("operations.schedules.retryCatalog")}
-                >
-                  {t("operations.schedules.retryCatalog")}
-                </Button>
-              </div>
-            )}
-            {!connected && (
-              <p role="status">尚未确认最新状态，当前显示上次读取的任务。请连接后台后重试。</p>
-            )}
-            {unobserved && (
-              <p role="status">
-                {t(
-                  loading
-                    ? "operations.schedules.updatingStatus"
-                    : "operations.schedules.unconfirmedStatus",
-                )}
-              </p>
-            )}
-            {projects
-              .filter(
-                (owner) =>
-                  (catalogSupported && catalog[owner.id]?.status === "error") ||
-                  (ownerRows(catalog[owner.id])?.source === "published" &&
-                    (ownerRows(catalog[owner.id])?.data.length ||
-                      ownerRows(catalog[owner.id])?.coverage.kind !== "empty")),
-              )
-              .map((owner) => (
-                <div key={owner.id} className="task-catalog-error">
-                  <p role="status">
-                    {projectLabel(owner)} ·{" "}
-                    {catalog[owner.id]?.status === "error"
-                      ? t("operations.schedules.readFailed")
-                      : t("operations.schedules.cached")}
-                    {ownerRows(catalog[owner.id])?.readAt
-                      ? ` · ${t("operations.schedules.readAt", { time: new Date(ownerRows(catalog[owner.id])!.readAt).toLocaleTimeString() })}`
-                      : ""}
-                    {ownerRows(catalog[owner.id])?.coverage.kind === "requiresCore"
-                      ? ` · ${t("operations.schedules.incomplete")}`
-                      : ""}
-                  </p>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={
-                      !connected || !catalogSupported || catalog[owner.id]?.status === "pending"
-                    }
-                    onClick={() => void refresh(false, owner.id)}
-                  >
-                    {t("operations.schedules.refreshProject")}
-                  </Button>
-                </div>
-              ))}
-            {initialLoading && !listed.length && !unobserved && (
-              <p role="status">{listed.length ? "其余任务仍在读取…" : "正在读取任务…"}</p>
+                  disabled={!connected || !catalogSupported || read?.status === "pending"}
+                  onUpdate={() => void refresh(false, owner.id)}
+                />
+              );
+            })}
+            {initialLoading && !listed.length && (
+              <p role="status">{t("operations.schedules.readingCatalog")}</p>
             )}
             {(
               [
-                ["已开启", (row: Data) => !row.paused && !row.cancelled && !finished(row)],
-                ["已暂停", (row: Data) => row.paused && !row.cancelled && !finished(row)],
-                ["已结束", (row: Data) => row.cancelled || finished(row)],
+                [
+                  t("operations.schedules.enabledGroup"),
+                  (row: Data) => !row.paused && !row.cancelled && !finished(row),
+                ],
+                [
+                  t("operations.schedules.pausedGroup"),
+                  (row: Data) => row.paused && !row.cancelled && !finished(row),
+                ],
+                [
+                  t("operations.schedules.finishedGroup"),
+                  (row: Data) => row.cancelled || finished(row),
+                ],
               ] as const
             ).map(([label, matches]) => {
               const rows = visibleRows.filter(matches);
               return (
                 rows.length > 0 && (
-                  <ScheduledWorkspace.Group
-                    key={label}
-                    label={label === "已结束" ? t("operations.schedules.finishedGroup") : label}
-                  >
+                  <ScheduledWorkspace.Group key={label} label={label}>
                     {rows.map((row) => (
                       <ScheduledWorkspace.Item
                         key={taskKey(row)}
@@ -2014,14 +1977,14 @@ export function TaskCenter({
                           ownerRows(catalog[row.projectId])?.source === "published" ||
                           !connected ||
                           catalog[row.projectId]?.status === "error"
-                            ? `${t("operations.schedules.cached")} · ${t("operations.schedules.readAt", { time: new Date(ownerRows(catalog[row.projectId])!.readAt).toLocaleTimeString() })}`
+                            ? t("operations.schedules.cached")
                             : row.deletedAt != null
                               ? scheduledTaskStatus(row, t)
                               : row.paused || row.cancelled || finished(row)
-                                ? taskStatus(row)
+                                ? taskStatus(row, t)
                                 : row.nextRunAt != null
                                   ? date(row.nextRunAt, scheduleZone(row))
-                                  : taskStatus(row)
+                                  : taskStatus(row, t)
                         }
                         onClick={() => {
                           setCreating(false);
@@ -2037,9 +2000,9 @@ export function TaskCenter({
             {fresh && !visibleRows.length && (
               <p>
                 {moreAvailable
-                  ? "已加载任务中没有匹配项，可展开显示更多。"
+                  ? t("operations.schedules.moreNoMatches")
                   : listed.length || search
-                    ? "没有符合筛选条件的定时任务。"
+                    ? t("operations.schedules.noMatches")
                     : t("operations.schedules.catalogEmpty")}
               </p>
             )}
@@ -2049,7 +2012,7 @@ export function TaskCenter({
                 disabled={!connected || loading}
                 onClick={() => void refresh(true)}
               >
-                展开显示
+                {t("operations.schedules.showMore")}
               </Button>
             )}
           </div>
@@ -2198,7 +2161,9 @@ export function TaskCenter({
                   ...task,
                   controlDisabled: disabled,
                   displayStatus:
-                    task.paused || task.cancelled || finished(task) ? taskStatus(task) : "已开启",
+                    task.paused || task.cancelled || finished(task)
+                      ? taskStatus(task, t)
+                      : t("operations.schedules.enabledGroup"),
                 },
                 runHistory,
                 revealKey,

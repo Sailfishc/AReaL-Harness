@@ -61,6 +61,7 @@ async fn model_inspects_only_its_thread_managed_services() {
         .create_configured(
             "test-client".into(),
             ThreadStart {
+                creation_admission: None,
                 options: None,
                 admission_guard: None,
                 request_id: "start-1".into(),

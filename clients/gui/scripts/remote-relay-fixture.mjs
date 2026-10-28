@@ -11,7 +11,7 @@ const require = createRequire(new URL("../app/package.json", import.meta.url));
 const WebSocket = require("ws");
 import { RemoteControl } from "../app/src/core/remote.cjs";
 
-export async function certificates() {
+export async function certificates(commonName = "RC12 isolated test CA") {
   const home = await mkdtemp(join(tmpdir(), "rc12-tls-"));
   const run = (args) => execFileSync("openssl", args, { cwd: home, stdio: "pipe" });
   run([
@@ -27,7 +27,7 @@ export async function certificates() {
     "-out",
     "ca.pem",
     "-subj",
-    "/CN=RC12 isolated test CA",
+    `/CN=${commonName}`,
     "-addext",
     "basicConstraints=critical,CA:TRUE",
   ]);
@@ -131,12 +131,14 @@ export async function relayFixture(
   const backendPort = probe.address().port;
   await new Promise((r) => probe.close(r));
   const sockets = new Set();
+  let acceptedTlsConnections = 0;
   const proxy = tlsServer(
     {
       key: await readFile(join(tlsHome, "server.key")),
       cert: await readFile(join(tlsHome, certificate)),
     },
     (socket) => {
+      acceptedTlsConnections += 1;
       const upstream = connect(backendPort, "127.0.0.1");
       sockets.add(socket);
       sockets.add(upstream);
@@ -182,6 +184,9 @@ export async function relayFixture(
     home,
     origin,
     config,
+    get acceptedTlsConnections() {
+      return acceptedTlsConnections;
+    },
     logs: () => logs,
     admin: (...args) =>
       JSON.parse(

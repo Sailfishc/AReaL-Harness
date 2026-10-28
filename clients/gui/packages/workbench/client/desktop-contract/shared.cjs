@@ -189,13 +189,30 @@ function isRemoteAssociation(value) {
 
 /** @typedef {Record<string,unknown> & {requestId?:string,method?:string,threadId?:string|null,taskId?:string|null,status?:string|null,state?:string|null,operation?:import('../../../runtime-client/core.js').OperationRef,response?:ReceiptResponse|null,error?:ReceiptError|null}} Receipt */
 
-/** @param {unknown} value @returns {{data:Receipt[]}} */
+/** @typedef {import('../../../runtime-client/capabilities.js').CreationAdmission & {status:'admitted'|'unconfirmed'|'notAdmitted',requestId:string,method:'areal/thread/start'}} CreationAdmissionResult */
+/** @param {unknown} value @returns {{data:Receipt[],creationAdmission?:CreationAdmissionResult}} */
 function readReceipts(value) {
   if (!modelRecord(value) || !Array.isArray(value.data) || !value.data.every(isReceipt))
     throw Object.assign(new Error("Core 原始回执结构无效，受理结果仍未确认"), {
       code: "RECEIPT_INVALID",
     });
-  return { data: value.data };
+  const admission = value.creationAdmission;
+  if (admission !== undefined && !isCreationAdmissionResult(admission))
+    throw Object.assign(new Error("Invalid creation admission result"), {
+      code: "RECEIPT_INVALID",
+    });
+  return { data: value.data, ...(admission !== undefined ? { creationAdmission: admission } : {}) };
+}
+
+/** @param {unknown} value @returns {value is CreationAdmissionResult} */
+function isCreationAdmissionResult(value) {
+  return (
+    modelRecord(value) &&
+    ["admitted", "unconfirmed", "notAdmitted"].includes(String(value.status)) &&
+    value.method === "areal/thread/start" &&
+    typeof value.requestId === "string" &&
+    require("../../../runtime-client/capabilities.js").isCreationAdmission(value)
+  );
 }
 
 /** @param {unknown} value @returns {value is Receipt} */
@@ -625,7 +642,7 @@ function isQueue(value) {
     )
   );
 }
-/** @typedef {Record<string,unknown> & {requestId?:string,threadId?:string,taskId?:string,sourceThreadId?:string,parentThreadId?:string,turnId?:string,expectedTurnId?:string,expectedRevision?:number,previousItems?:unknown[],input?:unknown[]}} SubmissionParams */
+/** @typedef {Record<string,unknown> & {creationAdmission?:import('../../../runtime-client/capabilities.js').CreationAdmission,requestId?:string,threadId?:string,taskId?:string,sourceThreadId?:string,parentThreadId?:string,turnId?:string,expectedTurnId?:string,expectedRevision?:number,previousItems?:unknown[],input?:unknown[]}} SubmissionParams */
 /** @typedef {Record<string,unknown> & {method:string,params:SubmissionParams,operation?:import('../../../runtime-client/core.js').OperationRef,operationId?:string,remote?:RemoteAssociation}} PendingSubmission */
 /** @param {unknown} value @returns {value is PendingSubmission} */
 function isPendingSubmission(value) {
@@ -633,6 +650,7 @@ function isPendingSubmission(value) {
     modelRecord(value) &&
     typeof value.method === "string" &&
     isSubmissionParams(value.params) &&
+    (value.createdAt === undefined || typeof value.createdAt === "string") &&
     (value.operation === undefined || isOperationRef(value.operation)) &&
     (value.operationId === undefined || typeof value.operationId === "string") &&
     (value.remote === undefined ||
@@ -645,6 +663,10 @@ function isPendingSubmission(value) {
 function isSubmissionParams(value) {
   return (
     modelRecord(value) &&
+    (value.creationAdmission === undefined ||
+      require("../../../runtime-client/capabilities.js").isCreationAdmission(
+        value.creationAdmission,
+      )) &&
     [
       "requestId",
       "threadId",
