@@ -85,7 +85,9 @@ export function MobileAddDevice({
       ? t("settings.mobileConnect.reviewTitle", { device: pending.name })
       : step === "done"
         ? t("settings.mobileConnect.doneTitle", { device: pairedName })
-        : t("settings.mobileConnect.scanTitle");
+        : invite && !scannable
+          ? t("settings.mobileSettings.onlyABrowserOnThisComputerCan")
+          : t("settings.mobileConnect.scanTitle");
   const description =
     step === "review"
       ? t("settings.mobileConnect.reviewDescription")
@@ -93,7 +95,9 @@ export function MobileAddDevice({
         ? t("settings.mobileConnect.doneDescription")
         : scannable
           ? t("settings.mobileConnect.scanDescription")
-          : t("settings.mobileSettings.copyTheLinkIntoABrowserOn");
+          : invite
+            ? t("settings.mobileConnect.localInvitationDescription")
+            : t("settings.mobileConnect.generating");
   return (
     <SettingsDialog
       className="remote-dialog remote-add-device"
@@ -109,7 +113,7 @@ export function MobileAddDevice({
       )}
       {step === "scan" && (
         <div className="remote-invitation">
-          {invite && scannable && (
+          {invite && !inviteExpired && (
             <img
               width="168"
               height="168"
@@ -127,7 +131,12 @@ export function MobileAddDevice({
           ) : invite ? (
             <p className="remote-invitation-timer" role="status">
               <span className="remote-dot" data-tone="good" aria-hidden />
-              {t("settings.mobileConnect.waiting", { time: remaining })}
+              {t(
+                scannable
+                  ? "settings.mobileConnect.waiting"
+                  : "settings.mobileConnect.waitingLocal",
+                { time: remaining },
+              )}
             </p>
           ) : (
             <p className="remote-invitation-timer" role="status">

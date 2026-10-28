@@ -53,21 +53,25 @@ export function RelayEnrollForm({ state, busy, run }: { state: Data; busy: boole
   const [relayOrigin, setRelayOrigin] = useState("");
   const [enrollmentCode, setEnrollmentCode] = useState("");
   const [relayConfirmed, setRelayConfirmed] = useState(false);
+  const [enrolling, setEnrolling] = useState(false);
   useEffect(() => {
     setRelayOrigin(state.relay ?? "");
   }, [state.relay]);
   const enable = async () => {
-    await run({
+    setEnrolling(true);
+    const result = await run({
       operation: "enable",
       relay: relayOrigin,
       confirmed: true,
       ...(enrollmentCode ? { code: enrollmentCode } : {}),
     });
+    setEnrolling(false);
+    if (!result?.enabled) return;
     setEnrollmentCode("");
     setRelayConfirmed(false);
   };
   return (
-    <fieldset disabled={busy} className="remote-relay-form">
+    <fieldset disabled={busy || enrolling} aria-busy={enrolling} className="remote-relay-form">
       <legend className="sr-only">{t("settings.mobileSettings.enrollOrReconnectRelay")}</legend>
       <label>
         <span>{t("settings.mobileConnect.relayOrigin")}</span>
@@ -117,9 +121,11 @@ export function RelayEnrollForm({ state, busy, run }: { state: Data; busy: boole
           </Button>
         )}
         <Button disabled={!relayConfirmed || !relayOrigin} onClick={() => void enable()}>
-          {state.enabled
-            ? t("settings.mobileSettings.enrollOrEnableRelay")
-            : t("settings.mobileConnect.turnOn")}
+          {enrolling
+            ? t("settings.mobileConnect.enrolling")
+            : state.enabled
+              ? t("settings.mobileSettings.enrollOrEnableRelay")
+              : t("settings.mobileConnect.turnOn")}
         </Button>
       </div>
       {state.enabled && state.connected && (

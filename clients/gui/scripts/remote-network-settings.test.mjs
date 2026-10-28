@@ -156,3 +156,135 @@ test("Phone connection settings keep the main path short and the network consent
     await vite.close();
   }
 });
+
+test("relay enrollment retains failed input and invitations render QR images in a browser", async () => {
+  const appRequire = createRequire(new URL("../app/package.json", import.meta.url));
+  const { chromium } = appRequire("playwright-core");
+  const relayQr = await appRequire("qrcode").toDataURL("https://relay.example.org/#invite=test");
+  const localQr = await appRequire("qrcode").toDataURL("http://127.0.0.1:43123/#invite=test");
+  const vite = await createServer({
+    root: fileURLToPath(new URL("../renderer/", import.meta.url)),
+    configFile: fileURLToPath(new URL("../renderer/vite.config.ts", import.meta.url)),
+    plugins: [
+      {
+        name: "remote-settings-browser-fixture",
+        configureServer(server) {
+          server.middlewares.use(async (request, response, next) => {
+            if (request.url !== "/remote-settings-test") return next();
+            response.setHeader("Content-Type", "text/html");
+            response.end(
+              await server.transformIndexHtml(
+                request.url,
+                '<html class="dark"><body><div id="root"></div><script type="module" src="/remote-settings-fixture.jsx"></script></body></html>',
+              ),
+            );
+          });
+        },
+        resolveId(id) {
+          if (id === "/remote-settings-fixture.jsx") return "\0remote-settings-fixture.jsx";
+        },
+        load(id) {
+          if (id !== "\0remote-settings-fixture.jsx") return;
+          return `
+          import React from 'react';
+          import { createRoot } from 'react-dom/client';
+          import { IntlProvider } from 'react-intl';
+          import { catalogs } from '/src/i18n/messages.ts';
+          import { MobileSettings } from '/src/settings/MobileSettings.tsx';
+          import '/src/styles.css';
+          import '/src/workbench.css';
+          let state = { deviceGrants: [], pending: [], directEnabled: true,
+            directUrl: 'http://127.0.0.1:43123', directHostId: 'test-host' };
+          window.requests = [];
+          const action = async (_, request) => {
+            window.requests.push(request);
+            if (request.operation === 'enable') {
+              await new Promise(resolve => { window.finishEnrollment = resolve; });
+              if (!window.enrollmentSucceeds) throw new Error('Enrollment rejected');
+              state = { ...state, enabled: true, connected: true, relay: request.relay };
+            }
+            if (request.operation === 'pair') return {
+              payload: state.enabled ? 'https://relay.example.org/#invite=test' : 'http://127.0.0.1:43123/#invite=test',
+              qr: state.enabled ? ${JSON.stringify(relayQr)} : ${JSON.stringify(localQr)}, expiresAt: Date.now() + 120000
+            };
+            return structuredClone(state);
+          };
+          createRoot(document.getElementById('root')).render(
+            React.createElement(IntlProvider, { locale: 'zh-CN', messages: catalogs['zh-CN'] },
+              React.createElement(MobileSettings, { action, projects: [] }))
+          );`;
+        },
+      },
+    ],
+    resolve: { alias: { "@": fileURLToPath(new URL("../renderer/src/", import.meta.url)) } },
+    server: { host: "127.0.0.1", port: 0 },
+    oxc: { jsx: { runtime: "automatic" } },
+  });
+  let browser;
+  try {
+    await vite.listen();
+    browser = await chromium.launch({
+      headless: true,
+      ...(process.env.AREAL_GUI_TEST_BROWSER
+        ? { executablePath: process.env.AREAL_GUI_TEST_BROWSER }
+        : { channel: "chrome" }),
+    });
+    const page = await browser.newPage({ viewport: { width: 1280, height: 960 } });
+    page.setDefaultTimeout(15000);
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto(`${vite.resolvedUrls.local[0]}remote-settings-test`);
+    const origin = page.getByRole("textbox", { name: "Relay HTTPS 来源" });
+    const code = page.getByLabel("管理员一次性登记码", { exact: true });
+    const consent = page.locator(".remote-relay-consent input").first();
+    await origin.fill("https://relay.example.org");
+    await code.fill("test-enrollment-code");
+    await consent.check();
+    await page.getByRole("button", { name: "开启手机连接", exact: true }).click();
+    await page.getByRole("button", { name: "正在登记中继…" }).waitFor();
+    assert.equal(await code.inputValue(), "test-enrollment-code");
+    await page.evaluate(() => window.finishEnrollment());
+    await page.getByRole("alert").filter({ hasText: "Enrollment rejected" }).waitFor();
+    assert.equal(await code.inputValue(), "test-enrollment-code");
+    assert.equal(await origin.inputValue(), "https://relay.example.org");
+    assert.equal(await consent.isChecked(), true);
+    // 轮询后失败输入仍保留，旧本机邀请也有二维码和明确的使用限制。
+    await page.waitForFunction(
+      () => window.requests.filter((r) => r.operation === "status").length >= 2,
+    );
+    assert.equal(await code.inputValue(), "test-enrollment-code");
+    await page.getByRole("button", { name: "添加设备", exact: true }).click();
+    const image = page.getByRole("img", { name: "手机配对二维码" });
+    await image.waitFor();
+    await page.waitForFunction(
+      () => document.querySelector(".remote-invitation img")?.naturalWidth > 0,
+    );
+    assert.match(await page.getByRole("dialog").innerText(), /仅供这台电脑的浏览器使用/);
+    assert.match(await page.getByRole("dialog").innerText(), /正在等待本机浏览器/);
+    await page.getByRole("button", { name: "关闭弹窗" }).click();
+    await page.evaluate(() => {
+      window.enrollmentSucceeds = true;
+    });
+    await page.getByRole("button", { name: "开启手机连接", exact: true }).click();
+    await page.getByRole("button", { name: "正在登记中继…" }).waitFor();
+    await page.evaluate(() => window.finishEnrollment());
+    await page.getByRole("status").filter({ hasText: "已登记中继 relay.example.org" }).waitFor();
+    assert.match(
+      await page.locator(".remote-status-card").innerText(),
+      /注册码已使用，无需再次填写/,
+    );
+    await page.getByRole("button", { name: "添加设备", exact: true }).click();
+    await image.waitFor();
+    assert.match(await page.getByRole("dialog").innerText(), /用手机扫描二维码/);
+    assert.equal(
+      await page.getByLabel("配对链接", { exact: true }).inputValue(),
+      "https://relay.example.org/#invite=test",
+    );
+    if (process.env.AREAL_REMOTE_SETTINGS_SCREENSHOT)
+      await page.screenshot({ path: process.env.AREAL_REMOTE_SETTINGS_SCREENSHOT, fullPage: true });
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser?.close();
+    await vite.close();
+  }
+});

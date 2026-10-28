@@ -212,7 +212,13 @@ export function MobileSettings({ action, projects }: { action: Action; projects:
             </Button>
           )}
         </div>
-        {!state.enabled && <RelayEnrollForm state={state} busy={busy} run={run} />}
+        {state.enabled ? (
+          <p className="remote-muted" role="status">
+            {t("settings.mobileConnect.enrolled", { host: relayHost })}
+          </p>
+        ) : (
+          <RelayEnrollForm state={state} busy={busy} run={run} />
+        )}
       </SettingsGroupCard>
       {!adding && (error || state.directError || state.migrationError) && (
         <p className="remote-error" role="alert">

@@ -1887,6 +1887,23 @@ export const remoteMessages = {
     "zh-CN": "首次登记时粘贴",
     en: "Paste for first enrollment",
   },
+  "settings.mobileConnect.enrolling": {
+    "zh-CN": "正在登记中继…",
+    en: "Enrolling relay…",
+  },
+  "settings.mobileConnect.enrolled": {
+    "zh-CN": "已登记中继 {host}，注册码已使用，无需再次填写。",
+    en: "Enrolled with {host}. Your enrollment code has been used; you do not need to enter it again.",
+  },
+  "settings.mobileConnect.localInvitationDescription": {
+    "zh-CN":
+      "此二维码和链接仅供这台电脑的浏览器使用。连接手机前，请先完成中继登记，或在高级网络设置中配置 HTTPS。",
+    en: "This code and link work only in a browser on this computer. To connect a phone, first enroll with a relay or configure HTTPS in advanced network settings.",
+  },
+  "settings.mobileConnect.waitingLocal": {
+    "zh-CN": "正在等待本机浏览器 · {time} 后失效",
+    en: "Waiting for a local browser · Expires in {time}",
+  },
   "settings.mobileConnect.turnOn": {
     "zh-CN": "开启手机连接",
     en: "Turn on phone connection",
