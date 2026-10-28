@@ -586,7 +586,10 @@ if (!process.env.RC12_TLS_HOME) {
           code: relay.admin("enrollment").code,
           confirmed: true,
         }),
-        { code: "enrollment-failed" },
+        {
+          code: "enrollment-failed",
+          message: `Relay HTTPS 证书验证失败（${expected}）。请检查证书域名、有效期和桌面进程信任的 CA。`,
+        },
       );
       assert.equal(f.remote.state().enabled, false);
     }
