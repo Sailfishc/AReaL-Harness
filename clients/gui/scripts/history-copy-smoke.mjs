@@ -1,5 +1,5 @@
 import { makeTempDir } from "./support/temp.mjs";
-import { assertApplicationStopped } from "./application-cleanup.mjs";
+import { assertApplicationStopped, closeSmokeApplication } from "./application-cleanup.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { mkdir, readFile, writeFile, cp, readdir, lstat } from "node:fs/promises";
@@ -345,22 +345,51 @@ try {
   failure = { message: error.message, stack: error.stack };
   if (page) await captureSmokeFailure(page, scratch, error);
 } finally {
+  const cleanup = { errors: [], applicationStopped: false };
+  let meta;
+  let serviceMetadataVerified = false;
   try {
-    const meta = await readFile(join(scratch, "core/service.json"), "utf8")
+    meta = await readFile(join(scratch, "core/service.json"), "utf8")
       .then(JSON.parse)
       .catch((error) => {
         if (error.code === "ENOENT") return null;
         throw error;
       });
-    if (app) {
-      await app.evaluate(({ dialog }) => {
-        dialog.showMessageBox = async () => ({ response: 1 });
-      });
-      await withSmokeDeadline("history application quit", () => app.close(), 120000);
+    serviceMetadataVerified = !app || (Number.isSafeInteger(meta?.pid) && meta.pid > 1);
+    if (!serviceMetadataVerified) {
+      cleanup.errors.push(
+        "service metadata: Desktop process PID is missing or invalid; shutdown cannot be verified",
+      );
     }
-    if (env) await assertApplicationStopped(binary, env, meta);
   } catch (error) {
-    failure ??= { cleanup: error.message };
+    cleanup.errors.push(`service metadata: ${error.message}`);
+  }
+  try {
+    if (app) {
+      await closeSmokeApplication(
+        {
+          process: () => app.process(),
+          close: async () => {
+            await app.evaluate(({ dialog }) => {
+              dialog.showMessageBox = async () => ({ response: 1 });
+            });
+            await app.close();
+          },
+        },
+        120000,
+      );
+    }
+  } catch (error) {
+    cleanup.errors.push(`Electron close: ${error.message}`);
+  }
+  // 精确 Electron 子进程退出不代表私有 Desktop/Core 已退出，仍独立核验库存。
+  try {
+    if (env) {
+      await assertApplicationStopped(binary, env, meta);
+      cleanup.applicationStopped = serviceMetadataVerified;
+    }
+  } catch (error) {
+    cleanup.errors.push(`service inventory: ${error.message}`);
   }
   await new Promise((resolve) => server.close(resolve));
   try {
@@ -380,7 +409,7 @@ try {
   if (!sourceUnchanged || modelRequests !== 0)
     failure ??= { message: "Source changed or a model request was replayed" };
   const report = {
-    passed: !failure,
+    passed: !failure && cleanup.errors.length === 0,
     sourceMode: fixtureMode ? "sanitized-fixture" : "local-copy",
     source,
     executablePath: executablePath || "development Electron",
@@ -390,12 +419,15 @@ try {
     copyUnchangedWhileOpen,
     sourceUnchanged,
     modelRequests,
+    cleanup,
     cleanupNote:
-      "Application quit confirmed the isolated adapter and all copied Core generations stopped; drain may update copied queue revisions after observation",
+      cleanup.errors.length === 0 && cleanup.applicationStopped
+        ? "Application quit confirmed the isolated adapter and all copied Core generations stopped; drain may update copied queue revisions after observation"
+        : "Cleanup did not complete successfully; inspect cleanup errors and service inventory evidence",
     failure,
   };
   const evidence = join(scratch, "manifest.json");
   await writeFile(evidence, JSON.stringify(report, null, 2), { mode: 0o600 });
   console.log(JSON.stringify({ passed: report.passed, evidence }));
-  process.exitCode = failure ? 1 : 0;
+  process.exitCode = report.passed ? 0 : 1;
 }

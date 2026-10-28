@@ -298,6 +298,14 @@
     "ciSmoke": "history"
   },
   {
+    "script": "test:history-cleanup",
+    "layer": "contract",
+    "platforms": ["darwin", "linux"],
+    "areas": ["history", "lifecycle"],
+    "requires": [],
+    "notes": "Exercises the history runner cleanup with owned child processes; service inventory is a separate boundary, and full Electron/Core cleanup requires history-compat."
+  },
+  {
     "script": "test:connection",
     "layer": "contract",
     "platforms": ["darwin", "linux"],

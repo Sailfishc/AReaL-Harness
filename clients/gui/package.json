@@ -58,6 +58,7 @@
     "test:context-usage": "node scripts/context-usage-smoke.mjs",
     "test:model-selection": "node scripts/model-selection-smoke.mjs",
     "test:history-compat": "node scripts/history-copy-smoke.mjs",
+    "test:history-cleanup": "node --test scripts/history-copy-smoke.test.mjs scripts/application-cleanup.test.mjs",
     "test:connection": "node scripts/connection-smoke.mjs",
     "test:history-navigation-ui": "node scripts/history-navigation-ui-smoke.mjs",
     "test:navigation-cache": "node scripts/navigation-cache-ui-smoke.mjs",
