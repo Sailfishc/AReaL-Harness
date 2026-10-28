@@ -904,6 +904,19 @@ impl Engine {
                                 .handles
                                 .pending_verifications
                                 .is_empty();
+                        // 显式完成恢复可在无工具收尾前提醒根 Goal 报告进度；不代写报告或放宽暂停保护。
+                        let missing_goal_report = calls.is_empty()
+                            && visible_output
+                            && !steered
+                            && !pending_verification
+                            && !final_round
+                            && !output_handoff
+                            && completion_retries < self.limits.max_completion_retries
+                            && state.thread.parent_thread_id.is_none()
+                            && state.thread.goals.goal.as_ref().is_some_and(|goal| {
+                                goal.status == areal_protocol::goals::GoalStatus::Active
+                                    && goal.report_turn_id.as_deref() != Some(turn_id.as_str())
+                            });
                         drop(state);
                         // 明确拒收的响应仍保留观测内容，但不能成为可蒸馏的 accepted completion。
                         operation.finish(if steered {
@@ -912,6 +925,8 @@ impl Engine {
                             Some("empty_completion")
                         } else if pending_verification {
                             Some("pending_verification")
+                        } else if missing_goal_report {
+                            Some("missing_goal_report")
                         } else {
                             None
                         });
@@ -945,6 +960,27 @@ impl Engine {
                                 continue 'restart;
                             }
                             return Err(error);
+                        }
+                        if missing_goal_report {
+                            drop(state);
+                            let error = anyhow::anyhow!(
+                                "active root Goal has no progress report for this Turn"
+                            );
+                            if self
+                                .discard_completion(
+                                    cell,
+                                    &completion_items,
+                                    &[],
+                                    &error,
+                                    (completion_retries, "completion"),
+                                )
+                                .await?
+                            {
+                                completion_retries += 1;
+                                recovery_hint = Some("A durable Goal is still active and this Turn has no goal_update report. Before ending this Turn, call goal_read for the current revision and goal_update: report continue with concrete remaining work, or complete only after the entire requested task is verified with no remaining work. A normal final reply ends one Turn and does not complete the Goal. Continue from confirmed results; do not replay completed operations or invent verification evidence.".to_owned());
+                                continue 'restart;
+                            }
+                            anyhow::bail!("cancelled");
                         }
                         if pending_verification {
                             let pending = state

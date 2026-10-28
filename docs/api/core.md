@@ -162,6 +162,8 @@ Responses 的函数参数在成功终态结算最终用量后才进行 JSON 校�
 
 `max_completion_retries` 默认 0，可为已分类的长度截断、非法工具 index、空回复等提供有限恢复（仅 reasoning 不算最终回复）；关闭 watchdog 后，已分类网络错误也沿用此有限额度。工具仍只在完整成功流后执行；UNKNOWN、持久化错误、取消与显式任务预算错误不重放。
 
+显式开启完成恢复时，活跃根 Goal 的无工具回复若尚未提交本 Turn 的 `goal_update`，也可使用同一有限额度获得一次协议提醒。Core 只丢弃该回复并要求模型读取当前 Goal、报告真实进度；不代写报告、假定完成或重放此前工具。收尾轮、输出交接及待观察的验证优先沿用各自约束；恢复额度耗尽后仍保留 `max_unreported_turns` 暂停保护。默认额度 0 和普通 Turn 行为不变。
+
 Chat 工具 index 缺失、null、非整数类型、负数、超出 u64 范围或片段非对象时，使用明确的内部协议错误，只进入上述有限恢复，不进入网络 watchdog，也不作为 Workgroup 推理检查点。Core 不猜测编号或片段归属；数量、参数和缓冲预算错误不自动恢复。失败响应的模型视图被丢弃，已有确认工具、steer 和已观测 usage 保留。解析错误在已排队事件交付后立即传播；同事件或前序事件的已解析 usage 只累计一次，直接 EOF 保留原始错误类型。
 
 Rust `Model::chat_with_limits(messages, tools, purpose, ToolCallLimits, cap)` 显式传递请求预算，内置 HTTP、共享池和 Worker 包装器均转发。可选的输出 token 上限与工具预算一起经过 Goal 计量传递。默认实现委托 `chat_limited`，保持已有自定义 Model 实现可编译，并拒绝不受支持的非空 token 上限；自定义模型自行约束内部缓冲，Engine 仍在工具执行前检查其输出。摘要使用零调用预算。`Limits` 新增 `max_tool_buffer_bytes`，`NativeFactory`/`NativeExecutor` 新增 `tool_call_limits`，显式结构体初始化需补充字段；构造器提供默认值。Rust Limits 同时区分可选累计预算与单响应资源保护。
