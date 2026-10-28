@@ -4,6 +4,8 @@
 
 Read the [architecture](../design/architecture.en.md), [repository instructions](../../AGENTS.md) and [agent improvement goals and method](agent-improvement.en.md) first. Run commands from the repository root.
 
+The [T3 Code quality design proposal](t3code-quality-design.en.md) describes candidate improvements and acceptance boundaries for protocol replay, controlled ordering, projection consistency, and local checks. These are not yet shipped capabilities.
+
 ## Environment
 
 | Dependency | Requirement |

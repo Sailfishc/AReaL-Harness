@@ -4,6 +4,8 @@
 
 先阅读[架构](../design/architecture.md)、[开发规范](../../AGENTS.md)和[Agent 改进目标与方法](agent-improvement.md)。所有命令从仓库根目录执行。
 
+[T3 Code 质量补充设计](t3code-quality-design.md)列出协议回放、可控时序、投影一致性与本地快检等候选改进及验收边界，尚未作为已实现能力发布。
+
 ## 环境
 
 | 依赖 | 要求 |
