@@ -1519,8 +1519,8 @@ impl Engine {
         if retries >= limit
             || (error.downcast_ref::<model::ModelFailure>().is_none()
                 && error.downcast_ref::<model::ToolCallIndexError>().is_none()
-                && !model::terminal_outcome(error)
-                    .is_some_and(|outcome| outcome.code == "LLM_OUTPUT_TOKEN_LIMIT_EXCEEDED"))
+                && model::terminal_outcome(error)
+                    .is_none_or(|outcome| outcome.code != "LLM_OUTPUT_TOKEN_LIMIT_EXCEEDED"))
         {
             return Ok(false);
         }
