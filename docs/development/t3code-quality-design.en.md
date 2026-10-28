@@ -2,6 +2,55 @@
 
 # Learning from T3 Code: testability, reliability, and development efficiency
 
+## Session objective and implementation boundaries
+
+The session objective is to **make critical user journeys produce trustworthy outcomes during normal operation, failures, and upgrades; give every code change faster evidence that can detect mistakes; and improve responsiveness and consistent interaction on that basis.** T3 is a design reference. AReaL failures, call paths, and user tasks determine the work.
+
+The external study targets T3 `f41518f3`; the local source comparison targets `93a9e079b107a13b0c312920b917b5f61a8f720c`. Its commit counts, CI rates, durations, and release examples are not AReaL quality metrics. Independently unverified numbers do not become acceptance evidence for this repository.
+
+Retain Clients → Core → Runtime ownership: Core owns admission, conversations, and execution settlement; Runtime owns effects and cleanup; Desktop/workbench owns transport, observation, and rebuildable projections; Renderer owns user intent and derived presentation; Design System constrains state communication, composition, and interaction continuity. Introduce a domain object, recovery protocol, or persistence mechanism only after demonstrating which concrete contract the existing owner cannot satisfy.
+
+### Six outcome objectives
+
+| Objective | User or developer outcome | Acceptance and existing entry points |
+| --- | --- | --- |
+| Q1. Trustworthy state and recovery | Accepted, executing, settled, and unknown remain distinct; stop, reconnect, and late events cannot cross task ownership or repeat effects | Admission/recovery contracts and Provider replay check authoritative identities, persisted results, and real effects, followed by GUI state and available actions. See `core/engine/src/desktop/submissions.rs`, `provider_replay.rs`, and Desktop projection tests |
+| Q2. Trustworthy, repeatable verification | Correct implementations pass and relevant faults are explicitly rejected; failures retain evidence and clean up their own resources | Bind results to source/input/artifact identity; cover empty plans, cache hits, missing prerequisites, and cleanup failures; await actual persistence, drain, or exit milestones. Reuse `check-changed.py`, existing smokes, and artifact verification |
+| Q3. Consistent product interaction and Design System | Users understand the current state and next action, retaining reading and interaction intent through streaming, disclosure, navigation, and recovery | Apply `CONV-OWNER-01`, `CONV-READ-01`, `CONV-DISCLOSURE-01`, `NAV-CONTEXT-01`, and `RECOVER-TRUTH-01` to state, actions, focus, semantic anchors, and manual disclosure, using production components and nearby contracts |
+| Q4. Attributable performance gains | Representative workloads reduce actual waiting or main-thread cost while data stays fresh and caches remain bounded | Compare identical inputs/environments; distinguish derivation calls/processed bytes, CPU, interaction latency, transfer size, and heap/RSS. Detect disabled optimizations and verify history/owner/status invalidation |
+| Q5. Faster, transparent development feedback | Common changes expose relevant failures early; unknown scope expands checks and missing evidence stays visible | Reuse CI scope and the manifest; record type/static/behavior/build durations and first-run failures; explain selection, skipping, and cache invalidation; retain fault detection before and after optimization |
+| Q6. Usable builds, upgrades, and delivery | The same candidate application starts, reads supported old data, displays original conversations, and exits normally, with recovery actions for failures | Reuse `verification.py`, `history-copy-smoke.mjs`, `update-smoke.mjs`, and package checks. Bind source, source Electron, final package, signing, and notarization evidence separately |
+
+Testability is an owner-interface property: important asynchronous work needs observable completion or failure. Verifiability is an evidence property: conclusions identify inputs, actual execution boundaries, and missing coverage. Test counts, rule counts, cache counts, and document length are not completion metrics.
+
+### Select coverage through user journeys
+
+Maintain five repeatable journeys: send and observe an outcome; reconcile after stop or disconnect; read and manually expand during streaming; switch conversations and return to drafts/reading position; open old data and recover from upgrade failure. Each iteration selects the affected journeys and critical failure states rather than every state combination.
+
+Design System supplies their interaction contracts: shared primitives own appearance and accessibility semantics, business owners supply truthful state and valid actions, and pages compose them. Follow must/default rules and reuse tokens, components, and states. New exceptions need a concrete consumer, reason, and exit condition. Static checks, pure derivation/SSR, real browser interaction, source Electron, and final packages receive separate conclusions. Screenshots only establish captured states, not recovery, cancellation, or focus continuity.
+
+### Execution order
+
+| Priority | Bounded work | Closure condition |
+| --- | --- | --- |
+| P0: integration baseline | Establish reachability of main-worktree, Claude, and specialist branches; run affected contracts, types, and design checks | Current baseline, unintegrated work, failures, and evidence limits are reviewable. Integrated admission work does not imply parked schedules, lint, or all specialist fixes are integrated |
+| P0: trustworthy feedback | Fix the reproduced empty-plan invalidation gap: source/index changes after an empty plan may still return `no-changes`; investigate cleanup boundaries that left processes after a historical-data counterexample | Independent failure evidence for both; empty results bind current inputs; cleanup completes only when owned instances exit, without counting timeout or forced kill as normal cleanup |
+| P1: product continuity | Establish a real-input baseline for streaming reading, manual disclosure, and navigation on integrated Messages; check unknown and unsettled states | Semantic anchors, conversation identity, disclosure choices, focus, and valid actions match contracts; classify baseline failures before optimization instead of weakening assertions |
+| P2: demonstrated hotspots | Measure message grouping, reading-checkpoint serialization, and reference/notification propagation through CoreBackend→SharedCoreBackend→Renderer; implement only demonstrably useful small slices | Attributable gains on the same workload plus passing invalidation, capacity, and interaction contracts; candidates without benefit evidence remain unmeasured rather than adding mechanisms |
+| Impact-triggered: delivery and model interfaces | Package/dependency/migration changes run final-artifact journeys; prompt/tool/budget changes run byte baselines and proportionate behavioral evaluation | Evidence identifies the artifact or model configuration; publishing, signing credentials, paid models, and external operations retain their authorization boundaries |
+
+Fix performance workloads by actual dimensions: projects/conversations, visible Turns/items, stream-event count and cadence, historical pages/content size, reading owners, theme/font/window, and device. Separate cold and warm paths; attach sample counts and failed attempts to latency percentiles. Measure distributions before setting stable budgets. Do not copy T3 byte limits or equate encoded JSON size with memory limits.
+
+Repeated message grouping and repeated serialization of 32 reading checkpoints are candidate evidence. A local message-derivation CPU sample is about 1ms and its prototype reading assertion fails on the old baseline, so it does not establish a user hotspot. Both snapshot layers recreate project containers; a single-layer cache simulation likewise does not prove production transfer savings. Calibrate the real path and interaction before choosing implementation.
+
+### Iteration loop and stopping conditions
+
+Start with a real defect, user journey, or measurement. State “broken invariant → owning module → cheapest correct interception boundary → counterexample that can fail.” Reuse sufficient tests and avoid duplicate mirror tests for constraints already represented by types.
+
+Each iteration follows objective/baseline → parallel investigation → architecture decision → small implementation → independent verification → contract/document update → local commit. Discovery does not automatically expand scope. Delegate by owner, freeze writes before integration, and bind evidence to one source baseline. Review state semantics, cache/selection logic, and failure cleanup first; resolve basic errors before visual or more expensive native qualification.
+
+Deliver what changed, why that layer owns it, normal/failure observations, before/after measurements, targeted counterexamples, actual artifact identity, and unexecuted checks. Stop when the slice meets its contract, relevant checks are complete, and the owned diff is reviewed. Missing live-provider, platform, package, or user acceptance remains an explicit qualification gap; it does not become a claim that the entire system is accepted.
+
 ## Status and implementation boundaries
 
 This design extends A/B/C in the admission-record, scheduled-task, and repository-lint specification. The minimum D–I slices now use existing tests, fixtures, and local-check entry points. J changes the owners of Renderer navigation derivations and reading state. Executed evidence and remaining native acceptance are reported separately.
