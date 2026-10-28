@@ -38,6 +38,8 @@ macOS native smoke tests require Seatbelt; Linux native smoke tests require `/us
 
 Linux host checks use `make verify CARGO_TEST_ARGS='--exclude areal-runtime-exec-native'`. Native backend tests require `/usr/bin/bwrap` and user namespaces; a separate CI job builds the Dockerfile's `runtime-tests` target and runs every backend test, including `outer-container-perf`, inside the controlled Bubblewrap container. It also enables `areal-runtime/native-tests` and runs the daemon's `native_transport` target. That target starts the real daemon over private stdio with the complete Runtime bundle, so Linux resolves the reaper beside the daemon. Its native sandbox test keeps the ordinary-command/hook progress and foreign-writer exclusion assertions; the four portable transport tests remain in the default suite. `make verify-native` builds the bundle before explicitly running the same native target on macOS. The feature selects this test target only and changes no production behavior. Excluding native tests from the portable host lane alone does not complete validation.
 
+Integration tests that embed Runtime inside the Cargo test process need the matching reaper beside that host in `target/<profile>/deps/`. The `runtime-tests` image installs and checks this artifact in a separate layer, retaining compiled-test layers. The offline CI contract executes the actual installation commands and verifies location, bytes, and executable permissions; compiler and package-manager boundary fixtures do not replace native Linux container acceptance.
+
 ## Repeatable faults, local checks, and cache acceptance
 
 Select relevant entry points from the repository root:

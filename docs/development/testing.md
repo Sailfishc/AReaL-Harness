@@ -36,6 +36,8 @@ macOS 原生 smoke 需要 Seatbelt，Linux 原生 smoke 需要 `/usr/bin/bwrap` 
 
 Linux 宿主常规检查使用 `make verify CARGO_TEST_ARGS='--exclude areal-runtime-exec-native'`。原生后端测试要求 `/usr/bin/bwrap` 和 user namespace；CI 的独立任务构建 Dockerfile 的 `runtime-tests` 目标，在带 Bubblewrap 的受控容器中实际运行包含 `outer-container-perf` 的全部后端测试，并启用 `areal-runtime/native-tests` 运行 daemon 的 `native_transport` 目标。该目标经私有 stdio 启动真实 daemon 和完整 Runtime bundle，使 Linux 在 daemon 旁找到 reaper；原生沙箱用例保留普通命令/Hook 并发进展和外部 writer 排他断言，四个 portable transport 用例仍属于默认测试。`make verify-native` 先构建 bundle，再在 macOS 显式运行同一原生目标。该 feature 仅选择测试目标，不改变生产行为；不能只排除 portable 宿主的原生测试就视为完成验收。
 
+在 Cargo 测试进程内嵌入 Runtime 的集成用例，需要同版本 reaper 位于测试宿主旁的 `target/<profile>/deps/`。`runtime-tests` 镜像单独安装并检查该产物，保留前层测试编译缓存。离线 CI 合同执行真实安装命令，验证位置、字节和可执行权限；编译器与包管理器使用边界 fixture，此检查不替代 Linux 原生容器验收。
+
 ## 可重复故障、本地快检与缓存验收
 
 从仓库根选择与改动相关的入口：

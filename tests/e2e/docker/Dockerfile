@@ -27,6 +27,12 @@ RUN cargo build --locked --profile ci -p areal-runtime -p areal-runtime-fs \
     && cargo test --locked --profile ci -p areal-runtime-exec-native -p areal-runtime --features areal-runtime/native-tests --no-run \
     && cargo test --locked --profile ci -p areal-engine --features native-tests --test provider_replay --no-run \
     && cargo test --locked --profile ci -p areal-app-server --test side_workspace_read --no-run
+# 集成测试把 Runtime 嵌入 Cargo 宿主，Linux reaper 必须与该宿主同目录。
+RUN cargo build --offline --locked --profile ci -p areal-runtime-exec-native --bin areal-runtime-reaper \
+    && install -m 755 target/ci/areal-runtime-reaper target/ci/deps/areal-runtime-reaper \
+    && test -x target/ci/areal-runtime \
+    && test -x target/ci/areal-runtime-fs \
+    && test -x target/ci/deps/areal-runtime-reaper
 ENV AREAL_TEST_BIN_DIR=/src/target/ci
 CMD ["sh", "-c", "result=0; cargo test --offline --locked --no-fail-fast --profile ci -p areal-runtime-exec-native -p areal-runtime --features areal-runtime/native-tests || result=$?; cargo test --offline --locked --profile ci -p areal-engine --features native-tests --test provider_replay || result=$?; cargo test --offline --locked --profile ci -p areal-app-server --test side_workspace_read -- --ignored || result=$?; exit $result"]
 

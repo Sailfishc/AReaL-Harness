@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import shutil
 import sys
+import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -29,6 +30,47 @@ preflight = load("ci-preflight")
 
 
 class CiContracts(unittest.TestCase):
+    def test_container_installs_the_matching_reaper_beside_in_process_test_hosts(self):
+        dockerfile = (ROOT / "tests/e2e/docker/Dockerfile").read_text()
+        stage = dockerfile.split("FROM runtime-builder AS runtime-tests\n", 1)[1].split(
+            "\nFROM ", 1
+        )[0]
+        recipes = [
+            line.removeprefix("RUN ")
+            for line in stage.replace("\\\n", " ").splitlines()
+            if line.startswith("RUN ")
+        ]
+        bundle = re.search(r"^ENV AREAL_TEST_BIN_DIR=/src/(.+)$", stage, re.MULTILINE)[1]
+        manifest = tomllib.loads((ROOT / "runtime/exec-native/Cargo.toml").read_text())
+        reaper = manifest["bin"][0]["name"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / bundle
+            (binary / "deps").mkdir(parents=True)
+            for name in ("areal-runtime", "areal-runtime-fs", reaper):
+                path = binary / name
+                path.write_text(f"matching build: {name}\n")
+                path.chmod(0o755)
+            tools = root / "tools"
+            tools.mkdir()
+            # 编译和包管理在边界外；执行真实安装命令，核对交付位置、字节和权限。
+            for name in ("apk", "cargo"):
+                path = tools / name
+                path.write_text("#!/bin/sh\nexit 0\n")
+                path.chmod(0o755)
+            done = subprocess.run(
+                ["sh", "-c", "set -e\n" + "\n".join(recipes)],
+                cwd=root,
+                env={**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"]},
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            helper = binary / "deps" / reaper
+            self.assertTrue(helper.is_file(), "in-process integration host has no sibling reaper")
+            self.assertEqual(helper.read_bytes(), (binary / reaper).read_bytes())
+            self.assertTrue(os.access(helper, os.X_OK))
+
     def test_gui_plan_jobs_install_the_declared_python_toolchain(self):
         workflow = (ROOT / ".github/workflows/gui.yml").read_text()
         for job in re.split(r"(?m)^  [a-z][a-z0-9-]+:\n", workflow):
