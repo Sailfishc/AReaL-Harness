@@ -56,21 +56,20 @@
 
 `CONV-RHYTHM-01`：对话时间线只有一种节奏。正文、过程说明、活动行、子代理行与底部过程状态共用 `--text-conversation`（跟随内容字号）与 `--conversation-line`（14px 时 20px），块与块之间只由 `--conversation-gap`（12px）分隔一次，不叠加首尾外边距。活动行与正文同字号，只靠颜色与图标区分层级。过程耗时标题在运行中与完成后都显示，与用户消息之间、与其下第一条过程内容之间各只隔一个 `--conversation-gap`；只有耗时标题而无过程内容时，标题分隔线与最终回复之间同样保留一个 `--conversation-gap`。运行中过程默认展开，完成后默认收起。当前状态只在回合底部一行。参考依据是 Codex 26.1013 的截图实测（14/20.5px、块节距约 33px），不复制其像素或品牌。
 
-`CONV-ACTIVITY-01`：两条消息之间的工具活动按"连续同一工作阶段"分段。阶段为：探索（读取文件、搜索、列目录、读技能与计划）、运行命令（命令与进程）、修改文件、使用浏览器、查看图片、等待任务；其他工具按同名合并。连续同一阶段的多项合成一行可折叠的段，段图标与阶段一一对应。标题是动词短语加已完成子项的真实计数，如“已探索 · 3 个文件，2 次搜索”“已运行 3 条命令”“已修改 2 个文件”；计数为零或未知就省略，失败数在同一标题内写为“· 1 个失败”。段内仍有运行中的项，或它是运行中回合最新执行段的最后一段（后面尚未出现可见的其他内容）时，用进行时“正在探索”“正在运行命令”；模型在两次调用之间思考时标题不在“正在/已”之间翻转。只有一项时不建段，直接显示该项自己的行（如“已运行 git add …”）。每行为“动作 + 对象”：对象取文件名、命令、搜索词、技能 ID 等人能认的参数，拿不到时只写动作（“已列出目录”），不回退成工具的内部名称。失败的步骤留在原位，行尾写明结果（“失败 · exit 1”），过程标题不另作提示。思考组、子代理创建等行各自成段并打断合并；段内顺序与原始历史一致。标题与行动作取自界面词条（`chat.activity.*`），跟随界面语言。实现见 `activityStage` / `activityRuns` / `activityRunLabel` / `TurnExecution`，回归见 `conversationPresentation.test.ts`、`TurnExecution.test.tsx` 与 `scripts/activity-runs.test.mjs`。**为什么：**阶段与已完成计数让人不展开就能了解进展，失败仍可发现。**推广：**新增工具沿公开工具身份归类，阶段只影响展示。**检查：**`clients/gui/scripts/activity-runs.test.mjs`
+`CONV-ACTIVITY-01`：两条可见文字消息之间的工具调用合成一组，不论读、改还是运行命令；思考组、子代理创建与完成等行各自成段并打断分组，组内顺序与原始历史一致。只有一项时不建组，直接显示该项自己的行（如“已运行 git add …”）。多项时为一行可折叠的组，标题是过去式短语串，按固定顺序：修改文件、其他工具（浏览器、图片、等待、具名工具）、探索（读取、搜索、列目录、读技能与计划）、运行命令，如“已修改 2 个文件，已探索，已运行命令”。只有修改文件带去重后的已完成文件数，其他短语不计数；失败数在标题末尾写为“· 1 个失败”。标题不随子项运行切换时态，进行中只由回合末尾一行表达（`CONV-STATUS-01`）。组图标取第一个短语的阶段。每行为“动作 + 对象”：对象取文件名、命令、搜索词、技能 ID 等人能认的参数，拿不到时只写动作（“已列出目录”），不回退成工具的内部名称。失败的步骤留在原位，行尾写明结果（“失败 · exit 1”）。标题与行动作取自界面词条（`chat.activity.*`），跟随界面语言；英文后续短语首字母小写（“Edited 2 files, explored, ran commands”）。实现见 `activityStage` / `activityRuns` / `activityRunStages` / `activityRunLabel` / `TurnExecution`，回归见 `conversationPresentation.test.ts`、`TurnExecution.test.tsx` 与 `scripts/activity-runs.test.mjs`。**为什么：**按文字说明分组与读者的阅读节奏一致：模型说一句话、做一串事；短语串让人不展开就知道这串事的性质，改动文件数是唯一值得一眼看到的量，失败仍可发现。**推广：**新增工具沿公开工具身份归类，阶段只影响展示。**检查：**`clients/gui/scripts/activity-runs.test.mjs`
 
 下表由 `node scripts/design-generated.mjs --write` 从 [activity-runs.cases.json](activity-runs.cases.json) 生成，测试逐条执行同一张表；改行为先改表。
 
 <!-- BEGIN GENERATED: activity-runs -->
 | 情形 | 工具序列 | 中文标题 | English |
 | --- | --- | --- | --- |
-| 连续读取、搜索、列目录按探索阶段分组，标题计已完成子项 | fs_read(README.md)、read_file(src/app.ts)、fs_read(README.md)、fs_list(src)、search_files(ActivityGroup) | 已探索 · 3 个文件，1 次搜索，1 个目录 | Explored · 3 files, 1 search, 1 directory |
-| 探索计数按文件、搜索、目录的固定顺序排列 | search_files(schedule)、fs_list(a)、fs_list(b)、fs_list(c) | 已探索 · 1 次搜索，3 个目录 | Explored · 1 search, 3 directories |
-| 连续命令合成一段并带条数，不同动作另起一段 | run_command(git status)、run_command(pnpm test)、fs_read(a.ts)、fs_read(b.ts)、run_command(git diff) | 已运行 2 条命令 / 已探索 · 2 个文件 / 已运行 1 条命令 | Ran 2 commands / Explored · 2 files / Ran 1 command |
-| 段内仍有运行中的命令时用进行时并省略完成计数 | run_command(git status)、run_command(pnpm build) | 正在运行命令 | Running commands |
-| 编辑按文件去重计数 | fs_apply_patch(a.ts)、fs_write(a.ts)、fs_write(b.ts) | 已修改 2 个文件 | Edited 2 files |
-| 未分类工具只与同名工具合并，标题保留真实工具名 | lookup_ticket、lookup_ticket、post_comment | 已调用 lookup_ticket · 2 次 / 已调用 post_comment | Called lookup_ticket · 2 times / Called post_comment |
-| 技能读取与文件读取属于同一探索阶段 | skill_read(SKILL.md)、fs_read(a.ts) | 已探索 · 1 个文件，1 个技能 | Explored · 1 file, 1 skill |
-| 失败命令留在原阶段，标题只计成功项并写出失败数 | run_command(git status)、run_command(pnpm test) | 已运行 1 条命令 · 1 个失败 | Ran 1 command · 1 failure |
+| 只读的读取、搜索、列目录合成一组，标题不计数 | fs_read(README.md)、read_file(src/app.ts)、fs_list(src)、search_files(ActivityGroup) | 已探索 | Explored |
+| 两段文字之间的读、改、命令合成一组，短语按修改、探索、命令排序 | run_command(pnpm test)、fs_read(a.ts)、fs_apply_patch(a.ts)、run_command(pnpm test) | 已修改 1 个文件，已探索，已运行命令 | Edited 1 file, explored, ran commands |
+| 只有修改文件带计数，按文件去重 | fs_apply_patch(a.ts)、fs_write(b.ts)、fs_write(b.ts) | 已修改 2 个文件 | Edited 2 files |
+| 命令组不计条数 | run_command、run_command、run_command | 已运行命令 | Ran commands |
+| 组内仍有运行中的项时标题保持过去式，进行中由回合末尾表达 | run_command、run_command | 已运行命令 | Ran commands |
+| 具名工具排在探索之前，保留真实工具名 | fs_read(a.ts)、lookup_ticket、lookup_ticket | 已调用 lookup_ticket，已探索 | Called lookup_ticket, explored |
+| 失败的步骤留在组内，标题末尾写出失败数 | run_command、run_command | 已运行命令 · 1 个失败 | Ran commands · 1 failure |
 <!-- END GENERATED: activity-runs -->
 
 `CONV-PROCESS-01`：对话时间线以 Core 的 `commentary` / `final_answer` 为边界，不按文字内容猜测思考或工具事件。耗时位于过程顶部并控制整段过程的展开与折叠；已完成过程默认折叠，最终回答及交付内容不在折叠范围。回合完成自动折叠时，跟随底部的读者继续跟随；离开底部的读者以该过程标题为锚，标题已滚出视口时放到视口顶部，最终回答从首行可见（回归见 `scripts/conversation-flow-smoke.mjs`）。工具分组独立默认折叠，展开后列表限高 `--activity-list-max-height` 并支持上下滚动。长过程仍在六行高度内滚动，当前流式正文完整展示。过程和活动区域支持键盘聚焦与滚动；打开单条命令或文件比较时，列表取消限高，避免与具体输出同时形成双层滚动。这是过程阅读的专用机制，不改变已发送用户长消息的展开行为。执行中的状态只在回合末尾一处，见 `CONV-STATUS-01`。成功图片结果、可打开的子对话保留轻量入口，原始记录按需查看；文件变更默认显示前五条，多余部分可展开或收起，行数继续取自 Core 本轮比较。Markdown 图片仅通过现有会话授权的 Core blob 读取直接显示；不自动读取任意本机路径或远端图片。普通链接直接打开，独立本地网页链接显示预览卡片，点击仍经过现有 Main 导航策略，不探测服务状态。`design-system.html?conversation` 提供同一生产组件的隔离预览，不连接用户 Core。
@@ -99,4 +98,4 @@
 
 `R-CONTENT-031` Messages将Markdown、原生内容和已验证的Gen UI引用交错展示。Gen UI仍要求已完成助手消息与有效制品；MCP Apps沿原工具结果宿主，不经过新的只读数据目录。不新增SDK/依赖，不承诺任意HTML、MathJax或全部TeX宏包。公式开启单美元兼容，保留代码/价格排除；未闭合单美元公式先显示文字。KaTeX沿已有版本提供MathML、mhchem与选区原式复制。
 
-`R-CONTENT-033` 过程耗时跨语言统一显示`Working for 15m 29s`，作为可折叠的过程标题在运行中与完成后都显示。失败的工具步骤留在所在活动行，行尾写明结果（见 `CONV-ACTIVITY-01`）；过程标题仅显示 Working 耗时与展开箭头，不显示任务状态或警示图标。具体活动中的结果未知和需要恢复的动作继续沿原所有者展示。断连时不冒充继续精确计时。
+`R-CONTENT-033` 过程耗时跨语言统一显示英文：运行中为`Working for 15m 29s`，完成后为`Worked for 15m 29s`，作为可折叠的过程标题在运行中与完成后都显示。失败的工具步骤留在所在活动行，行尾写明结果（见 `CONV-ACTIVITY-01`）；过程标题仅显示耗时与展开箭头，不显示任务状态或警示图标。具体活动中的结果未知和需要恢复的动作继续沿原所有者展示。断连时不冒充继续精确计时。

@@ -13,52 +13,26 @@ export const conversationMessages = {
     en: "{tense, select, running {Exploring} other {Explored}}",
   },
   "chat.activity.run.commands": {
-    "zh-CN":
-      "{tense, select, running {正在运行命令} other {{count, plural, =0 {已运行命令} other {已运行 # 条命令}}}}",
-    en: "{tense, select, running {Running commands} other {{count, plural, =0 {Ran commands} one {Ran # command} other {Ran # commands}}}}",
+    "zh-CN": "{tense, select, running {正在运行命令} other {已运行命令}}",
+    en: "{tense, select, running {Running commands} other {Ran commands}}",
   },
   "chat.activity.run.edits": {
     "zh-CN":
       "{tense, select, running {正在修改文件} other {{count, plural, =0 {已修改文件} other {已修改 # 个文件}}}}",
     en: "{tense, select, running {Editing files} other {{count, plural, =0 {Edited files} one {Edited # file} other {Edited # files}}}}",
   },
-  "chat.activity.run.repeated": {
-    "zh-CN": "{action} · {count} 次",
-    en: "{action} · {count, plural, one {# time} other {# times}}",
-  },
   "chat.activity.run.generic": {
     "zh-CN": "{tense, select, running {正在执行活动} other {已执行活动}}",
     en: "{tense, select, running {Working} other {Worked}}",
-  },
-  "chat.activity.part.files": {
-    "zh-CN": "{count} 个文件",
-    en: "{count, plural, one {# file} other {# files}}",
-  },
-  "chat.activity.part.directories": {
-    "zh-CN": "{count} 个目录",
-    en: "{count, plural, one {# directory} other {# directories}}",
-  },
-  "chat.activity.part.searches": {
-    "zh-CN": "{count} 次搜索",
-    en: "{count, plural, one {# search} other {# searches}}",
   },
   "chat.activity.run.withDetails": { "zh-CN": "{action} · {parts}", en: "{action} · {parts}" },
   "chat.activity.run.wait": {
     "zh-CN": "{tense, select, running {正在等待任务} other {已等待任务}}",
     en: "{tense, select, running {Waiting for tasks} other {Waited for tasks}}",
   },
-  "chat.activity.part.skills": {
-    "zh-CN": "{count} 个技能",
-    en: "{count, plural, one {# skill} other {# skills}}",
-  },
-  "chat.activity.part.plan": { "zh-CN": "计划", en: "plan" },
   "chat.activity.part.failures": {
     "zh-CN": "{count} 个失败",
     en: "{count, plural, one {# failure} other {# failures}}",
-  },
-  "chat.activity.part.times": {
-    "zh-CN": "{count} 次",
-    en: "{count, plural, one {# time} other {# times}}",
   },
   "chat.activity.failedExit": { "zh-CN": "失败 · exit {code}", en: "Failed · exit {code}" },
   "chat.activity.part.separator": { "zh-CN": "，", en: ", " },

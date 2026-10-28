@@ -29,7 +29,7 @@ export async function runConversationDemo(page, scratch, checks) {
   const earlier = timeline.locator('[data-side-item-id="timeline-progress"]');
   // CONV-GROUP-01统一完成过程；原先“phased短过程始终外露”的预期已被新合同替换。
   const aggregate = timeline.getByRole("button", {
-    name: "执行过程：Working for 19s",
+    name: "执行过程：Worked for 19s",
     exact: true,
   });
   assert.equal(await aggregate.getAttribute("aria-expanded"), "false");

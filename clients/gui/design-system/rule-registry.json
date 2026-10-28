@@ -4489,10 +4489,10 @@
     },
     {
       "id": "R-DECISIONCARD-015",
-      "title": "TurnElapsed使用Core起始时间和终态durationMs，所有语言均为Working for …",
+      "title": "TurnElapsed使用Core起始时间和终态durationMs，所有语言运行中均为Working for …、完成",
       "owner": "clients/gui/renderer/src/DecisionCard.md#ask-user与过程展示",
       "strength": "default",
-      "textSha256": "7057a31438a14042314af3fc9d1cba7433e2bc5a7b7156594f628b57f3c7fed2"
+      "textSha256": "6ca21b7ec3ba4eff85638b9544ea23c047ad4477388d07203e273a7ee81a140d"
     },
     {
       "id": "R-MESSAGES-001",
@@ -4622,10 +4622,10 @@
     },
     {
       "id": "CONV-ACTIVITY-01",
-      "title": "两条消息之间的工具活动按\"连续同一工作阶段\"分段",
+      "title": "两条可见文字消息之间的工具调用合成一组，不论读、改还是运行命令",
       "owner": "clients/gui/renderer/src/Messages.md#对话信息流",
       "strength": "must",
-      "textSha256": "ce2d12f34d8f58e8f965ff1f47780cd916ba40554a04a5988de5112d30124af3",
+      "textSha256": "13d5e7a15ce57a345c2df93fc3ac87d9dd638d0f7ca469823031365cebf22703",
       "check": "clients/gui/scripts/activity-runs.test.mjs"
     },
     {
@@ -4707,10 +4707,10 @@
     },
     {
       "id": "R-CONTENT-033",
-      "title": "过程耗时跨语言统一显示Working for 15m 29s，作为可折叠的过程标题在运行中与完成后都显示",
+      "title": "过程耗时跨语言统一显示英文：运行中为Working for 15m 29s，完成后为Worked for 15m 29s",
       "owner": "clients/gui/renderer/src/Messages.md#混合内容与过程标题",
       "strength": "default",
-      "textSha256": "c1d59e08513f08327e164d47e2297ad2070191b0946e052413eb2ee457d2ad64"
+      "textSha256": "15032f8548102d5e2bf957586b0570ea1567569f2a0efaee47df115576aaa006"
     },
     {
       "id": "R-ACTIONBUTTON-005",

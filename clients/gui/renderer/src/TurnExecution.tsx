@@ -9,6 +9,7 @@ import { ReasoningGroup } from "./ReasoningGroup.js";
 import {
   activityLabel,
   activityRunLabel,
+  activityRunStages,
   activityStageIcon,
   activityRuns,
   agentSettlements,
@@ -100,20 +101,17 @@ export function TurnActivity({
 
 /**
  * Core work items are disclosed in order between visible conversation messages.
- * 连续同一动作的工具合成一段（CONV-ACTIVITY-01）：一项时直接显示该项，多项时折叠为
- * "已运行命令"等动词短语；思考组与子代理创建各自成段。段内顺序与原始历史一致。
+ * 两段文字之间的工具合成一组（CONV-ACTIVITY-01）：一项时直接显示该项，多项时折叠为
+ * "已修改 2 个文件，已探索"等过去式短语串，图标取第一个短语；思考组与子代理行各自成段。
  */
 export function TurnExecution({
   items,
-  live = false,
   turn,
   project,
   threadId,
   renderItem,
 }: {
   items: Data[];
-  /** 运行中回合的最新执行段：其最后一段在出现后续可见内容前保持进行中。 */
-  live?: boolean;
   turn: Data;
   project: Data;
   threadId: string;
@@ -153,14 +151,14 @@ export function TurnExecution({
       {runs.map((run, index) => {
         const last = index === runs.length - 1;
         const grouped = run.key !== null && run.items.length > 1;
-        const icon = activityStageIcon(run.key);
+        const icon = activityStageIcon(grouped ? activityRunStages(run)[0] : null);
         return (
           <ActivityGroup
             key={run.items[0].id}
             presentation={grouped ? "collapsible" : "inline"}
             label={
               run.key !== null
-                ? activityRunLabel(run, t, live && last)
+                ? activityRunLabel(run, t)
                 : run.items[0].type === "reasoningGroup"
                   ? t("common.turn.reasoning")
                   : t("common.turn.activity")
