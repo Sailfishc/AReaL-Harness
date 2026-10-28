@@ -1508,6 +1508,8 @@ try {
     assert.equal(firstPluginMessage.split("COMPOSER_PLUGIN_EXACT_BODY").length - 1, 1);
     await selectConversation(page, tid);
     const parentConfiguration = project(await state()).configurations[tid];
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1024, 768));
+    await page.waitForFunction(() => innerWidth <= 1024);
     await openSideChat(page);
     const sidePane = page.getByTestId("side-chat-pane").filter({ visible: true });
     const sideInput = sidePane.getByRole("textbox", { name: "随心输入", exact: true });
@@ -1604,7 +1606,14 @@ try {
     );
     assert.deepEqual(project(sideFollowUpCompleted).configurations[tid], parentConfiguration);
 
-    await page.getByRole("button", { name: "关闭面板", exact: true }).click();
+    // 完整视图和分屏共用标签关闭键；窄窗中的面板按钮只负责切换视图。
+    await page
+      .locator(`[data-testid="side-chat-tab"][data-thread-id="${sidePluginThread.id}"]`)
+      .getByRole("tab")
+      .press("Delete");
+    await sidePane.waitFor({ state: "hidden" });
+    await input().waitFor({ state: "visible" });
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
     checks.push(
       "canonical paste resolves Core metadata; removing chip preserves manual Skill; first-message plugin draft survives navigation/reload; new and existing executable Side send reference intent without modifying parent configuration",
     );

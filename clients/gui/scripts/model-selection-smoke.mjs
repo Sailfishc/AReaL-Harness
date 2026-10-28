@@ -1807,6 +1807,17 @@ try {
     model: null,
     expectedRevision: reopened.revision,
   });
+  // 冷启动的目录可见不代表后台操作已结算；写入默认项后的刷新也需完成。
+  await page.waitForFunction(async () => {
+    const reply = await window.arealDesktop.command("serviceStatus", {});
+    return (
+      reply.ok &&
+      !reply.value.busy &&
+      !reply.value.activeCommands &&
+      !reply.value.starting &&
+      !reply.value.providerUpdating
+    );
+  });
   await call("providers", { operation: "apply", expectedRevision: withoutDefault.revision });
   await until(
     (s) => fixtureProject(s).models.length === 2,
