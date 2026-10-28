@@ -87,6 +87,31 @@
   gap: var(--spacing-inline);
   margin-top: var(--spacing-inline);
 }
+/* 列表还能向下滚动时底部渐隐，滚到底后消失；内容放得下时滚动时间线无效，不加渐隐（CONV-PROCESS-01）。
+   遮罩只取透明度，借用不透明的背景色，避免写死颜色字面量。 */
+@property --areal-activity-list-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes areal-activity-list-fade {
+  from,
+  90% {
+    --areal-activity-list-fade: var(--activity-list-fade);
+  }
+  to {
+    --areal-activity-list-fade: 0px;
+  }
+}
+.areal-activity-group:not([data-presentation="inline"]) .areal-activity-list {
+  mask-image: linear-gradient(
+    to bottom,
+    var(--color-background) calc(100% - var(--areal-activity-list-fade)),
+    transparent
+  );
+  animation: areal-activity-list-fade linear both;
+  animation-timeline: scroll(self);
+}
 .areal-activity-list:focus-visible {
   outline: var(--focus-width) solid var(--color-foreground);
   outline-offset: var(--focus-offset);

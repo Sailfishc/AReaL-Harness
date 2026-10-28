@@ -1704,6 +1704,16 @@ button.composer-project:hover > svg,
 .composer-dock {
   position: relative;
 }
+/* 时间线在 Composer 上沿渐隐，提示上方还有内容；不拦截指针，不占布局（CONV-PROCESS-01）。 */
+:is(.messages-shell ~ .composer-dock, .messages-shell ~ .active-composer > .composer-dock)::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 100%;
+  height: var(--conversation-fade);
+  background: linear-gradient(to bottom, transparent, var(--color-background));
+  pointer-events: none;
+}
 .conversation-loading {
   display: flex;
   flex: 1;
@@ -1859,12 +1869,29 @@ button[aria-label="停止"] {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-.timeline-bottom-button {
+/* 时间线底部的浮层：运行中的改动小条与“滚动到底部”并排居中，空时不占位也不拦截指针。 */
+.timeline-float {
   position: absolute;
   bottom: 12px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-inline);
+  pointer-events: none;
+}
+.timeline-float > * {
+  pointer-events: auto;
+}
+.turn-changes-pill {
+  gap: var(--activity-icon-gap);
+  border-radius: var(--radius-pill);
+  background: var(--color-background);
+  color: var(--color-foreground);
+  white-space: nowrap;
+}
+.timeline-bottom-button {
   width: 32px;
   height: 32px;
   padding: 0;

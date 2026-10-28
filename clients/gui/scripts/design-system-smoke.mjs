@@ -1051,9 +1051,11 @@ try {
         height: el.clientHeight,
         full: el.scrollHeight,
         overflow: getComputedStyle(el).overflowY,
+        fade: getComputedStyle(el).getPropertyValue("--areal-activity-list-fade"),
       }));
       assert.equal(activitySize.overflow, "auto");
       assert.ok(activitySize.height <= 240 && activitySize.full > activitySize.height);
+      assert.equal(activitySize.fade, "24px", "a list with more below fades at its bottom edge");
       await activity.press("End");
       await page.waitForFunction(
         () =>
@@ -1061,6 +1063,16 @@ try {
             .querySelector('#conversation-timeline [data-tool-id="timeline-read"]')
             .closest(".areal-activity-list").scrollTop > 0,
       );
+      await page.waitForFunction(() => {
+        const list = document
+          .querySelector('#conversation-timeline [data-tool-id="timeline-read"]')
+          .closest(".areal-activity-list");
+        return (
+          list.scrollTop + list.clientHeight >= list.scrollHeight - 1 &&
+          getComputedStyle(list).getPropertyValue("--areal-activity-list-fade") === "0px"
+        );
+      });
+      checks.push("the activity list bottom fade disappears once the list is scrolled to its end");
       assert.equal(await activity.evaluate((el) => el.clientHeight), activitySize.height);
       const imageDisclosure = timeline.getByRole("button", {
         name: "已查看 1 张图片",

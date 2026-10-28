@@ -65,7 +65,7 @@ import { ImageAnnotationList } from "./ImageAnnotationViews.js";
 import { sentBrowserAnnotations } from "./browserAnnotations.js";
 import { SentReviewComments } from "./ReviewCommentViews.js";
 import { ScheduledTaskCards } from "./ScheduledTasks.js";
-import { TurnFileSummary } from "./TurnFileSummary.js";
+import { TurnChangesPill, TurnFileSummary } from "./TurnFileSummary.js";
 import type { Data, Action } from "./services.js";
 type TranscriptSelectionSnapshot = {
   owner: string;
@@ -1629,7 +1629,12 @@ export function Messages({
           </PopoverContent>
         </Popover>
       )}
-      {!embedded && readingHistory && <TimelineBottomButton onClick={returnToBottom} />}
+      {!embedded && (
+        <div className="timeline-float">
+          <TurnChangesPill turn={thread.turns?.at(-1)} onReview={onReview} />
+          {readingHistory && <TimelineBottomButton onClick={returnToBottom} />}
+        </div>
+      )}
     </div>
   );
 }
