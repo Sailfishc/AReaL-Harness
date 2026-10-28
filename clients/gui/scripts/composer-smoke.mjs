@@ -675,6 +675,14 @@ try {
     // 由 Chromium 驱动真实组词事件；候选中间态不能保存到草稿或触发发送。
     const checkComposition = async (draftKey, label) => {
       await input().fill("");
+      await page.waitForFunction((key) => {
+        const editor = document.querySelector('[data-testid="chat-input"]');
+        return (
+          editor?.textContent === "" &&
+          editor.__arealLexicalInputE2E?.getText() === "" &&
+          (localStorage.getItem(key) ?? "") === ""
+        );
+      }, draftKey);
       await input().focus();
       await page.evaluate((key) => {
         window.composerInputProbe = { writes: [], restore: Storage.prototype.setItem };
@@ -825,9 +833,16 @@ try {
     assert.equal(await tags().count(), 2);
     assert.equal(project(await state()).summaries?.length ?? 0, 0);
     await input().fill("正文保留 /fixture");
-    await page.getByRole("listbox", { name: "功能与 Skills" }).waitFor();
+    const slashCatalog = page.getByRole("listbox", { name: "功能与 Skills" });
+    await slashCatalog.getByRole("option").first().waitFor();
     await input().press("ArrowDown");
+    await slashCatalog
+      .locator('[role="option"][aria-selected="true"]:not([aria-disabled="true"])')
+      .waitFor();
     await input().press("Enter");
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="chat-input"]')?.textContent === "正文保留 ",
+    );
     assert.equal(await input().textContent(), "正文保留 ");
     assert.equal(await tags().count(), 2);
     await openCatalog();

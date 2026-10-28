@@ -60,6 +60,8 @@ pnpm --dir clients/gui test:unit renderer/src/readingViews.test.ts
 
 故障注入验收：`python3 scripts/desktop-schemas.py --counterexample` 使用真实 Rust schema 生成器验证漂移必被拒绝；`pnpm --dir clients/gui test:ci-budget-counterexample` 在隔离输出目录构建故意超限的生产入口，要求实际预算检查拒绝。`python3 -m unittest scripts.tests.test_ci_contracts scripts.tests.test_check_changed scripts.tests.test_git_hooks` 验证缺少 native 能力时阻塞、漏掉必跑项/子测试时 gate 拒绝，以及暂存规则与工作区隔离。首跑失败保留，不以自动重试达成全绿。
 
+Core 连接仅合并无参 `areal/plugin/list` 和 `areal/plugin/mcp/list` 的同时在途原始读取，要求超时和响应预算相同，带 decoder 或 onResult 的调用独立执行。完成、失败和断开连接立即清理；写请求开始和结束都隔开读取，写后校验不能加入写前快照。`core-read-recovery.test.mjs` 用真实 WebSocket 与响应屏障验证 32 个并发读取只发一帧、控制请求可达、失败不缓存以及写入/连接/预算隔离，并纳入 `test:regressions`。该机制不缓存目录结果，也不自动重放写入或放宽 Core 的控制预留容量。
+
 专用 Relay 传输合同使用独立 CI job，在 GUI 支持的 Node 版本下构建输入，再切换到 Relay 锁定版本执行。该 job 与 macOS GUI 路径并行，最终 GUI gate 仍要求其成功；取消、失败和意外跳过不能通过 gate。
 
 Provider 回放夹具位于 `core/engine/tests/fixtures/provider-replay`，经真实 HTTP 字节、生产 decoder/Engine 和临时存储验证错误前文本、终止事件后断流、取消后迟到回答。请求到达与放行使用通知，不以固定 sleep 猜测。纯计时策略复用 Tokio 暂停时间；真实 HTTP 超时测试保留其 I/O 边界。字节块是服务器写入边界，不能假设操作系统一定保持网络分包。
