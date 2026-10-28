@@ -62,14 +62,14 @@ pnpm --dir clients/gui test:unit renderer/src/readingViews.test.ts
 
 Provider 回放夹具位于 `core/engine/tests/fixtures/provider-replay`，经真实 HTTP 字节、生产 decoder/Engine 和临时存储验证错误前文本、终止事件后断流、取消后迟到回答。请求到达与放行使用通知，不以固定 sleep 猜测。纯计时策略复用 Tokio 暂停时间；真实 HTTP 超时测试保留其 I/O 边界。字节块是服务器写入边界，不能假设操作系统一定保持网络分包。
 
-`make test` 先通过 `make build` 准备同批 Core/Runtime，并将 `target/debug` 作为默认 `AREAL_TEST_BIN_DIR` 传给 workspace 测试。直接运行真实 Runtime 写入恢复时，使用已部署并验证的同批固定 bundle 和显式 feature：
+`make test` 先通过 `make build` 准备同批 Core/Runtime，并将 `target/debug` 作为默认 `AREAL_TEST_BIN_DIR` 传给 workspace 测试。真实 Runtime 写入恢复由 `areal-engine/native-tests` 显式选择，在 `make verify-native` 和 Linux `runtime-tests` 容器运行；portable lane 保留三个 HTTP 回放用例。直接运行时，使用已部署并验证的同批固定 bundle 和显式 feature：
 
 ```sh
-AREAL_TEST_BIN_DIR=/absolute/verified/bin cargo test --locked -p areal-engine --features test-support --test provider_replay persisted_runtime_write_survives_disconnect_and_reopen_without_replay
+AREAL_TEST_BIN_DIR=/absolute/verified/bin cargo test --locked -p areal-engine --features native-tests --test provider_replay persisted_runtime_write_survives_disconnect_and_reopen_without_replay
 AREAL_CORE_BIN=/absolute/verified/bin/areal pnpm --dir clients/gui test:history-compat
 ```
 
-该原生测试在 `test-support` 下编译并使用既有测试构造入口，本改动不改变生产行为；未设置固定路径时应失败，不能当作跳过后通过。Runtime 场景核对写入后的真实持久记录、重开后工具结果及哨兵文件，防止把网络里程碑当作落盘或把恢复当作重放授权。`history-compat` 需要已构建 GUI；`profiles.json` 声明旧格式分页、已结算子会话和三种终态，runner 核对公开历史页、顺序、关系及 Renderer 文本，同时保持来源哈希不变和零模型请求。当前这两条原生路径的最终验收状态见[质量设计](t3code-quality-design.md)。
+该原生测试在 `native-tests`（包含 `test-support`）下编译并使用既有测试构造入口，本改动不改变生产行为；未设置固定路径时应失败，不能当作跳过后通过。Runtime 场景核对写入后的真实持久记录、重开后工具结果及哨兵文件，防止把网络里程碑当作落盘或把恢复当作重放授权。`history-compat` 需要已构建 GUI；`profiles.json` 声明旧格式分页、已结算子会话和三种终态，runner 核对公开历史页、顺序、关系及 Renderer 文本，同时保持来源哈希不变和零模型请求。当前这两条原生路径的最终验收状态见[质量设计](t3code-quality-design.md)。
 
 `model_input_budget` 从默认 Desktop 的真实出站求解请求计量固定指令、环境说明及每工具的 name/description/parameters。首个 profile 明确不含 Runtime 与插件；动态用户正文和随机路径不计入固定基线。基线变化报告分项与工具名，必须人工审阅更新，不自动调整生产输入或额度。
 

@@ -146,7 +146,7 @@ async fn cancelled_request_cannot_publish_a_late_answer() {
     reopened.shutdown().await;
 }
 
-#[cfg(feature = "test-support")]
+#[cfg(feature = "native-tests")]
 #[tokio::test]
 async fn persisted_runtime_write_survives_disconnect_and_reopen_without_replay() {
     use areal_engine::tools::RuntimeConfig;

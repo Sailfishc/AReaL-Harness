@@ -228,6 +228,7 @@ verify-harness: ## 全部常规与原生集成验收（容量测试单独运行�
 	$(MAKE) runtime-smoke harness-smoke examples-desktop-api workgroup-smoke
 
 verify-native: build ## macOS 原生后端与 Harness 集成验收（通用回归由 Linux CI 执行）
+	AREAL_TEST_BIN_DIR="$(CURDIR)/target/debug" cargo test --locked -p areal-engine --features native-tests --test provider_replay
 	cargo test --locked -p areal-runtime-exec-native
 	cargo test --locked -p areal-runtime --features native-tests --test native_transport
 	$(MAKE) -j4 launcher-test runtime-smoke harness-smoke examples-desktop-api workgroup-smoke
