@@ -88,7 +88,7 @@ export function TurnChangesPill({
       type="button"
       variant="outline"
       size="sm"
-      className="turn-changes-pill"
+      className="turn-changes-pill gap-(--activity-icon-gap) rounded-pill bg-background whitespace-nowrap text-foreground"
       aria-label={t("chat.files.reviewLive", { count })}
       onClick={() => onReview(turn.id)}
     >
