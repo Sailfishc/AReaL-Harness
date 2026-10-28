@@ -623,6 +623,7 @@ try {
               .getAnimations()
               .filter(
                 (animation) =>
+                  animation.timeline === document.timeline &&
                   animation.playState === "running" &&
                   Number.isFinite(animation.effect?.getComputedTiming().endTime),
               )
