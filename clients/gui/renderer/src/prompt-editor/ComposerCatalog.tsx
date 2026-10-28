@@ -1,11 +1,12 @@
 import { Button, Input } from "@areal/ui";
+import { observeResize } from "@areal/ui/observe-resize";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { ComposerMentionPrefill } from "../mentions/composerTypes.js";
 import type { AppSlashCommand } from "../slashCommandHelpers.js";
 import { SearchIcon } from "../interfaceIcons.js";
 import { useI18n } from "../i18n/IntlProvider.js";
 
-const CATALOG_GROUPS = ["commands", "功能", "会话", "应用", "Skills"] as const;
+const CATALOG_GROUPS = ["commands", "files", "功能", "会话", "应用", "Skills"] as const;
 
 export interface ComposerCatalogEntry extends AppSlashCommand {
   group: (typeof CATALOG_GROUPS)[number];
@@ -22,6 +23,7 @@ export interface ComposerCatalogData {
   searchLabel?: string;
   label?: string;
   appGroupLabel?: string;
+  files?: { loading: boolean; error?: string; truncated: boolean; refresh: () => void };
 }
 export const filterCatalog = (entries: readonly ComposerCatalogEntry[], query: string) => {
   let recentConversations = 0;
@@ -71,11 +73,12 @@ export function ComposerCatalog({
     const resize = () =>
       setHeight(Math.max(80, Math.min(400, anchor.getBoundingClientRect().top - 20)));
     resize();
-    const observer = new ResizeObserver(resize);
-    if (anchor.parentElement) observer.observe(anchor.parentElement);
+    const stopObserving = anchor.parentElement
+      ? observeResize(anchor.parentElement, resize)
+      : undefined;
     window.addEventListener("resize", resize);
     return () => {
-      observer.disconnect();
+      stopObserving?.();
       window.removeEventListener("resize", resize);
     };
   }, [anchor]);
@@ -119,26 +122,18 @@ export function ComposerCatalog({
         className="composer-catalog-scroll"
       >
         {CATALOG_GROUPS.filter(
-          (group) => group !== "commands" || rows.some((row) => row.group === group),
+          (group) =>
+            (group !== "commands" && group !== "files") ||
+            rows.some((row) => row.group === group) ||
+            (group === "files" && !!catalog.files),
         ).map((group) => (
           <div
             key={group}
             role="group"
             aria-label={
-              group === "commands"
-                ? t("chat.composer.commandsGroup")
-                : group === "会话"
-                  ? t("chat.composer.conversationsGroup")
-                  : group === "应用"
-                    ? (catalog.appGroupLabel ?? catalog.label ?? t("chat.composer.appsGroup"))
-                    : group === "功能"
-                      ? t("chat.composer.actionsGroup")
-                      : group
-            }
-          >
-            {rows.some((row) => row.group === group) && (
-              <div className="composer-catalog-group">
-                {group === "commands"
+              group === "files"
+                ? t("chat.composer.filesGroup")
+                : group === "commands"
                   ? t("chat.composer.commandsGroup")
                   : group === "会话"
                     ? t("chat.composer.conversationsGroup")
@@ -146,9 +141,57 @@ export function ComposerCatalog({
                       ? (catalog.appGroupLabel ?? catalog.label ?? t("chat.composer.appsGroup"))
                       : group === "功能"
                         ? t("chat.composer.actionsGroup")
-                        : group}
+                        : group
+            }
+          >
+            {(rows.some((row) => row.group === group) || (group === "files" && catalog.files)) && (
+              <div className="composer-catalog-group">
+                {group === "files"
+                  ? t("chat.composer.filesGroup")
+                  : group === "commands"
+                    ? t("chat.composer.commandsGroup")
+                    : group === "会话"
+                      ? t("chat.composer.conversationsGroup")
+                      : group === "应用"
+                        ? (catalog.appGroupLabel ?? catalog.label ?? t("chat.composer.appsGroup"))
+                        : group === "功能"
+                          ? t("chat.composer.actionsGroup")
+                          : group}
                 {group === "Skills" && <span>{t("chat.composer.addToCurrentMessage")}</span>}
               </div>
+            )}
+            {group === "files" && catalog.files && (
+              <>
+                {catalog.files.loading && (
+                  <p role="status" className="composer-catalog-empty">
+                    {t("common.loading")}
+                  </p>
+                )}
+                {catalog.files.error && (
+                  <p role="alert" className="composer-catalog-empty">
+                    {catalog.files.error}
+                    <Button
+                      unstyled
+                      data-slot={undefined}
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={catalog.files.refresh}
+                    >
+                      {t("chat.composer.retryCatalog")}
+                    </Button>
+                  </p>
+                )}
+                {!catalog.files.loading &&
+                  !catalog.files.error &&
+                  !rows.some((row) => row.group === "files") && (
+                    <p className="composer-catalog-empty">{t("chat.composer.noFileMatches")}</p>
+                  )}
+                {catalog.files.truncated && (
+                  <p role="status" className="composer-catalog-empty">
+                    {t("chat.composer.fileResultsLimited")}
+                  </p>
+                )}
+              </>
             )}
             {rows.map((row, i) =>
               row.group !== group ? null : (
@@ -181,7 +224,7 @@ export function ComposerCatalog({
             )}
           </div>
         ))}
-        {!rows.length && (
+        {!rows.length && !catalog.files && (
           <p className="composer-catalog-empty">
             {catalog.loading ? t("common.loading") : t("chat.composer.noMatches")}
           </p>

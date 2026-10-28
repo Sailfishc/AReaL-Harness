@@ -249,9 +249,10 @@
     "script": "test:composer",
     "layer": "e2e",
     "platforms": ["darwin", "linux"],
-    "areas": ["composer"],
+    "areas": ["composer", "design"],
     "requires": ["electron", "core-binary", "git", "gui-build"],
-    "ciSmoke": "composer"
+    "ciSmoke": "composer",
+    "notes": "AREAL_COMPOSER_FILES_REGRESSION=1 additionally covers workspace @ file search, selection, canonical relative references, stale responses, bounded results, retry, and real Git worktree routing. R-COMPOSERSURFACE-007 binds inline file identifiers and absolute hover paths in the Composer and sent user messages to composer-files-acceptance.mjs; actual uploads retain attachment behavior."
   },
   {
     "script": "test:send-admission",
