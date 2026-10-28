@@ -1007,17 +1007,15 @@ export function Messages({
           {history.failure && !history.failure.itemId && (
             <div>
               <p role="alert">{history.failure.message}</p>
-              {localThread.displayHistory?.latestTurnComplete === false && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={localThread.displayHistory.loadingLatest}
-                  onClick={() => void history.load()}
-                >
-                  {t("recovery.retryView")}
-                </Button>
-              )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={localThread.displayHistory.loadingLatest}
+                onClick={() => void history.load()}
+              >
+                {t("recovery.retryView")}
+              </Button>
             </div>
           )}
           {thread.desktop?.archived && (

@@ -2384,10 +2384,10 @@
     },
     {
       "id": "R-WORKTREE-048",
-      "title": "操作失败/成功通知采用统一NotificationToast",
+      "title": "保存和删除成功直接更新原界面，不弹通知",
       "owner": "clients/gui/design-system/worktrees.md#ui包采用",
       "strength": "default",
-      "textSha256": "b231af17a756183d829ebf8c0495559a7fb5d64ff04c6252a1247c45e6db2db7"
+      "textSha256": "47df5d079b945a9ef9d91537db8549a1155e24c2c50be43a658f2a8ef96a18ab"
     },
     {
       "id": "R-ENTRY-008",
@@ -2751,7 +2751,7 @@
       "title": "这是底层纯展示表面，不用于新的操作通知",
       "owner": "clients/gui/packages/ui/src/components/feedback-notice/feedback-notice.md#规则",
       "strength": "default",
-      "textSha256": "200bc6a6753eb3bb33fa8113e7ade218864238cf153d486b15d9472cd7ea877e"
+      "textSha256": "822a655427b8e165f5abb20c0692369cf5d1e25f009a061e2184534f9aa34552"
     },
     {
       "id": "R-INPUTGROUP-001",
@@ -2783,10 +2783,10 @@
     },
     {
       "id": "R-NOTIFICATIONTOAST-001",
-      "title": "用于操作后的短时通知",
+      "title": "用于需要用户决策或采取行动的短时通知，须提供明确且必要的处理入口",
       "owner": "clients/gui/packages/ui/src/components/notification-toast/notification-toast.md#何时使用",
       "strength": "default",
-      "textSha256": "b1230ef601aec924542f20c0dbd336b71e7b1bea15529f5c3f959772b17650a0"
+      "textSha256": "3fec6c412fd9306c3d4591298ce129616e6b6d40f03b7d2613ff990a0c64d7b6"
     },
     {
       "id": "R-NOTIFICATIONTOAST-002",
@@ -4749,10 +4749,10 @@
     },
     {
       "id": "R-FEEDBACK-001",
-      "title": "操作错误通过同一顶部Toast通知，状态正文仍在所属组件附近展示",
+      "title": "字段校验和局部操作错误在所属组件附近持续展示，状态正文沿用原位置",
       "owner": "clients/gui/renderer/src/components/ui/feedback.md#用途",
       "strength": "default",
-      "textSha256": "c74c521c76e2bab0582625feffb98b111822643a994dbdfb5c19a84552499d52"
+      "textSha256": "0bf2daf9c1c61e51b2d2635500c60e8be8825b0a7daeb476788b0e8e9fa2ca7e"
     },
     {
       "id": "R-FEEDBACK-002",
@@ -4763,17 +4763,17 @@
     },
     {
       "id": "R-FEEDBACK-003",
-      "title": "有 error 时经ToastHost显示error等级提示，默认5秒后消失",
+      "title": "有 error 时在原位置显示 alert 错误正文，并保留id供输入字段关联",
       "owner": "clients/gui/renderer/src/components/ui/feedback.md#状态",
       "strength": "default",
-      "textSha256": "05210bdedb5192baa6b358ba8f9ba615d73649f03cdcd9c29450a46d154ef51f"
+      "textSha256": "54bfefde915b827ed144725d240cf739e1ac6b7f6f7057b068b960a2013825d0"
     },
     {
       "id": "R-FEEDBACK-004",
-      "title": "Toast不主动移动焦点，关闭按钮可通过Tab到达",
+      "title": "反馈不主动移动焦点",
       "owner": "clients/gui/renderer/src/components/ui/feedback.md#键盘与焦点",
       "strength": "default",
-      "textSha256": "207e5e954092f7d8cb2e9cfaf5e916e4315af5a82f4502b7e3f79c87928b95e6"
+      "textSha256": "93c5b96c3e29538969228c85e260bf1cc7eef48d127c990d13c1937a60bd9224"
     },
     {
       "id": "R-FEEDBACK-005",
@@ -5764,10 +5764,10 @@
     },
     {
       "id": "R-RECOVERY-001",
-      "title": "先决定用户需要理解的事实，再选择样式、文案和合法动作",
+      "title": "只有需要用户决策或采取行动时才通知",
       "owner": "design/patterns/feedback-and-recovery.md#反馈与恢复",
       "strength": "default",
-      "textSha256": "41eb242f16752b9721c193984e83c31198bd82490f105e2f1228f5ea09eb3534"
+      "textSha256": "498e468515f54736d42f2d80ed6176f233e347563f28763b426d0a39b213973e"
     },
     {
       "id": "R-RECOVERY-002",
@@ -5820,10 +5820,10 @@
     },
     {
       "id": "R-RECOVERY-009",
-      "title": "操作提示采用顶部居中的Toast：info、success、warning、error分别使用语义颜色和图标，默认5秒后消失，支",
+      "title": "必须打断用户且有明确处理入口的提示采用顶部居中的Toast：info、success、warning、error分别使用",
       "owner": "design/patterns/feedback-and-recovery.md#短时通知",
       "strength": "default",
-      "textSha256": "5440a4be8c0ac3fa8bd6e0812027650467e2859884c21d996bd45f3fc381ba55"
+      "textSha256": "c9a70ee2129a88a4246aae56dbe5e34af25b0963a7016e2ef4431ae84ab0cc6d"
     },
     {
       "id": "R-RECOVERY-010",
@@ -5834,10 +5834,10 @@
     },
     {
       "id": "R-RECOVERY-012",
-      "title": "操作反馈统一采用顶部短时NotificationToast，包括带核对或设置动作的通知",
+      "title": "需要用户处理的短时通知采用NotificationToast，并提供核对或设置等必要动作",
       "owner": "design/patterns/feedback-and-recovery.md#统一短时反馈与待确认状态",
       "strength": "default",
-      "textSha256": "96825f23545d750496e68c9f764f33bda57ea6c21483f8f3c741b6a4dd60e05d"
+      "textSha256": "8789dc5d38b4835e66a489327a24f2e1871819c2743c2cb402f98302f6c7b8c7"
     },
     {
       "id": "R-RECOVERY-013",

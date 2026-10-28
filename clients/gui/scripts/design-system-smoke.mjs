@@ -357,7 +357,7 @@ async function settingsChecks() {
     if (state === "failed") {
       await save.click();
       assert.equal(
-        await page.getByTestId("toast").getByRole("alert").innerText(),
+        await host("states").getByRole("alert").innerText(),
         "示例操作明确失败，草稿已保留。",
       );
     }
@@ -1598,7 +1598,7 @@ try {
       await page.getByLabel("状态", { exact: true }).selectOption("failed");
       const card = page.getByRole("region", { name: "工具审批", exact: true });
       await card.getByRole("button", { name: "允许一次", exact: true }).click();
-      await page.getByTestId("toast").getByRole("alert").waitFor();
+      await card.getByRole("alert").waitFor();
       await page.getByLabel("状态", { exact: true }).selectOption("unknown");
       await card.getByRole("button", { name: "允许一次", exact: true }).click();
       await card.getByRole("button", { name: "核对待审批状态", exact: true }).waitFor();

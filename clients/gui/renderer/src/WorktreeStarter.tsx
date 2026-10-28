@@ -1,4 +1,3 @@
-import { toast } from "./components/ui/toast.js";
 import { useEffect, useRef, useState } from "react";
 import { GitBranch, GitFork, LoaderCircle, Settings } from "lucide-react";
 import { Button } from "./components/ui/button.js";
@@ -48,9 +47,6 @@ export function WorktreeStarter({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
-  useEffect(() => {
-    if (error) toast(error, "error");
-  }, [error]);
   const search = useRef<HTMLInputElement>(null);
   const branchTrigger = useRef<HTMLButtonElement>(null);
   const environmentTrigger = useRef<HTMLButtonElement>(null);
@@ -318,10 +314,7 @@ export function WorktreeStarter({
           )}
           {error && (
             <div className="worktree-picker-feedback">
-              <details>
-                <summary>{t("recovery.details")}</summary>
-                <p>{error}</p>
-              </details>
+              <p role="alert">{error}</p>
               <Button variant="ghost" size="sm" onClick={() => setRetry((value) => value + 1)}>
                 {t("worktree.retryOptions")}
               </Button>
