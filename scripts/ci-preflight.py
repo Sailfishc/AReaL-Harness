@@ -434,7 +434,7 @@ def main():
         with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
             print("artifact_ready=" + str(ready).lower(), file=stream)
     if not fresh:
-        report["status"] = "failed"
+        report["status"] = "invalidated"
         report["reason"] = "inputs changed before finalization"
     report["totalElapsedMs"] = round((time.monotonic() - started) * 1000)
     write_report(output / "report.json", report)

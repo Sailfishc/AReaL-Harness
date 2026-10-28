@@ -29,6 +29,16 @@ preflight = load("ci-preflight")
 
 
 class CiContracts(unittest.TestCase):
+    def test_gui_plan_jobs_install_the_declared_python_toolchain(self):
+        workflow = (ROOT / ".github/workflows/gui.yml").read_text()
+        for job in re.split(r"(?m)^  [a-z][a-z0-9-]+:\n", workflow):
+            if "scripts/ci-preflight.py" in job:
+                self.assertIn("actions/setup-python@", job)
+                self.assertIn("python-version: '3.13'", job)
+                self.assertLess(
+                    job.index("actions/setup-python@"), job.index("scripts/ci-preflight.py")
+                )
+
     def test_web_compile_time_assets_are_copied_into_container_and_trigger_checks(self):
         source = ROOT / "core/app-server/src/lib.rs"
         dockerfile = (ROOT / "tests/e2e/docker/Dockerfile").read_text()
