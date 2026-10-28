@@ -1,4 +1,24 @@
 export const mobileMessages = {
+  "mobile.projectIdle": { "zh-CN": "空闲", en: "Idle" },
+  "mobile.executionPermissions": { "zh-CN": "执行权限", en: "Execution permissions" },
+  "mobile.authorizedProjects": {
+    "zh-CN": "这台电脑授权给你的 {count} 个项目",
+    en: "{count} projects shared by this computer",
+  },
+  "mobile.projectAccessHint": {
+    "zh-CN": "需要更多项目？在电脑的「设置 → 手机连接」里给这台手机授权。",
+    en: "Need more projects? Grant access in Settings → Mobile connection on your computer.",
+  },
+  "mobile.runsOnComputer": {
+    "zh-CN": "在已连接的电脑上执行",
+    en: "Runs on your connected computer",
+  },
+  "mobile.newConversation": { "zh-CN": "新会话", en: "New conversation" },
+  "mobile.permissionWorkspace": { "zh-CN": "可写工作区", en: "Workspace write" },
+  "mobile.permissionReadOnly": { "zh-CN": "只读", en: "Read only" },
+  "mobile.permissionFullAccess": { "zh-CN": "完全访问", en: "Full access" },
+  "mobile.fullComputerAccess": { "zh-CN": "可操作整台电脑", en: "Access across the computer" },
+
   "mobile.connect": {
     "zh-CN": "连接电脑",
     en: "Connect your computer",
@@ -204,8 +224,8 @@ export const mobileMessages = {
   "mobile.reasoning": { "zh-CN": "推理强度", en: "Reasoning effort" },
   "mobile.modelUnavailable": { "zh-CN": "不可用", en: "Unavailable" },
   "mobile.configureAfterTurn": {
-    "zh-CN": "本轮结束后再调整。",
-    en: "Adjust these settings after this turn finishes.",
+    "zh-CN": "会话运行时不能修改，本轮结束后可调整。",
+    en: "Settings cannot be changed during a turn. Adjust them after it finishes.",
   },
   "mobile.queueDesktop": {
     "zh-CN": "队列编辑请在电脑上完成。",

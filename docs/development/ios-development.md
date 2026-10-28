@@ -119,7 +119,7 @@ node clients/gui/scripts/mobile-workspace-smoke.mjs
 
 新会话通过 `project.models` 读取电脑目录，初始显示“电脑默认”。模型、推理强度与权限选择先保留为内存意图。首发依次创建会话、读取 `session.open` 基线、按实际配置 revision 应用选择，再发送消息。配置不可用或被拒绝时保留草稿与已创建会话。运行中发送使用 `enqueue` 和精确 Turn ID；停止针对当前 Turn，Task 会话需要专属控制入口。
 
-移动页面复用 `ConversationComposer`、`ComposerQueue` 和权限菜单。草稿只保存在内存。每次写入前，同一设备身份必须成功保存到 Keychain，再保存共享 `ClientState` 定位信息。定位信息不含正文或模型选择。回包丢失、断线或重启后只通过 `command.read` 核对原 commandId；核对创建成功不会继续自动发送。未知停止保留原精确记录，但 Core 已确认空闲后可以发送新消息。
+移动页面复用 `ConversationComposer`、`ComposerQueue` 和共享 Dialog。模型与权限在底部面板分组显示，顶部“完成”确认后应用选择；关闭面板丢弃面板内未确认的改动。推理强度优先展示目录支持的低、中、高，并保留当前已配置的其他档位。执行权限显示只读、可写工作区和完全访问，分别使用既有 `readOnly` 与权限 preset 契约，受电脑能力与固定只读 Profile 限制。运行中只能查看设置。草稿只保存在内存。每次写入前，同一设备身份必须成功保存到 Keychain，再保存共享 `ClientState` 定位信息。定位信息不含正文或模型选择。回包丢失、断线或重启后只通过 `command.read` 核对原 commandId；核对创建成功不会继续自动发送。未知停止保留原精确记录，但 Core 已确认空闲后可以发送新消息。
 
 ```sh
 node --test clients/gui/scripts/mobile-commands.test.mjs
@@ -130,6 +130,8 @@ node clients/gui/scripts/mobile-command-smoke.mjs
 ```
 
 命令门禁同样需要 `slot_lock` 覆盖全程。runner 使用真实 Core、两个确定性本地模型、真实 DOM 输入与原生 Keychain，检查非默认模型首发、运行中排队、停止、受理后丢回包与重启核对。结果按独立 attempt 目录保存在 `.scratch/ios-remote-v1/mobile-commands/`，包括可见按钮的实际 CSS 触控尺寸。`AREAL_MOBILE_DERIVED` 可指定共享 DerivedData 缓存；证据目录不复用旧尝试。DOM 输入检查不替代实体键盘或触摸验收。
+
+移动项目和会话列表使用内容自适应高度的无阴影卡片；项目名、会话名和顶部标题限制为可用宽度内的单行，超长时显示省略号，完整值保留在 DOM 和 `title` 属性。列表刷新只更新无障碍状态与原位控件，不插入会推移内容的加载行。消息正文继续完整显示。
 
 触摸形态的 Composer 输入使用现有 16px 字号 token，避免 iOS 聚焦时自动放大；消息复制、统计和执行过程折叠入口使用 44pt 最小触控区域。当前构建不包含审批、同步或 Task 提问回复、Task 暂停、边缘滑返和推送；Task 详情仍只读。
 
