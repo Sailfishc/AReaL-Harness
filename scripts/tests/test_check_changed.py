@@ -241,6 +241,38 @@ class ChangedChecks(unittest.TestCase):
         saved = json.loads((self.root / "target/ci/1/report.json").read_text())
         self.assertEqual(saved["results"][0]["exitCode"], 7)
 
+    def test_mutable_cargo_outputs_do_not_block_building_consumers_but_published_bundle_does(self):
+        binary = self.root / "target/debug"
+        binary.mkdir(parents=True)
+        for owner in ("verify-core-build", "native-core-build", "gui-core-build"):
+            for name in ("areal", "areal-runtime", "areal-runtime-fs", "areal-runtime-reaper"):
+                (binary / name).write_bytes(b"built")
+            producer = self.item(owner)
+            cargo = self.item("cargo-tests", (owner,))
+            consumer = self.item("consumer", (owner,))
+            calls = []
+
+            def runner(command, **kwargs):
+                calls.append(command[0])
+                if command[0] == "cargo-tests":
+                    (binary / "areal-runtime-reaper").write_bytes(b"cargo-test-build")
+                return subprocess.CompletedProcess(command, 0)
+
+            report = self.execute([producer, cargo, consumer], runner)
+            if owner == "gui-core-build":
+                self.assertEqual(calls, [owner, "cargo-tests"])
+                self.assertEqual(report["results"][-1]["staleArtifacts"], [owner])
+                self.assertEqual(report["results"][-1]["status"], "blocked")
+            else:
+                self.assertEqual(calls, [owner, "cargo-tests", "consumer"])
+                self.assertEqual(report["status"], "passed")
+
+    def test_python_and_make_entries_require_supported_python_before_execution(self):
+        plan = self.plan(["scripts/ci-preflight.py"])
+        for item in plan["items"]:
+            if item["command"][0] in {"python3", "make"} or item["id"] == "gui-portable":
+                self.assertIn("python3", item["requires"], item["id"])
+
     def test_failed_attempt_reports_cannot_be_overwritten(self):
         self.execute([self.item("failed")], lambda *a, **k: subprocess.CompletedProcess(a, 9))
         path = self.root / "target/ci/1/report.json"

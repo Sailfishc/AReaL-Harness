@@ -205,6 +205,10 @@ export function Composer({
     configuration.requestId ?? null,
   );
   const outgoing = usePendingMessage(key);
+  useEffect(() => {
+    // 待提交预览只清空现有编辑器，保留 Enter 发送时的焦点与选区所有权。
+    if (outgoing) api.current?.clear();
+  }, [outgoing]);
   const [files, setFiles] = useState<ComposerDraftAttachment[]>(
     () => attachmentDrafts.get(key) ?? [],
   );
@@ -984,7 +988,6 @@ export function Composer({
           onFileDrop={(files) => setFiles((current) => [...current, ...files])}
           onWorkspaceReferencePendingChange={setWorkspaceReferencePending}
           taskId={thread.id}
-          key={outgoing ? "sending" : "editing"}
           initialValue={outgoing ? "" : text}
           inputApiRef={api}
           inputTestId={inputTestId}

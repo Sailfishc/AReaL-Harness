@@ -65,7 +65,7 @@ def environment(item, root):
 def capabilities(root, env):
     found = {
         name
-        for name in ("git", "python3", "openssl", "cargo-audit")
+        for name in ("git", "openssl", "cargo-audit")
         if shutil.which(name, path=env.get("PATH"))
     }
 
@@ -80,6 +80,14 @@ def capabilities(root, env):
         except OSError:
             return False
 
+    if succeeds(
+        [
+            "python3",
+            "-c",
+            "import sys, inspect, tarfile, tomllib; assert sys.version_info >= (3, 11); assert 'filter' in inspect.signature(tarfile.TarFile.extractall).parameters",
+        ]
+    ):
+        found.add("python3")
     try:
         node = (
             subprocess.check_output(["node", "--version"], cwd=root, env=env, text=True)
@@ -147,7 +155,8 @@ def capabilities(root, env):
 
 def artifacts(item, root):
     files = []
-    if item["id"].endswith("core-build"):
+    # Cargo 测试会重写可变构建目录；只有发布给其他 job 的 GUI bundle 在此冻结。
+    if item["id"] == "gui-core-build":
         files = [
             root / "target/debug" / name
             for name in ("areal", "areal-runtime", "areal-runtime-fs", "areal-runtime-reaper")

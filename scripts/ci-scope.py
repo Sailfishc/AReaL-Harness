@@ -78,6 +78,7 @@ CI_PLATFORMS = {
 
 
 REQUIREMENT_HINTS = {
+    "python3": "Python >=3.11 with tomllib and tar extraction filtering; activate the repository .venv",
     "native-runtime": "macOS Seatbelt, or /usr/bin/bwrap with usable user namespaces on Linux",
     "container-runtime": "a running Docker daemon and current-source labeled areal-ci:runtime-tests image",
     "container-profile": "the supported areal-ci:runtime image labeled for this source and input hash",
@@ -231,12 +232,14 @@ def build_plan(paths, source, manifest):
         platforms=("darwin", "linux"),
         expected=None,
     ):
+        if command[0] in {"make", "python3"}:
+            requires = (*requires, "python3")
         item = {
             "id": name,
             "command": command,
             "group": group,
             "dependsOn": list(dependencies),
-            "requires": list(requires),
+            "requires": sorted(set(requires)),
             "phase": phase,
             "platforms": list(platforms),
             "reasons": paths,
@@ -358,7 +361,7 @@ def build_plan(paths, source, manifest):
             ["node", "clients/gui/scripts/run-portable-tests.mjs"],
             "gui-portable",
             (renderer,),
-            ("node-24.22.1",),
+            ("node-24.22.1", "python3", "git"),
             expected=portable,
         )
         add("gui-audit", ["pnpm", "--dir", "clients/gui", "audit"], "gui-portable")

@@ -808,12 +808,19 @@ async function verifyModelCapabilities() {
     path: join(scratch, "custom-model-effort-empty.png"),
     animations: "disabled",
   });
+  await button("服务默认").click();
+  await page.waitForFunction(() =>
+    document.querySelector('[aria-label="模型"]')?.textContent.includes("服务默认"),
+  );
   await page.keyboard.press("Escape");
-  await send("Empty effort subset omits unsupported request parameters", {
-    model: "capability-model",
-    effort: null,
-    hasEffort: false,
-  });
+  await send(
+    "Empty effort subset requires explicit service default to omit unsupported parameters",
+    {
+      model: "capability-model",
+      effort: null,
+      hasEffort: false,
+    },
+  );
   await editCapabilities();
   await editor.getByRole("switch", { name: "推理能力", exact: true }).click();
   await editor.getByRole("button", { name: "保存模型", exact: true }).click();
@@ -879,8 +886,21 @@ async function verifyModelDefaults(projectId) {
           enabled: true,
           parameters: { reasoningEffort: "high", temperature: 0.4, maxOutputTokens: 4096 },
         },
-        { id: "beta-default", displayName: "Beta", enabled: true, parameters: {} },
-      ],
+        {
+          id: "beta-default",
+          displayName: "Beta",
+          enabled: true,
+          parameters: {},
+        },
+      ].map((model) => ({
+        ...model,
+        capabilities: {
+          tools: true,
+          vision: true,
+          reasoning: true,
+          reasoningEffortOptions: ["none", "minimal", "low", "medium", "high", "xhigh"],
+        },
+      })),
     },
   });
   const provider = seeded.data.find((item) => item.name === "Defaults");
@@ -1024,6 +1044,10 @@ async function verifyModelDefaults(projectId) {
     "clicking selected model retains its configuration",
   );
   await chooseModel("Beta");
+  await expectModel("Beta", "未指定");
+  await button("模型").click();
+  await page.getByRole("button", { name: "中", exact: true }).click();
+  await page.keyboard.press("Escape");
   await expectModel("Beta", "中");
   const switchedParameters = snapshotProject(await state()).configurations[switched].parameters;
   assert.ok(
@@ -1055,8 +1079,12 @@ async function verifyModelDefaults(projectId) {
   await createProjectConversation(page, "workspace");
   await expectModel("Alpha", "高");
   await chooseModel("Beta");
+  await expectModel("Beta", "未指定");
+  await button("模型").click();
+  await page.getByRole("button", { name: "中", exact: true }).click();
+  await page.keyboard.press("Escape");
   await expectModel("Beta", "中");
-  const beta = await send("Explicit draft Beta displays and sends medium", {
+  const beta = await send("Explicit draft Beta displays and sends its user-selected medium", {
     model: "beta-default",
     effort: "medium",
     hasEffort: true,
@@ -1316,7 +1344,7 @@ async function verifyModelDefaults(projectId) {
   await stopService();
   await writeFile(
     config,
-    `schema_version=1\n[model]\nprovider="legacy"\nname="legacy-alpha"\nreasoning_effort="high"\n[model.providers.legacy]\nname="Legacy"\nendpoint="http://127.0.0.1:${server.address().port}/v1/chat/completions"\nprotocol="chat-completions"\nmodels=[{id="legacy-alpha",display_name="Legacy Alpha"},{id="legacy-beta",display_name="Legacy Beta"}]\n`,
+    `schema_version=1\n[model]\nprovider="legacy"\nname="legacy-alpha"\nreasoning_effort="high"\n[model.providers.legacy]\nname="Legacy"\nendpoint="http://127.0.0.1:${server.address().port}/v1/chat/completions"\nprotocol="chat-completions"\nmodels=[{id="legacy-alpha",display_name="Legacy Alpha",capabilities={tools=true,vision=true,reasoning=true,reasoning_effort_options=["none","minimal","low","medium","high","xhigh"]}},{id="legacy-beta",display_name="Legacy Beta",capabilities={tools=true,vision=true,reasoning=true,reasoning_effort_options=["none","minimal","low","medium","high","xhigh"]}}]\n`,
   );
   await launch();
   await until(

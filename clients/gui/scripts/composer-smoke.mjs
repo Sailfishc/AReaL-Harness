@@ -427,8 +427,8 @@ try {
       ),
     "provider catalog",
   );
-  const input = () => page.locator("[data-testid=chat-input]");
-  const tags = () => page.locator(".composer-skill-tag");
+  const input = () => page.getByTestId("chat-view").getByTestId("chat-input");
+  const tags = () => page.getByTestId("chat-view").locator(".composer-skill-tag");
   const openCatalog = async () => {
     await button("添加功能与 Skills").click();
     await page.getByRole("option").filter({ hasText: "Deterministic test skill" }).waitFor();
@@ -877,10 +877,13 @@ try {
       ctx.fillRect(0, 0, 64, 64);
       return canvas.toDataURL("image/png").split(",")[1];
     });
-    await page.locator("input[type=file]").setInputFiles([
-      { name: "image.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") },
-      { name: "note.txt", mimeType: "text/plain", buffer: Buffer.from("文本附件内容") },
-    ]);
+    await page
+      .getByTestId("chat-view")
+      .locator("input[type=file]")
+      .setInputFiles([
+        { name: "image.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") },
+        { name: "note.txt", mimeType: "text/plain", buffer: Buffer.from("文本附件内容") },
+      ]);
     await page.getByRole("button", { name: "在文本框中显示 ›" }).click();
     await page.waitForFunction(() =>
       document.querySelector('[data-testid="chat-input"]')?.textContent.includes("文本附件内容"),
@@ -1154,11 +1157,14 @@ try {
       uploads: (await call("media", { projectId: pid, threadId: tid, operation: "list" })).uploads,
     };
     await input().fill(fileDraft);
-    await page.locator("input[type=file]").setInputFiles({
-      name: "中文源文件.ts",
-      mimeType: "application/typescript",
-      buffer: Buffer.from(uploadedText),
-    });
+    await page
+      .getByTestId("chat-view")
+      .locator("input[type=file]")
+      .setInputFiles({
+        name: "中文源文件.ts",
+        mimeType: "application/typescript",
+        buffer: Buffer.from(uploadedText),
+      });
     await sendAndWait();
     await until(
       (s) => current(s).turns.at(-1)?.status === "completed" && !project(s).pending.length,
@@ -1221,7 +1227,7 @@ try {
     for (const fixture of refusedFiles) {
       const requests = received.length;
       await input().fill("拒绝时保留草稿");
-      await page.locator("input[type=file]").setInputFiles(fixture);
+      await page.getByTestId("chat-view").locator("input[type=file]").setInputFiles(fixture);
       await button("发送").click();
       await page
         .getByRole("alert")
@@ -1654,7 +1660,10 @@ try {
     assert.equal(received.length, requestCount);
     assert.equal(await tags().count(), 1);
     assert.equal(
-      await page.locator('[data-testid="feedback-notice"][data-tone="error"]').count(),
+      await page
+        .getByTestId("chat-view")
+        .locator('[data-testid="feedback-notice"][data-tone="error"]')
+        .count(),
       0,
     );
     assert.equal(await input().textContent(), "技能失败保留草稿");
@@ -1689,11 +1698,14 @@ try {
     await button("新聊天").click();
     await selectFixtureProfile();
     await chooseFirst();
-    await page.locator("input[type=file]").setInputFiles({
-      name: "goal-note.txt",
-      mimeType: "text/plain",
-      buffer: Buffer.from("目标之外的附件"),
-    });
+    await page
+      .getByTestId("chat-view")
+      .locator("input[type=file]")
+      .setInputFiles({
+        name: "goal-note.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from("目标之外的附件"),
+      });
     await input().fill("/goal");
     await page.getByRole("option", { name: /设置目标/ }).waitFor();
     await input().press("Enter");
@@ -1746,7 +1758,7 @@ try {
         sendBox.y + sendBox.height <= viewport.height,
     );
     await openCatalog();
-    await page.locator(".composer-editor").click();
+    await page.getByTestId("chat-view").locator(".composer-editor").click();
     assert.equal(await page.getByTestId("composer-catalog").count(), 0);
     checks.push(
       "narrow window catalog within viewport; send control reachable; outside-click dismissal",
