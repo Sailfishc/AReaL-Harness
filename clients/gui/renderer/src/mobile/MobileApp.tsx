@@ -32,17 +32,26 @@ function MobileApp() {
       .deviceName()
       .then(({ name }) => setName(name))
       .catch(() => {});
-    const lifecycle = observeLifecycle((active) => void client.setActive(active));
+    let disposed = false;
+    const lifecycle = observeLifecycle((active) => {
+      if (!disposed) void client.setActive(active);
+    });
+    const close = () => {
+      void client.setActive(false);
+    };
+    window.addEventListener("pagehide", close);
     const theme = matchMedia("(prefers-color-scheme: dark)");
     const update = () => document.documentElement.classList.toggle("dark", theme.matches);
     update();
     theme.addEventListener("change", update);
     return () => {
+      disposed = true;
+      window.removeEventListener("pagehide", close);
       void lifecycle.then((remove) => remove());
       theme.removeEventListener("change", update);
       commands.dispose();
       workspace.dispose();
-      client.disconnect();
+      void client.setActive(false);
     };
   }, []);
   const pair = (value: string) => {

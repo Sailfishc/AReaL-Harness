@@ -892,5 +892,13 @@
     "platforms": ["darwin", "linux", "win32"],
     "areas": ["design"],
     "requires": ["chrome"]
+  },
+  {
+    "script": "test:mobile-browser",
+    "layer": "e2e",
+    "platforms": ["darwin", "linux"],
+    "areas": ["remote", "mobile"],
+    "requires": ["browser"],
+    "notes": "Production mobile UI, encrypted pairing and reload in Chromium/WebKit; browser memory and fixture Host only."
   }
 ]

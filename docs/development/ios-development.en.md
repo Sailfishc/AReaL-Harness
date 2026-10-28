@@ -22,6 +22,49 @@ pnpm --dir clients/gui --filter @areal/mobile open
 
 The default Bundle ID is the development placeholder `com.example.arealharness`. The gate accepts `AREAL_MOBILE_BUNDLE_ID` and passes it to Xcode as `AREAL_MOBILE_BUNDLE_ID`. Before device signing, choose a Bundle ID you own in both the Xcode project and Capacitor configuration, then configure your development team.
 
+## Daily development loop
+
+Use a Node version supported by the GUI engines; Relay fixtures still require a separate Node 24.2.0 executable. Mobile commands build the shared UI package first, including in a fresh worktree.
+
+```sh
+pnpm --dir clients/gui mobile:dev
+# In a second terminal, target your own simulator rather than a physical device.
+pnpm --dir clients/gui mobile:ios:live --target <simulator-udid>
+```
+
+The development server binds to `127.0.0.1:5174` and fails if the port is occupied, preventing accidental attachment to another worktree. Open its URL in a browser to edit mobile pages. CSS updates in place; script changes reload the page to recreate connection and subscription owners. Leaving the page closes the connection and stops reconnect attempts. Native mode continues to use Keychain. The browser development substitute holds identity only in page memory, loses it on reload, and uses pasted links instead of scanning. It does not establish native storage, permission, or background behavior acceptance.
+
+`mobile:ios:live` verifies that the server belongs to this worktree, syncs local assets, temporarily sets the generated configuration's development URL, then uses MobileBuildMCP to build and launch a dedicated Debug app. It restores the generated configuration on completion or failure; the development server keeps serving updates. This avoids native-run's dependency on the old Simulator.app path. Run `mobile:sync` before protocol gates, archive, or release validation to use bundled local assets. Live Reload targets local simulator page development. Relay connections must still satisfy HTTPS origin allowlists, certificate trust, and WSS contracts. The browser gate exercises this through an ephemeral HTTPS fixture; an ordinary HTTP development URL is not thereby authorized by a production Relay.
+
+The following commands exercise the production mobile React UI in Chromium and WebKit: unpaired state, invalid links, actual Noise pairing with fixture approval, successful connection, reload after a script update, and light/dark screenshots. Storage uses the browser memory substitute and the Host uses the existing fixture. The gate also checks that release assets exclude the browser substitute and development CSP. It does not start Rust Core or replace native gates.
+
+```sh
+npm --prefix services/remote-relay ci --ignore-scripts
+pnpm --dir clients/gui/app exec playwright-core install chromium webkit
+AREAL_RELAY_NODE=/path/to/node-24.2.0/bin/node pnpm --dir clients/gui test:mobile-browser
+```
+
+Each attempt writes `.scratch/ios-development/browser/<attempt>/` with source SHA, dirty paths, runtime versions, screenshots and hashes, timings, outcomes, and cleanup errors. Browser contexts ignore certificate errors only inside the isolated TLS fixture; production connection code and Relay origin checks retain their existing contracts.
+
+This workflow draws on t3code's mobile lifecycle, reproducible scenes, and device evidence organization: script updates must handle connection ownership, native changes require rebuilding, and screenshots need device and scene attribution. Its Expo/React Native, Effect runtime, and device pool are not dependencies here. Vite page reloads and existing Remote gates serve those responsibilities.
+
+Relevant GUI, mobile, and Relay changes trigger `iOS development checks`: Linux runs mobile type checks, both browser paths, and production asset checks, then uploads evidence. Native builds and OS-version gates use the local entry points above; this CI does not establish native iOS or physical-device acceptance. The browser gate uses an independent Vite cache and removes it afterward to avoid sharing optimized dependencies with a daily development server.
+
+## Agent simulator tools
+
+`mobile:tools` pins MobileBuildMCP 2.7.1 and reads `.mobilebuildmcp/config.yaml` from the repository root. The configuration enables simulator, UI automation, and debugging tools and supplies the project and scheme. Callers select their simulator ID to avoid another task's device.
+
+```sh
+pnpm --dir clients/gui mobile:sync
+pnpm --dir clients/gui mobile:tools simulator list --output json
+pnpm --dir clients/gui mobile:tools simulator build-and-run --simulator-id <simulator-udid>
+pnpm --dir clients/gui mobile:tools simulator snapshot-ui --simulator-id <simulator-udid>
+pnpm --dir clients/gui mobile:tools ui-automation type-text --help
+pnpm --dir clients/gui mobile:tools daemon stop
+```
+
+CLI and MCP share tool implementations, so agents can use the CLI without changing global assistant configuration. For MCP, start `pnpm dlx mobilebuildmcp@2.7.1 mcp` from the repository root. Consult the pinned version's `--help` for arguments. Record build success, screenshot capture, and WebView control interaction separately. Existing `xcodebuild`/`simctl` gates continue to verify deterministic protocol and recovery behavior.
+
 ## Run the WKWebView handshake gate
 
 Check installed runtimes with `xcrun simctl list runtimes`. The default is iOS 17.5. Select another installed version as needed.
