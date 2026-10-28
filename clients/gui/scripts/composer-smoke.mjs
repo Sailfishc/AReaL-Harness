@@ -674,7 +674,10 @@ try {
     }
     // 由 Chromium 驱动真实组词事件；候选中间态不能保存到草稿或触发发送。
     const checkComposition = async (draftKey, label) => {
-      await input().fill("");
+      // 原生全选让 Lexical 同步选区；fill 的 DOM 全选可能仍按旧编辑器选区删除。
+      await input().focus();
+      await input().press("ControlOrMeta+A");
+      await input().press("Backspace");
       await page.waitForFunction((key) => {
         const editor = document.querySelector('[data-testid="chat-input"]');
         return (
@@ -1606,7 +1609,7 @@ try {
       "canonical paste resolves Core metadata; removing chip preserves manual Skill; first-message plugin draft survives navigation/reload; new and existing executable Side send reference intent without modifying parent configuration",
     );
     await checkComposition(`areal-gui:draft:${pid}:${tid}`, "chat");
-    // Use native typing: fill() uses the editor bridge and repairs the selection itself.
+    // 使用原生打字验证发送后焦点和选区，避免程序化填充修复选区而掩盖问题。
     for (const theme of ["dark", "light"]) {
       await button("设置").click();
       await button("外观").click();

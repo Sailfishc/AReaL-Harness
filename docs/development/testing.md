@@ -152,6 +152,8 @@ Linux portable job 的 10 分钟 timeout 是上限，不是耗时达标证据。
 
 Composer 和队列 smoke 共用 `clients/gui/scripts/smoke-navigation.mjs` 的导航与窄窗步骤：悬停项目后新建对话，通过稳定 task ID 切回对话，窄窗先收起侧栏再等待编辑器可见。失败保留 `failure-window.png` 整窗截图和 `failure-state.json` 的原错误、视口、当前项目/Thread 与可见文本；截图或页面已不可用时记录采集失败，不替换原测试错误。
 
+Composer 的 IME 前置清空通过真实键盘全选与退格完成，再同时核对 DOM、Lexical 和草稿存储为空。Playwright `fill("")` 的 DOM 全选可能与编辑器内部选区不同步，不能作为组词测试的清空前置；后续候选输入、提交和取消仍通过 Chromium 原生 IME 事件验收。
+
 模型选择 smoke 中，只有“应用模型配置”后的设置操作结算检查使用 180 秒期限，覆盖现有 150 秒应用 IPC、后续配置读取和界面结算。其它页面动作仍使用默认 15 秒。测试只提交一次应用，等待返回入口恢复后继续核对实际 Core 模型目录和请求，不用固定 sleep 或重放应用掩盖失败。
 
 桌面连接 smoke 的独立 CLI 配置读取、服务停止和状态查询复用产品 `executeCore` 启动桥；macOS 保留系统 Python 作为原生 Core 的实际父进程，测试不以 Node 直接启动替代产品入口。断线后仍检查原 Turn、订阅和请求计数，不重放提交。
