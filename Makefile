@@ -157,27 +157,9 @@ ci-core-contracts: ## 必须显式提供匹配且可执行的 AREAL_CORE_BIN；�
 	@test -n "$(AREAL_CORE_BIN)" && test -x "$(AREAL_CORE_BIN)" || { echo 'AREAL_CORE_BIN must name the matching executable' >&2; exit 1; }
 	cd clients/gui && AREAL_CORE_BIN="$(AREAL_CORE_BIN)" node scripts/run-portable-tests.mjs --core-contracts
 
-ci-preflight: ## 推送前门禁；显式 CI_BASE，包含本机 Core 合同，不替代完整 CI
-	@set -eu; \
-	test -n "$(CI_BASE)" || { echo 'CI_BASE is required' >&2; exit 1; }; \
-	base="$$(git merge-base "$(CI_BASE)" HEAD)"; \
-	$(MAKE) fmt-check workflow-lint; \
-	$(MAKE) lint; \
-	python3 scripts/check-docs.py; \
-	python3 -m unittest scripts.tests.test_ci_contracts scripts.tests.test_git_hooks; \
-	$(MAKE) ci-gui-health ci-gui-static CI_BASE="$$base"; \
-	pnpm --dir clients/gui test:browser-contracts; \
-	pnpm --dir clients/gui audit; \
-	$(MAKE) ci-gui-portable; \
-	$(MAKE) build; \
-	core="$(if $(AREAL_CORE_BIN),$(AREAL_CORE_BIN),$(CURDIR)/target/debug/areal)"; \
-	if [ -n "$(AREAL_CORE_BIN)" ]; then \
-		test -x "$$core" || { echo 'AREAL_CORE_BIN must name the matching executable' >&2; exit 1; }; \
-		built_sha="$$(shasum -a 256 "$(CURDIR)/target/debug/areal" | cut -d ' ' -f 1)"; \
-		fixed_sha="$$(shasum -a 256 "$$core" | cut -d ' ' -f 1)"; \
-		test -n "$$built_sha" && test "$$built_sha" = "$$fixed_sha" || { echo 'AREAL_CORE_BIN SHA-256 differs from the fresh build; deploy the new artifact to the fixed path first' >&2; exit 1; }; \
-	fi; \
-	$(MAKE) ci-core-contracts AREAL_CORE_BIN="$$core"
+ci-preflight: ## 推送前完整门禁与逐阶段报告；显式 CI_BASE，不替代完整 CI
+	@test -n "$(CI_BASE)" || { echo 'CI_BASE is required' >&2; exit 1; }
+	python3 scripts/ci-preflight.py --base "$(CI_BASE)"
 
 sdk-build: ## 编译两套 TypeScript SDK
 	npm --prefix runtime/sdk-typescript run build

@@ -56,6 +56,10 @@ pnpm --dir clients/gui test:unit renderer/src/readingViews.test.ts
 
 执行对象明确为 `working-tree`：暂存区内容影响选检和漂移检测，但命令读取工作区，部分暂存文件不据此宣称 index 内容已验收。没有整轮通过缓存。`passed-selected-checks` 仅表示所选检查通过；`partial` 表示缺少条件，`invalidated` 表示运行前后工作区或暂存区变化，`failed` 表示命令失败；这三种状态均返回非零。没有改动时为 `no-changes`。完整预检、CI、真实供应商、原生桌面和安装包仍按各自入口执行。
 
+`make ci-preflight` 将每次检查的工具版本、锁文件、源码/暂存/工作区输入摘要写入 `target/ci/preflight/<run-id>/metadata.json`，每个阶段单独记录命令、退出码、单调时钟耗时和状态，`result.json` 汇总退出状态。格式、文档、门禁合同和健康检查先于 Rust lint；失败仍阻止后续阶段。该报告只用于计量，不复用或缓存通过结果。
+
+专用 Relay 传输合同使用独立 CI job，在 GUI 支持的 Node 版本下构建输入，再切换到 Relay 锁定版本执行。该 job 与 macOS GUI 路径并行，最终 GUI gate 仍要求其成功；取消、失败和意外跳过不能通过 gate。
+
 Provider 回放夹具位于 `core/engine/tests/fixtures/provider-replay`，经真实 HTTP 字节、生产 decoder/Engine 和临时存储验证错误前文本、终止事件后断流、取消后迟到回答。请求到达与放行使用通知，不以固定 sleep 猜测。纯计时策略复用 Tokio 暂停时间；真实 HTTP 超时测试保留其 I/O 边界。字节块是服务器写入边界，不能假设操作系统一定保持网络分包。
 
 `make test` 先通过 `make build` 准备同批 Core/Runtime，并将 `target/debug` 作为默认 `AREAL_TEST_BIN_DIR` 传给 workspace 测试。直接运行真实 Runtime 写入恢复时，使用已部署并验证的同批固定 bundle 和显式 feature：
@@ -118,9 +122,9 @@ AREAL_CORE_BIN=/absolute/fixed/areal xvfb-run -a node scripts/repeat-tests.mjs -
 AREAL_CORE_BIN=/absolute/fixed/areal node scripts/repeat-tests.mjs --profile=macos-baseline
 ```
 
-先运行 `make gui-build` 准备 portable runner 所需的 Desktop/UI/Renderer 产物。该 runner 全量运行当前平台上满足前提的单元和契约测试，记录每个结果、耗时，以及因 Core、原生工具或精确 Node 版本缺失而未选择的命令。报告默认写入 `target/ci/gui/portable-tests.json`，`AREAL_PORTABLE_TEST_REPORT` 可指定路径。Relay 完整传输契约另外需要其锁定的 Node 24.2.0 和 `services/remote-relay` 依赖，CI 使用独立步骤执行。真实 CA/HTTPS/WSS 测试位于 `remote-relay-system-ca.test.mjs`，仅由 `test:remote-relay` 执行；`test:remote-relay-contracts` 保留无需启动 Relay CLI 的通用合同。
+先运行 `make gui-build` 准备 portable runner 所需的 Desktop/UI/Renderer 产物。该 runner 全量运行当前平台上满足前提的单元和契约测试，记录每个结果、耗时，以及因 Core、原生工具或精确 Node 版本缺失而未选择的命令。报告默认按模式和每次运行分别写入 `target/ci/gui/portable/<run-id>/report.json` 或 `target/ci/gui/core-contracts/<run-id>/report.json`，保留失败尝试，记录源码与 diff 摘要、Core 产物哈希及 CI run/attempt；`AREAL_PORTABLE_TEST_REPORT` 可显式指定输出文件。Relay 完整传输契约另外需要其锁定的 Node 24.2.0 和 `services/remote-relay` 依赖，CI 使用独立步骤执行。真实 CA/HTTPS/WSS 测试位于 `remote-relay-system-ca.test.mjs`，仅由 `test:remote-relay` 执行；`test:remote-relay-contracts` 保留无需启动 Relay CLI 的通用合同。
 
-`--core-contracts` 要求可执行的 `AREAL_CORE_BIN`，运行登记的 Core 依赖契约。macOS 构建任务在匹配的 Core/Runtime bundle 构建完成后运行该集合，记录 `core-contracts.json`；Linux portable lane 保持不依赖 Core。必跑 smoke 矩阵还对匹配的设计构建执行 `test:design`，包含真实浏览器无障碍和键盘检查。活跃 `design/**` 改动会触发 GUI 检查。
+`--core-contracts` 要求可执行的 `AREAL_CORE_BIN`，运行登记的 Core 依赖契约。macOS 构建任务在匹配的 Core/Runtime bundle 构建完成后运行该集合，归档对应 Core 合同报告；Linux portable lane 保持不依赖 Core。必跑 smoke 矩阵还对匹配的设计构建执行 `test:design`，包含真实浏览器无障碍和键盘检查。活跃 `design/**` 改动会触发 GUI 检查。
 
 `ciSmoke` 绑定现有 macOS smoke 矩阵。领域映射只裁剪已知的局部 Renderer 改动；共享所有者、测试脚本、未知路径及没有对应 smoke 的领域保留完整矩阵。没有比较基准的运行也使用完整矩阵。Linux 单元与契约不按领域裁剪。
 
@@ -314,7 +318,7 @@ PR #111 在初始 G0 快照后整合历史恢复与定时任务所有权。以�
 | `renderer/src/Messages.tsx` | 1561 → 1718 | 加载早期历史时保持阅读锚点 |
 | `renderer/src/TaskCenter.tsx` | 2356 → 2380 | 观察任务目录修订与共享 owner 激活 |
 
-推送 GUI/Core 集成分支前，先获取目标远程引用，通过 `make setup` 和 `make gui-install` 准备锁定依赖，再运行 `make ci-preflight CI_BASE=upstream-readonly/main`。`CI_BASE` 必须显式指向实际 PR 比较引用；入口先计算一次 merge-base，再将同一提交传给设计、文案和健康检查。若该提交尚无 `clients/gui/health-baseline.json`，健康检查按 CI 规则使用当前已审查基线，不传 `--base`。入口顺序运行格式、workflow/actionlint、Rust/Python 静态检查、文档、预检合同、GUI 健康与静态检查、浏览器契约、实时 GUI 依赖审计、portable 合同，最后构建匹配的 Core/Runtime 并运行登记的 10 项 Core 合同。任一步失败都会阻止后续步骤。保持原有全锁文件依赖审计和远端 CI 门禁。
+推送 GUI/Core 集成分支前，先获取目标远程引用，通过 `make setup` 和 `make gui-install` 准备锁定依赖，再运行 `make ci-preflight CI_BASE=upstream-readonly/main`。`CI_BASE` 必须显式指向实际 PR 比较引用；入口先计算一次 merge-base，再将同一提交传给设计、文案和健康检查。若该提交尚无 `clients/gui/health-baseline.json`，健康检查按 CI 规则使用当前已审查基线，不传 `--base`。入口顺序运行格式、workflow/actionlint、文档、GUI 健康、预检合同、Rust/Python 静态检查、GUI 静态检查、浏览器契约、实时 GUI 依赖审计、portable 合同，最后构建匹配的 Core/Runtime 并运行登记的 10 项 Core 合同。任一步失败都会阻止后续步骤。保持原有全锁文件依赖审计和远端 CI 门禁。
 
 共享入口供本机与 CI 复用：`make ci-gui-static CI_BASE=<ref>` 构建 Desktop/UI 输入并运行 GUI `check`、设计检查、类型检查、公开边界和快速回归；`make ci-gui-health CI_BASE=<ref>` 无需安装 GUI 依赖，检查健康合同和基线并写入 `target/ci/gui/health.json`；`make ci-gui-portable` 独立构建 Desktop/UI/Renderer，校验 manifest 并运行 portable 集合，显式隔离环境中的 Core 路径。`make ci-core-contracts AREAL_CORE_BIN=/absolute/matching/areal` 只运行 Core 依赖集合，缺失或不可执行的显式路径必须失败，不允许静默跳过。`ci-preflight` 始终先构建，默认传入 `target/debug/areal`；本机可用 `make ci-preflight CI_BASE=<ref> AREAL_CORE_BIN=/absolute/fixed/areal` 选择已部署的固定槽。显式路径的 SHA-256 必须与刚构建的 `target/debug/areal` 一致，否则门禁失败并要求先部署新产物；入口不会自动复制或绕过系统防护。本机 macOS 原生执行应先按固定产物路径验证流程准备。
 

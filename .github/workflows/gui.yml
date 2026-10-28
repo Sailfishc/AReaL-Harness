@@ -155,13 +155,6 @@ jobs:
         run: make ci-gui-static CI_BASE="$AREAL_DESIGN_BASE"
       - name: Validate registered portable tests
         run: make ci-gui-portable
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        with:
-          node-version: '24.2.0'
-      - name: Verify Relay contracts with their required runtime
-        run: |
-          npm --prefix services/remote-relay ci --ignore-scripts
-          pnpm --dir clients/gui run test:remote-relay
       - name: Record portable interval
         if: always()
         run: |
@@ -175,7 +168,47 @@ jobs:
         if: always()
         with:
           name: linux-gui-portable
-          path: target/ci/gui/portable-*.json
+          path: |
+            target/ci/gui/portable-*.json
+            target/ci/gui/portable/**/report.json
+          if-no-files-found: warn
+
+  relay-contracts:
+    name: Linux Relay transport contracts
+    needs: scope
+    if: needs.scope.outputs.gui == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.22.1'
+      - name: Prepare locked GUI inputs with the supported build runtime
+        run: |
+          npm install --global pnpm@11.7.0
+          pnpm --dir clients/gui install --frozen-lockfile
+          pnpm --dir clients/gui build:desktop
+          pnpm --dir clients/gui --filter @areal/ui build
+          pnpm --dir clients/gui --filter @areal/gui-renderer build
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.2.0'
+      - name: Verify Relay contracts with their required runtime
+        run: |
+          mkdir -p target/ci/gui
+          node --version > target/ci/gui/relay-node-version.txt
+          npm --prefix services/remote-relay ci --ignore-scripts
+          pnpm --dir clients/gui run test:remote-relay 2>&1 | tee target/ci/gui/relay-contracts.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: linux-relay-contracts
+          path: |
+            target/ci/gui/relay-contracts.log
+            target/ci/gui/relay-node-version.txt
           if-no-files-found: warn
 
   gui:
@@ -325,7 +358,6 @@ jobs:
       - name: Verify registered Core-dependent contracts
         env:
           AREAL_CORE_BIN: ${{ github.workspace }}/target/debug/areal
-          AREAL_PORTABLE_TEST_REPORT: ${{ github.workspace }}/target/ci/gui/core-contracts.json
         run: node clients/gui/scripts/run-portable-tests.mjs --core-contracts 2>&1 | tee target/ci/gui/core-contracts.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
@@ -333,7 +365,7 @@ jobs:
           name: macos-core-contracts-evidence
           path: |
             target/ci/gui/core-contracts.log
-            target/ci/gui/core-contracts.json
+            target/ci/gui/core-contracts/**/report.json
             ${{ runner.temp }}/gui-core-contracts/
           retention-days: 7
 
@@ -509,7 +541,7 @@ jobs:
 
   gate:
     name: GUI gate
-    needs: [scope, gui-health, gui-portable, gui, core-contracts, smoke]
+    needs: [scope, gui-health, gui-portable, relay-contracts, gui, core-contracts, smoke]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -525,5 +557,6 @@ jobs:
           CORE_RESULT: ${{ needs.scope.outputs.gui == 'false' && 'success' || needs.core-contracts.result }}
           HEALTH_RESULT: ${{ needs.scope.outputs.gui == 'false' && 'success' || needs.gui-health.result }}
           PORTABLE_RESULT: ${{ needs.scope.outputs.gui == 'false' && 'success' || needs.gui-portable.result }}
+          RELAY_RESULT: ${{ needs.scope.outputs.gui == 'false' && 'success' || needs.relay-contracts.result }}
           NEEDED: ${{ needs.scope.outputs.gui }}
         run: python3 scripts/ci-gate.py

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -115,4 +115,83 @@ test("registered tests reject macOS temporary literals in source and imported he
     'export const text = "a diagnostic mentioning /private/tmp";\n',
   );
   assert.equal(run().status, 0);
+});
+
+test("runner reports preserve failed attempts and separate Core from portable evidence", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "areal-runner-report-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const gui = join(root, "clients/gui");
+  const scripts = join(gui, "scripts");
+  const bin = join(root, "bin");
+  await mkdir(scripts, { recursive: true });
+  await mkdir(bin);
+  for (const name of ["run-portable-tests.mjs", "test-manifest.mjs"])
+    await copyFile(new URL(name, import.meta.url), join(scripts, name));
+  await writeFile(
+    join(gui, "package.json"),
+    JSON.stringify({ scripts: { "test:one": "one", "test:core": "core" } }),
+  );
+  await writeFile(
+    join(scripts, "test-manifest.json"),
+    JSON.stringify([
+      { ...one, requires: [] },
+      { ...one, script: "test:core", requires: ["core-binary"] },
+    ]),
+  );
+  await writeFile(
+    join(bin, "pnpm"),
+    `#!${process.execPath}\nprocess.exit(process.env.FAIL_RUNNER === '1' ? 23 : 0);\n`,
+    { mode: 0o755 },
+  );
+  const core = join(bin, "core");
+  await writeFile(core, `#!${process.execPath}\nconsole.log('{}');\n`, { mode: 0o755 });
+  for (const args of [
+    ["init", "-q"],
+    [
+      "-c",
+      "user.email=fixture@example.invalid",
+      "-c",
+      "user.name=fixture",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "fixture",
+    ],
+  ])
+    assert.equal(spawnSync("git", args, { cwd: root }).status, 0);
+  const execute = (args, fail = false) => {
+    const env = {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      AREAL_CORE_BIN: args.length ? core : "",
+      FAIL_RUNNER: fail ? "1" : "0",
+    };
+    delete env.AREAL_PORTABLE_TEST_REPORT;
+    return spawnSync(process.execPath, [join(scripts, "run-portable-tests.mjs"), ...args], {
+      cwd: gui,
+      env,
+      encoding: "utf8",
+    });
+  };
+  const failed = execute([], true);
+  assert.notEqual(failed.status, 0, failed.stderr);
+  const portableRoot = join(root, "target/ci/gui/portable");
+  const [first] = await readdir(portableRoot);
+  const original = await readFile(join(portableRoot, first, "report.json"), "utf8");
+  const report = JSON.parse(original);
+  assert.equal(report.status, "failed");
+  assert.equal(report.results[0].exitCode, 23);
+  assert.equal(report.sourceRevision.length, 40);
+  assert.equal(report.trackedDiffSha256.length, 64);
+  assert.equal(report.coreSha256, null);
+  assert.equal(execute([]).status, 0);
+  assert.equal((await readdir(portableRoot)).length, 2);
+  assert.equal(await readFile(join(portableRoot, first, "report.json"), "utf8"), original);
+  assert.equal(execute(["--core-contracts"]).status, 0);
+  const coreRoot = join(root, "target/ci/gui/core-contracts");
+  const [coreRun] = await readdir(coreRoot);
+  const coreReport = JSON.parse(await readFile(join(coreRoot, coreRun, "report.json"), "utf8"));
+  assert.equal(coreReport.status, "passed");
+  assert.deepEqual(coreReport.scripts, ["test:core"]);
+  assert.equal(coreReport.coreSha256.length, 64);
 });

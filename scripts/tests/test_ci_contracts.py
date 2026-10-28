@@ -56,6 +56,23 @@ class CiContracts(unittest.TestCase):
                 self.assertTrue(scope.applicable("release", [path]))
         self.assertFalse(scope.applicable("release", ["docs/features.md"]))
 
+    def test_gui_gate_requires_relay_success_when_applicable(self):
+        for relay in ("success", "failure", "cancelled", "skipped", ""):
+            result = subprocess.run(
+                [sys.executable, "scripts/ci-gate.py"],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "NEEDED": "true",
+                    "WORK_RESULT": "success",
+                    "SCOPE_RESULT": "success",
+                    "RELAY_RESULT": relay,
+                },
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode == 0, relay == "success", result.stdout)
+
     def test_gui_inputs_and_inapplicable_docs(self):
         for path in (
             "clients/cli/src/main.rs",
@@ -164,6 +181,10 @@ class PreflightExecution(unittest.TestCase):
         self.root = Path(self.temporary.name)
         shutil.copy2(ROOT / "Makefile", self.root / "Makefile")
         (self.root / "clients/gui").mkdir(parents=True)
+        (self.root / "scripts").mkdir()
+        for name in ("ci-preflight.py", "check-changed.py", "ci-scope.py"):
+            shutil.copy2(ROOT / "scripts" / name, self.root / "scripts" / name)
+        (self.root / "scripts/ci-fingerprint.py").write_text("print('{}')\n")
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.log = self.root / "commands.jsonl"
@@ -175,11 +196,21 @@ class PreflightExecution(unittest.TestCase):
             " log.write(json.dumps({'tool': pathlib.Path(sys.argv[0]).name, "
             "'args': sys.argv[1:], 'base': os.environ.get('AREAL_DESIGN_BASE'), "
             "'core': os.environ.get('AREAL_CORE_BIN'), 'runtimeBin': os.environ.get('AREAL_TEST_BIN_DIR')}) + '\\n')\n"
+            "if sys.argv[1:2] == ['scripts/ci-preflight.py']:\n"
+            " os.execv(sys.executable, [sys.executable, *sys.argv[1:]])\n"
             "sys.exit(43 if os.environ.get('FAIL_ARG') and "
             "os.environ['FAIL_ARG'] in sys.argv[1:] else 0)\n"
         )
         tool.chmod(0o755)
-        for name in ("cargo", "uv", "npm", "pnpm", "node", "python3", "actionlint"):
+        for name in (
+            "cargo",
+            "uv",
+            "npm",
+            "pnpm",
+            "node",
+            "python3",
+            "actionlint",
+        ):
             (self.bin / name).symlink_to(tool)
         self.environment = {
             **os.environ,
@@ -333,6 +364,35 @@ class PreflightExecution(unittest.TestCase):
         self.assertFalse(
             any(call["tool"] == "cargo" and "build" in call["args"] for call in self.calls())
         )
+
+    def test_preflight_keeps_failed_phase_reports_and_stops_before_build(self):
+        result = self.make(
+            "ci-preflight",
+            f"CI_BASE={self.comparison}",
+            FAIL_ARG="clients/gui/scripts/gui-health.mjs",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        directories = list((self.root / "target/ci/preflight").iterdir())
+        self.assertEqual(len(directories), 1)
+        directory = directories[0]
+        metadata = json.loads((directory / "metadata.json").read_text())
+        self.assertEqual(metadata["sourceRevision"], self.git("rev-parse", "HEAD").strip())
+        self.assertEqual(metadata["baseRevision"], self.base)
+        self.assertEqual(len(metadata["trackedDiffSha256"]), 64)
+        self.assertEqual(len(metadata["sourceInputHash"]), 64)
+        failed = json.loads((directory / "gui-health.json").read_text())
+        self.assertEqual(failed["status"], "failed")
+        self.assertGreaterEqual(failed["elapsedMs"], 0)
+        self.assertEqual(json.loads((directory / "result.json").read_text())["status"], "failed")
+        self.assertFalse((directory / "core-build.json").exists())
+        first = (directory / "gui-health.json").read_bytes()
+        self.make(
+            "ci-preflight",
+            f"CI_BASE={self.comparison}",
+            FAIL_ARG="clients/gui/scripts/gui-health.mjs",
+        )
+        self.assertEqual(len(list((self.root / "target/ci/preflight").iterdir())), 2)
+        self.assertEqual((directory / "gui-health.json").read_bytes(), first)
 
     def test_preflight_selects_only_a_fixed_core_matching_the_fresh_build(self):
         built = self.root / "target/debug/areal"

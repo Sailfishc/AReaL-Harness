@@ -1,5 +1,6 @@
-import { spawnSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readTestManifest, selectTests } from "./test-manifest.mjs";
@@ -29,12 +30,33 @@ const selected = selectTests(
   { platform: process.platform, available },
 );
 if (!selected.length) throw new Error(`No portable tests registered for ${process.platform}`);
+const mode = coreContracts ? "core-contracts" : "portable";
+const runId = randomUUID();
 const output = resolve(
-  process.env.AREAL_PORTABLE_TEST_REPORT ?? resolve(gui, "../../target/ci/gui/portable-tests.json"),
+  process.env.AREAL_PORTABLE_TEST_REPORT ??
+    resolve(gui, `../../target/ci/gui/${mode}/${runId}/report.json`),
 );
 await mkdir(dirname(output), { recursive: true });
 const report = {
-  mode: coreContracts ? "core-contracts" : "portable",
+  schemaVersion: 1,
+  mode,
+  runId,
+  sourceRevision: execFileSync("git", ["rev-parse", "HEAD"], { cwd: gui }).toString().trim(),
+  trackedDiffSha256: createHash("sha256")
+    .update(
+      execFileSync("git", ["diff", "HEAD", "--binary", "--no-ext-diff", "--no-textconv"], {
+        cwd: gui,
+      }),
+    )
+    .digest("hex"),
+  ciRunId: process.env.GITHUB_RUN_ID ?? null,
+  ciAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+  coreSha256: coreAvailable
+    ? createHash("sha256")
+        .update(await readFile(process.env.AREAL_CORE_BIN))
+        .digest("hex")
+    : null,
+  status: "running",
   platform: process.platform,
   node: process.version,
   startedAt: new Date().toISOString(),
@@ -50,6 +72,11 @@ const report = {
   results: [],
 };
 const started = performance.now();
+const saveReport = async () => {
+  await writeFile(`${output}.tmp`, JSON.stringify(report, null, 2) + "\n");
+  await rename(`${output}.tmp`, output);
+};
+await saveReport();
 console.log(JSON.stringify(report));
 for (const script of selected) {
   const began = performance.now();
@@ -65,7 +92,9 @@ for (const script of selected) {
   report.elapsedMs = Math.round(performance.now() - started);
   report.passed =
     report.results.length === selected.length && report.results.every((result) => result.passed);
-  await writeFile(output, JSON.stringify(report, null, 2) + "\n");
+  report.status =
+    report.results.length < selected.length ? "running" : report.passed ? "passed" : "failed";
+  await saveReport();
   if (result.status !== 0 || result.error) process.exitCode = 1;
 }
 console.log(JSON.stringify({ report: output, passed: report.passed, elapsedMs: report.elapsedMs }));
