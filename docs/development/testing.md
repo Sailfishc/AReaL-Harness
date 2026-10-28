@@ -52,11 +52,13 @@ pnpm --dir clients/gui test:navigation-cache
 pnpm --dir clients/gui test:unit renderer/src/readingViews.test.ts
 ```
 
-`check-changed` 解析一次 merge-base，将相对于基线的暂存差量、未暂存差量与未跟踪文件取并集；重命名两侧路径都纳入。暂存内容与工作区相互抵消时仍选检。`ciScopes` 复用 CI 原范围，未知代码的本地扩大单列为 `conservativeFallback`。GUI 候选来自现有 manifest；共享 Rust/schema 保守选入 workspace 和 SDK 消费者。计划给出输入摘要、命令、理由、命中路径、缺条件未执行项与 deferred 验收。
+`scripts/ci-scope.py` 是本地与 CI 共用的检查计划所有者；`check-changed` 解析一次 merge-base，合并暂存、未暂存与未跟踪路径，重命名两侧均纳入，部分暂存相互抵消也保留选检。计划登记命令、依赖、环境能力、平台和 manifest 子测试全集，并绑定 base/source/head 与输入摘要。共享 Rust、schema、锁文件、构建与 CI 变化扩大范围，未知代码保守扩大；比较基准不可用时不得放行。
 
-执行对象明确为 `working-tree`：暂存区内容影响选检和漂移检测，但命令读取工作区，部分暂存文件不据此宣称 index 内容已验收。没有整轮通过缓存。`passed-selected-checks` 仅表示所选检查通过；`partial` 表示缺少条件，`invalidated` 表示运行前后工作区或暂存区变化，`failed` 表示命令失败；这三种状态均返回非零。没有改动时为 `no-changes`。完整预检、CI、真实供应商、原生桌面和安装包仍按各自入口执行。
+快检默认只运行计划的 `commit` 阶段，`ARGS=--phase=full` 执行完整计划。命令读取 `working-tree`，暂存内容影响选检和漂移检测；快检不证明部分暂存内容已执行验收。报告将未选的完整验收列为 `pendingRequired`，其他平台列为 `remoteRequired`。`passed` 只表示本轮所选项通过，`blocked`、`invalidated`、`failed` 均不得作为通过。
 
-`make ci-preflight` 将每次检查的工具版本、锁文件、源码/暂存/工作区输入摘要写入 `target/ci/preflight/<run-id>/metadata.json`，每个阶段单独记录命令、退出码、单调时钟耗时和状态，`result.json` 汇总退出状态。格式、文档、门禁合同和健康检查先于 Rust lint；失败仍阻止后续阶段。该报告只用于计量，不复用或缓存通过结果。
+`make ci-preflight` 将工具版本、锁文件和输入摘要写入 `target/ci/preflight/<run-id>/metadata.json`，同目录 `plan.json` 冻结计划，`report.json` 保存每项命令、开始/结束时间、耗时、退出码与状态。格式、manifest/门禁契约、环境探针和生产包预算尽早执行；独立检查继续收集失败，只有真实依赖失败的消费者记录 `blocked`。每轮使用新目录保留失败，不缓存通过结果。
+
+故障注入验收：`python3 scripts/desktop-schemas.py --counterexample` 使用真实 Rust schema 生成器验证漂移必被拒绝；`pnpm --dir clients/gui test:ci-budget-counterexample` 在隔离输出目录构建故意超限的生产入口，要求实际预算检查拒绝。`python3 -m unittest scripts.tests.test_ci_contracts scripts.tests.test_check_changed scripts.tests.test_git_hooks` 验证缺少 native 能力时阻塞、漏掉必跑项/子测试时 gate 拒绝，以及暂存规则与工作区隔离。首跑失败保留，不以自动重试达成全绿。
 
 专用 Relay 传输合同使用独立 CI job，在 GUI 支持的 Node 版本下构建输入，再切换到 Relay 锁定版本执行。该 job 与 macOS GUI 路径并行，最终 GUI gate 仍要求其成功；取消、失败和意外跳过不能通过 gate。
 
@@ -122,7 +124,7 @@ AREAL_CORE_BIN=/absolute/fixed/areal xvfb-run -a node scripts/repeat-tests.mjs -
 AREAL_CORE_BIN=/absolute/fixed/areal node scripts/repeat-tests.mjs --profile=macos-baseline
 ```
 
-先运行 `make gui-build` 准备 portable runner 所需的 Desktop/UI/Renderer 产物。该 runner 全量运行当前平台上满足前提的单元和契约测试，记录每个结果、耗时，以及因 Core、原生工具或精确 Node 版本缺失而未选择的命令。报告默认按模式和每次运行分别写入 `target/ci/gui/portable/<run-id>/report.json` 或 `target/ci/gui/core-contracts/<run-id>/report.json`，保留失败尝试，记录源码与 diff 摘要、Core 产物哈希及 CI run/attempt；`AREAL_PORTABLE_TEST_REPORT` 可显式指定输出文件。Relay 完整传输契约另外需要其锁定的 Node 24.2.0 和 `services/remote-relay` 依赖，CI 使用独立步骤执行。真实 CA/HTTPS/WSS 测试位于 `remote-relay-system-ca.test.mjs`，仅由 `test:remote-relay` 执行；`test:remote-relay-contracts` 保留无需启动 Relay CLI 的通用合同。
+先运行 `make gui-build` 准备 portable runner 所需的 Desktop/UI/Renderer 产物。该 runner 按计划运行当前平台和所属通道的全部单元与契约测试；能力缺失记录 blocked 并失败，不据此删去应跑项。记录每个结果、耗时及其他通道拥有的命令。报告默认按模式和每次运行分别写入 `target/ci/gui/portable/<run-id>/report.json` 或 `target/ci/gui/core-contracts/<run-id>/report.json`，保留失败尝试，记录源码与 diff 摘要、Core 产物哈希及 CI run/attempt；`AREAL_PORTABLE_TEST_REPORT` 可显式指定输出文件。Relay 完整传输契约另外需要其锁定的 Node 24.2.0 和 `services/remote-relay` 依赖，CI 使用独立步骤执行。真实 CA/HTTPS/WSS 测试位于 `remote-relay-system-ca.test.mjs`，仅由 `test:remote-relay` 执行；`test:remote-relay-contracts` 保留无需启动 Relay CLI 的通用合同。
 
 `--core-contracts` 要求可执行的 `AREAL_CORE_BIN`，运行登记的 Core 依赖契约。macOS 构建任务在匹配的 Core/Runtime bundle 构建完成后运行该集合，归档对应 Core 合同报告；Linux portable lane 保持不依赖 Core。必跑 smoke 矩阵还对匹配的设计构建执行 `test:design`，包含真实浏览器无障碍和键盘检查。活跃 `design/**` 改动会触发 GUI 检查。
 
@@ -318,11 +320,11 @@ PR #111 在初始 G0 快照后整合历史恢复与定时任务所有权。以�
 | `renderer/src/Messages.tsx` | 1561 → 1718 | 加载早期历史时保持阅读锚点 |
 | `renderer/src/TaskCenter.tsx` | 2356 → 2380 | 观察任务目录修订与共享 owner 激活 |
 
-推送 GUI/Core 集成分支前，先获取目标远程引用，通过 `make setup` 和 `make gui-install` 准备锁定依赖，再运行 `make ci-preflight CI_BASE=upstream-readonly/main`。`CI_BASE` 必须显式指向实际 PR 比较引用；入口先计算一次 merge-base，再将同一提交传给设计、文案和健康检查。若该提交尚无 `clients/gui/health-baseline.json`，健康检查按 CI 规则使用当前已审查基线，不传 `--base`。入口顺序运行格式、workflow/actionlint、文档、GUI 健康、预检合同、Rust/Python 静态检查、GUI 静态检查、浏览器契约、实时 GUI 依赖审计、portable 合同，最后构建匹配的 Core/Runtime 并运行登记的 10 项 Core 合同。任一步失败都会阻止后续步骤。保持原有全锁文件依赖审计和远端 CI 门禁。
+推送 GUI/Core 集成分支前，获取实际目标引用并准备锁定依赖，运行 `make ci-preflight CI_BASE=upstream-readonly/main`。共享计划包含适用的 Rust/SDK、schema、静态检查、生产构建与预算、Portable/Core 契约、原生与 Electron smoke。GUI 普通检查使用 Node 24.22.1；Relay 合同使用 Node 24.2.0，本机可通过 `AREAL_RELAY_NODE_BIN` 指定其可执行文件。本机执行当前平台全部适用项；Linux 容器和其他平台列为远端必需项，不计作本地通过。
 
-共享入口供本机与 CI 复用：`make ci-gui-static CI_BASE=<ref>` 构建 Desktop/UI 输入并运行 GUI `check`、设计检查、类型检查、公开边界和快速回归；`make ci-gui-health CI_BASE=<ref>` 无需安装 GUI 依赖，检查健康合同和基线并写入 `target/ci/gui/health.json`；`make ci-gui-portable` 独立构建 Desktop/UI/Renderer，校验 manifest 并运行 portable 集合，显式隔离环境中的 Core 路径。`make ci-core-contracts AREAL_CORE_BIN=/absolute/matching/areal` 只运行 Core 依赖集合，缺失或不可执行的显式路径必须失败，不允许静默跳过。`ci-preflight` 始终先构建，默认传入 `target/debug/areal`；本机可用 `make ci-preflight CI_BASE=<ref> AREAL_CORE_BIN=/absolute/fixed/areal` 选择已部署的固定槽。显式路径的 SHA-256 必须与刚构建的 `target/debug/areal` 一致，否则门禁失败并要求先部署新产物；入口不会自动复制或绕过系统防护。本机 macOS 原生执行应先按固定产物路径验证流程准备。
+本地与 CI 通过 `scripts/ci-preflight.py --groups <组名>` 执行同一计划，`--plan` 只展示。`make ci-gui-static CI_BASE=<ref>` 运行 Portable 的提交阶段，`make ci-gui-portable CI_BASE=<ref>` 运行完整 Portable 组，`make ci-core-contracts CI_BASE=<ref>` 连同产物依赖运行 Core 契约。`make ci-gui-health` 保留轻量健康入口。显式 `AREAL_CORE_BIN` 必须与刚构建的 Core 哈希一致；macOS 原生执行按固定产物路径流程准备。CI 只有同一 run/attempt 的产物依赖报告可跨 job 使用，消费者重新核对产物哈希。最终 gate 独立重算计划，严格核对结果全集、子测试全集和源码/计划/run/attempt 身份，缺项或意外 skip 拒绝放行。
 
-运行 `make hooks-install CI_BASE=upstream-readonly/main` 才会激活仓库的本地 Git hooks；仅克隆仓库或运行预检不会安装 hooks。安装器保存实际远程目标引用，不覆盖已有的其他 `core.hooksPath`。提交钩子检查暂存快照，保留部分暂存和未暂存修改；推送钩子要求推送 SHA 等于当前 HEAD 且受控工作树干净，获取已保存的远程目标后执行完整预检。存在并发修改时，在独立的干净 worktree 验证和推送，不自动 stash 或覆盖修改。`make workflow-lint` 与钩子复用同一入口，首次将 actionlint 1.7.12 下载到本机 `.local/tools/` 并核对锁定的发行 SHA-256；只检查 Actions 语法、上下文和依赖，不依赖宿主是否安装可选 ShellCheck/pyflakes。独立 workflow lint 工作流也会检查其他无法解析的 workflow 文件。预检需要相应平台的构建工具与原生能力，并不是仅做静态检查；在 macOS 上通过不证明 Linux 可移植性通过，反之亦然。确定性本地模型和合同不覆盖真实供应商、完整 Electron E2E、跨平台重复资格或签名安装包验收，仍需执行对应 CI 与专项验收。可移植 Node fixture 使用 `node:os` 临时目录；WebSocket 替身必须完成真实的 `send(data, callback)` 契约，避免背压静默阻塞后续消息。
+运行 `make hooks-install CI_BASE=upstream-readonly/main` 激活本地 hooks。安装器保存实际远程目标，不覆盖其他 hooks。提交钩子在暂存快照验证 manifest、生成 `target/ci/staged-plan.json`，再检查格式和 workflow；计划展示不等于执行验收。推送钩子要求推送 SHA 等于当前 HEAD、受控文件及非忽略未跟踪输入干净，抓取目标后运行完整预检。并发工作使用独立干净 worktree。`make workflow-lint` 使用校验 SHA-256 的 actionlint 1.7.12。远端独立执行适用检查；真实供应商、设备和签名安装包仍需专项验收。
 
 `pnpm --dir clients/gui test:macos-dmg` 在 macOS 上独立通过真实 `codesign` 和 `hdiutil` 验证签名 framework 暂存。它需要允许磁盘映像设备访问的环境；受限 Agent 沙箱可能返回 `Device not configured`。应记录环境失败，并在允许的宿主环境重跑相同测试，不跳过断言，也不据此宣称安装包验收通过。macOS GUI job 显式执行该检查；可移植 `verify` 不创建磁盘映像。
 

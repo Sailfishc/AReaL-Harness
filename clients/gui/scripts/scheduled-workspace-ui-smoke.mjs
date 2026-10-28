@@ -198,7 +198,7 @@ try {
       }
       if (mode === "unresolved") {
         await page.getByRole("button", { name: "检查操作状态", exact: true }).first().waitFor();
-        await page.getByRole("button", { name: "新建自动化", exact: true }).click();
+        await page.getByRole("button", { name: "新建定时任务", exact: true }).click();
         await page.waitForFunction(
           () => window.calls.filter((call) => call.name === "reconcile").length === 2,
         );

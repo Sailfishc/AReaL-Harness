@@ -370,7 +370,7 @@ try {
     );
     await button("定时任务").click();
     const checkStart = (await trace()).length;
-    await button("新建自动化").click();
+    await button("新建定时任务").click();
     await until(
       async () =>
         (await trace())
@@ -417,7 +417,7 @@ try {
         .some((call) => call.kind === "desktop-command" && call.name === "create"),
       "Leaving unknown creation never creates or replays a request",
     );
-    await button("新建自动化").click();
+    await button("新建定时任务").click();
     await page.getByTestId("chat-input").waitFor();
     await until(
       async () =>

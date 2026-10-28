@@ -543,8 +543,15 @@ async function verifyModelCapabilities() {
     "true",
   );
   assert.equal(await editor.getByRole("spinbutton", { name: "模型温度", exact: true }).count(), 0);
-  for (const name of ["低", "中", "高", "极高"])
-    assert.equal(await editor.getByRole("checkbox", { name, exact: true }).isChecked(), true);
+  for (const name of ["低", "中", "高", "极高"]) {
+    const option = editor.getByRole("checkbox", { name, exact: true });
+    assert.equal(
+      await option.isChecked(),
+      false,
+      "new custom models do not invent offered strengths",
+    );
+    await option.check();
+  }
   for (const name of ["无", "最少", "最高"])
     assert.equal(await editor.getByRole("checkbox", { name, exact: true }).isChecked(), false);
   const fields = {
@@ -607,6 +614,14 @@ async function verifyModelCapabilities() {
   await createProjectConversation(page, "workspace");
   await button("模型").click();
   await page.getByRole("radio", { name: "Capability model", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await button("模型").click();
+  assert.equal(
+    await page.getByRole("slider", { name: "思考强度", exact: true }).count(),
+    0,
+    "a newly selected custom model keeps effort unspecified until explicit selection",
+  );
+  await page.getByRole("button", { name: "中", exact: true }).click();
   await page.keyboard.press("Escape");
   await captureModelThemes("composer-selection", true);
   const send = async (text, expected) => {
@@ -782,25 +797,22 @@ async function verifyModelCapabilities() {
   assert.deepEqual((await configuredModel()).capabilities.reasoningEffortOptions ?? [], []);
   await until(
     (snapshot) =>
-      JSON.stringify(catalogModel(snapshot)?.reasoningEffortOptions) ===
-      JSON.stringify(["none", "minimal", "low", "medium", "high", "xhigh"]),
-    "empty configured subset uses the standard effort options",
+      JSON.stringify(catalogModel(snapshot)?.reasoningEffortOptions) === JSON.stringify([]),
+    "empty configured subset does not invent supported effort options",
   );
   await button("返回应用").click();
   await button("模型").click();
-  slider = page.getByRole("slider", { name: "思考强度", exact: true });
-  assert.equal(await slider.getAttribute("max"), "5");
-  await slider.press("End");
-  await waitForSavedEffort("极高");
+  assert.equal(await page.getByRole("slider", { name: "思考强度", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("group", { name: "选择思考强度", exact: true }).count(), 0);
   await page.screenshot({
-    path: join(scratch, "custom-model-effort-fallback.png"),
+    path: join(scratch, "custom-model-effort-empty.png"),
     animations: "disabled",
   });
   await page.keyboard.press("Escape");
-  await send("Empty effort subset uses the standard maximum", {
+  await send("Empty effort subset omits unsupported request parameters", {
     model: "capability-model",
-    effort: "xhigh",
-    hasEffort: true,
+    effort: null,
+    hasEffort: false,
   });
   await editCapabilities();
   await editor.getByRole("switch", { name: "推理能力", exact: true }).click();
@@ -816,7 +828,7 @@ async function verifyModelCapabilities() {
     hasEffort: false,
   });
   checks.push(
-    "custom model defaults, paired budget fields, persisted capabilities, configured effort subset, empty-list fallback, and reasoning disablement govern actual Core requests",
+    "custom model defaults, paired budget fields, persisted capabilities, configured effort subset, empty-list omission, and reasoning disablement govern actual Core requests",
   );
   await openModelSettings();
   await page.locator(".provider-catalog-row").filter({ hasText: "Capabilities" }).waitFor();
@@ -1462,7 +1474,7 @@ try {
       ),
     { key: taskDraftKey, text: taskDescription },
   );
-  await button("新建自动化").click();
+  await button("新建定时任务").click();
   await page
     .getByRole("alert")
     .filter({ hasText: /凭据/ })
@@ -1672,7 +1684,7 @@ try {
     "Projects + opens the existing picker directly; cancel preserves the project and draft; reopening a directory keeps one registration",
   );
   await button("定时任务").click();
-  await button("新建自动化").click();
+  await button("新建定时任务").click();
   await page.getByTestId("chat-input").waitFor();
   await page.waitForFunction((key) => localStorage.getItem(key) === null, taskDraftKey);
   await page.waitForFunction(

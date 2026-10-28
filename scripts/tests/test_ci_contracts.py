@@ -1,6 +1,7 @@
 """门禁、路径映射和独立审计的离线故障注入。"""
 
 import importlib.util
+import copy
 import json
 import os
 import re
@@ -23,6 +24,8 @@ def load(name):
 
 scope = load("ci-scope")
 audit = load("dependency-audit")
+gate = load("ci-gate")
+preflight = load("ci-preflight")
 
 
 class CiContracts(unittest.TestCase):
@@ -56,22 +59,167 @@ class CiContracts(unittest.TestCase):
                 self.assertTrue(scope.applicable("release", [path]))
         self.assertFalse(scope.applicable("release", ["docs/features.md"]))
 
-    def test_gui_gate_requires_relay_success_when_applicable(self):
-        for relay in ("success", "failure", "cancelled", "skipped", ""):
-            result = subprocess.run(
-                [sys.executable, "scripts/ci-gate.py"],
-                cwd=ROOT,
-                env={
-                    **os.environ,
-                    "NEEDED": "true",
-                    "WORK_RESULT": "success",
-                    "SCOPE_RESULT": "success",
-                    "RELAY_RESULT": relay,
+    def gate_fixture(self, paths=("Makefile",), workflow="gui"):
+        source = {
+            "baseRevision": "base",
+            "sourceRevision": "merge",
+            "headRevision": "head",
+            "inputHash": "inputs",
+        }
+        manifest = json.loads((ROOT / "clients/gui/scripts/test-manifest.json").read_text())
+        plan = scope.build_plan(list(paths), source, manifest)
+        grouped = {}
+        for item in plan["items"]:
+            if item["group"] not in scope.WORKFLOW_GROUPS[workflow]:
+                continue
+            platform = scope.CI_PLATFORMS[item["group"]]
+            report = grouped.setdefault(
+                platform,
+                {
+                    "kind": "verification-report",
+                    "status": "passed",
+                    "platform": platform,
+                    "identity": {
+                        **source,
+                        "planHash": plan["planHash"],
+                        "ciRunId": "run",
+                        "ciAttempt": "2",
+                    },
+                    "results": [],
                 },
-                capture_output=True,
-                text=True,
             )
-            self.assertEqual(result.returncode == 0, relay == "success", result.stdout)
+            result = {"id": item["id"], "status": "passed", "exitCode": 0}
+            if "expectedTests" in item:
+                result["tests"] = [
+                    {"script": script, "status": "passed", "passed": True, "exitCode": 0}
+                    for script in item["expectedTests"][platform]
+                ]
+            report["results"].append(result)
+        return plan, list(grouped.values())
+
+    def test_final_gate_rejects_omitted_required_check_even_when_every_received_check_passed(self):
+        plan, reports = self.gate_fixture()
+        self.assertEqual(
+            gate.validate(plan, reports, scope.WORKFLOW_GROUPS["gui"], ("run", "2")), []
+        )
+        self.assertTrue(
+            {"gui-portable", "relay-contracts", "core-contracts", "smoke:test:composer"}
+            <= {item["id"] for item in plan["items"]}
+        )
+        removed = reports[0]["results"].pop()
+        self.assertIn(
+            "missing required check " + removed["id"],
+            gate.validate(plan, reports, scope.WORKFLOW_GROUPS["gui"], ("run", "2")),
+        )
+
+    def test_gate_requires_every_declared_job_and_relay_cannot_fail_cancel_or_skip(self):
+        plan, _ = self.gate_fixture()
+        expected = {
+            "scope",
+            "gui-health",
+            "gui-portable",
+            "relay-contracts",
+            "gui",
+            "core-contracts",
+            "smoke",
+        }
+        self.assertEqual(set(scope.JOB_GROUPS["gui"]), expected)
+        jobs = {name: {"result": "success"} for name in expected}
+        self.assertEqual(gate.validate_jobs(plan, "gui", jobs), [])
+        for name in expected:
+            missing = copy.deepcopy(jobs)
+            del missing[name]
+            self.assertTrue(gate.validate_jobs(plan, "gui", missing))
+        for status in ("failure", "cancelled", "skipped", "", None):
+            jobs["relay-contracts"]["result"] = status
+            self.assertTrue(gate.validate_jobs(plan, "gui", jobs))
+
+    def test_runner_subtest_omission_is_rejected_even_with_a_successful_job(self):
+        plan, reports = self.gate_fixture()
+        result = next(
+            result
+            for report in reports
+            for result in report["results"]
+            if result["id"] == "gui-portable"
+        )
+        result["tests"].pop()
+        failures = gate.validate(plan, reports, scope.WORKFLOW_GROUPS["gui"], ("run", "2"))
+        self.assertIn("missing or duplicate runner tests: gui-portable", failures)
+
+    def test_stale_sha_input_plan_attempt_and_invalidated_reports_cannot_pass(self):
+        plan, original = self.gate_fixture()
+        for key in ("sourceRevision", "inputHash", "planHash", "ciRunId", "ciAttempt"):
+            reports = copy.deepcopy(original)
+            reports[0]["identity"][key] = "stale"
+            self.assertTrue(
+                gate.validate(plan, reports, scope.WORKFLOW_GROUPS["gui"], ("run", "2")), key
+            )
+        reports = copy.deepcopy(original)
+        reports[0]["status"] = "invalidated"
+        self.assertTrue(gate.validate(plan, reports, scope.WORKFLOW_GROUPS["gui"], ("run", "2")))
+
+    def test_duplicate_unexpected_and_wrong_platform_receipts_fail(self):
+        plan, original = self.gate_fixture()
+        for operation in ("duplicate", "unexpected", "platform"):
+            reports = copy.deepcopy(original)
+            if operation == "duplicate":
+                reports[0]["results"].append(reports[0]["results"][0])
+            elif operation == "unexpected":
+                reports[0]["results"].append(
+                    {"id": "not-required", "status": "passed", "exitCode": 0}
+                )
+            else:
+                reports[0]["platform"] = "win32"
+            self.assertTrue(
+                gate.validate(plan, reports, scope.WORKFLOW_GROUPS["gui"], ("run", "2")), operation
+            )
+
+    def test_docs_only_skip_is_derived_from_an_empty_gui_projection(self):
+        plan, reports = self.gate_fixture(("docs/features.md",))
+        self.assertEqual(reports, [])
+        jobs = {
+            name: {"result": "success" if name == "scope" else "skipped"}
+            for name in scope.JOB_GROUPS["gui"]
+        }
+        self.assertEqual(
+            gate.validate(plan, reports, scope.WORKFLOW_GROUPS["gui"], ("run", "2")), []
+        )
+        self.assertEqual(gate.validate_jobs(plan, "gui", jobs), [])
+
+    def test_gui_plan_preserves_every_current_production_build_prerequisite(self):
+        plan, _ = self.gate_fixture(("clients/gui/native/computer-helper/Sources/main.swift",))
+        config = (ROOT / "clients/gui/vite.config.mts").read_text()
+        block = config.split('"build-suite": {', 1)[1].split('"design-build": {', 1)[0]
+        dependencies = json.loads(re.search(r"dependsOn: (\[[^\]]+\])", block).group(1))
+        tasks = {
+            item.get("productionTask") for item in plan["items"] if item["group"] == "gui-build"
+        }
+        self.assertTrue(set(dependencies) <= tasks)
+        helper = next(item for item in plan["items"] if item["id"] == "computer-helper")
+        self.assertEqual(
+            helper["command"], ["node", "clients/gui/scripts/build-computer-helper.mjs"]
+        )
+        self.assertIn("xcode", helper["requires"])
+
+    def test_native_dmg_contract_has_one_declared_mac_owner(self):
+        plan, _ = self.gate_fixture()
+        portable = next(item for item in plan["items"] if item["id"] == "gui-portable")
+        self.assertNotIn("test:macos-dmg", portable["expectedTests"]["darwin"])
+        self.assertEqual(sum(item["command"][-1] == "test:macos-dmg" for item in plan["items"]), 1)
+
+    def test_container_plan_keeps_all_existing_native_security_and_ownership_checks(self):
+        plan, _ = self.gate_fixture()
+        names = {item["id"] for item in plan["items"] if item["group"] == "container"}
+        self.assertTrue(
+            {
+                "container-native",
+                "container-sandbox",
+                "container-tools",
+                "container-unified",
+                "container-ownership",
+            }
+            <= names
+        )
 
     def test_gui_inputs_and_inapplicable_docs(self):
         for path in (
@@ -270,150 +418,35 @@ class PreflightExecution(unittest.TestCase):
             any(row["tool"] == "cargo" and "test" in row["args"] for row in self.calls())
         )
 
-    def test_static_requires_base_and_uses_one_merge_base_with_health_fallback(self):
-        missing = self.make("ci-gui-static", "CI_BASE=")
-        self.assertNotEqual(missing.returncode, 0)
-        self.assertIn("CI_BASE", missing.stderr)
-        result = self.make("ci-gui-static", f"CI_BASE={self.comparison}")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        calls = self.calls()
-        for script in ("check", "verify:design", "typecheck", "verify", "test:regressions"):
-            selected = [call for call in calls if script in call["args"]]
-            self.assertEqual(len(selected), 1, script)
-            self.assertEqual(selected[0]["base"], self.base)
-        result = self.make(
-            "ci-gui-health", f"CI_BASE={self.comparison}", AREAL_DESIGN_BASE=self.comparison
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        health = [
-            call for call in self.calls() if "clients/gui/scripts/gui-health.mjs" in call["args"]
-        ]
-        self.assertTrue(any("--check" in call["args"] for call in health))
-        self.assertTrue(all(not call["base"] for call in health))
-        self.assertFalse(
-            any(any(arg.startswith("--base") for arg in call["args"]) for call in health)
-        )
-        baseline = self.root / "clients/gui/health-baseline.json"
-        baseline.parent.mkdir(parents=True, exist_ok=True)
-        baseline.write_text("{}")
-        self.git("add", str(baseline.relative_to(self.root)))
-        self.git("commit", "-qm", "fixture baseline")
-        base = self.git("rev-parse", "HEAD").strip()
-        self.log.unlink()
-        result = self.make("ci-gui-health", f"CI_BASE={base}")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(any(f"--base={base}" in call["args"] for call in self.calls()))
-
-    def test_static_failure_blocks_later_checks(self):
-        result = self.make("ci-gui-static", f"CI_BASE={self.comparison}", FAIL_ARG="check")
+    def test_preflight_requires_an_explicit_comparison_base_before_running_tools(self):
+        result = self.make("ci-preflight", "CI_BASE=")
         self.assertNotEqual(result.returncode, 0)
-        self.assertFalse(any("test:regressions" in call["args"] for call in self.calls()))
+        self.assertIn("CI_BASE", result.stderr)
+        self.assertEqual(self.calls(), [])
 
-    def test_core_is_required_and_portable_does_not_inherit_core(self):
-        for core in ("", str(self.root / "missing-core")):
-            result = self.make("ci-core-contracts", f"AREAL_CORE_BIN={core}")
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("AREAL_CORE_BIN", result.stderr)
-        core = self.bin / "areal"
-        core.symlink_to(self.bin / "tool")
-        result = self.make("ci-core-contracts", f"AREAL_CORE_BIN={core}")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(
-            any(
-                "--core-contracts" in call["args"] and call["core"] == str(core)
-                for call in self.calls()
-            )
-        )
-        self.log.unlink()
-        result = self.make("ci-gui-portable", AREAL_CORE_BIN=str(core))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        runners = [
-            call for call in self.calls() if "scripts/run-portable-tests.mjs" in call["args"]
-        ]
-        self.assertEqual(len(runners), 1)
-        self.assertFalse(runners[0]["core"])
-
-    def test_preflight_runs_shared_gates_and_stops_on_portable_failure(self):
-        core = self.root / "target/debug/areal"
-        core.parent.mkdir(parents=True)
-        core.symlink_to(self.bin / "tool")
-        result = self.make("ci-preflight", f"CI_BASE={self.comparison}")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        calls = self.calls()
-        for argument in (
-            "scripts/check-workflows.py",
-            "scripts/check-docs.py",
-            "scripts.tests.test_ci_contracts",
-            "scripts.tests.test_git_hooks",
-            "test:browser-contracts",
-            "audit",
-            "--core-contracts",
-        ):
-            self.assertTrue(any(argument in call["args"] for call in calls), argument)
-        self.assertTrue(any(call["tool"] == "cargo" and "build" in call["args"] for call in calls))
-        for script in ("check", "verify:design", "typecheck", "verify", "test:regressions"):
-            self.assertEqual(
-                sum(call["tool"] == "pnpm" and script in call["args"] for call in calls), 1, script
-            )
-        self.log.unlink()
-        result = self.make(
-            "ci-preflight", f"CI_BASE={self.comparison}", FAIL_ARG="scripts/run-portable-tests.mjs"
-        )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertFalse(any("--core-contracts" in call["args"] for call in self.calls()))
-        self.assertFalse(
-            any(call["tool"] == "cargo" and "build" in call["args"] for call in self.calls())
-        )
-
-    def test_preflight_keeps_failed_phase_reports_and_stops_before_build(self):
-        result = self.make(
-            "ci-preflight",
-            f"CI_BASE={self.comparison}",
-            FAIL_ARG="clients/gui/scripts/gui-health.mjs",
-        )
-        self.assertNotEqual(result.returncode, 0)
-        directories = list((self.root / "target/ci/preflight").iterdir())
-        self.assertEqual(len(directories), 1)
-        directory = directories[0]
-        metadata = json.loads((directory / "metadata.json").read_text())
-        self.assertEqual(metadata["sourceRevision"], self.git("rev-parse", "HEAD").strip())
-        self.assertEqual(metadata["baseRevision"], self.base)
-        self.assertEqual(len(metadata["trackedDiffSha256"]), 64)
-        self.assertEqual(len(metadata["sourceInputHash"]), 64)
-        failed = json.loads((directory / "gui-health.json").read_text())
-        self.assertEqual(failed["status"], "failed")
-        self.assertGreaterEqual(failed["elapsedMs"], 0)
-        self.assertEqual(json.loads((directory / "result.json").read_text())["status"], "failed")
-        self.assertFalse((directory / "core-build.json").exists())
-        first = (directory / "gui-health.json").read_bytes()
-        self.make(
-            "ci-preflight",
-            f"CI_BASE={self.comparison}",
-            FAIL_ARG="clients/gui/scripts/gui-health.mjs",
-        )
-        self.assertEqual(len(list((self.root / "target/ci/preflight").iterdir())), 2)
-        self.assertEqual((directory / "gui-health.json").read_bytes(), first)
-
-    def test_preflight_selects_only_a_fixed_core_matching_the_fresh_build(self):
+    def test_fixed_core_must_match_freshly_built_bytes(self):
         built = self.root / "target/debug/areal"
         built.parent.mkdir(parents=True)
         shutil.copy2(self.bin / "tool", built)
         fixed = self.bin / "fixed-areal"
         shutil.copy2(built, fixed)
-        result = self.make("ci-preflight", f"CI_BASE={self.comparison}", f"AREAL_CORE_BIN={fixed}")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(
-            any(
-                "--core-contracts" in call["args"] and call["core"] == str(fixed)
-                for call in self.calls()
+        from unittest.mock import patch
+
+        with patch.dict(os.environ, {"AREAL_CORE_BIN": str(fixed)}):
+            self.assertEqual(preflight.matching_core(self.root), fixed)
+            fixed.write_text(fixed.read_text() + "# stale build\n")
+            with self.assertRaisesRegex(ValueError, "SHA-256"):
+                preflight.matching_core(self.root)
+
+    def test_portable_execution_cannot_inherit_a_core_binary(self):
+        from unittest.mock import patch
+
+        with patch.dict(os.environ, {"AREAL_CORE_BIN": "/must-not-use"}):
+            env = preflight.environment(
+                {"id": "gui-portable", "group": "gui-portable", "requires": []}, self.root
             )
-        )
-        fixed.write_text(fixed.read_text() + "# stale deployment\n")
-        self.log.unlink()
-        result = self.make("ci-preflight", f"CI_BASE={self.comparison}", f"AREAL_CORE_BIN={fixed}")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("SHA-256", result.stderr)
-        self.assertFalse(any("--core-contracts" in call["args"] for call in self.calls()))
-        self.assertTrue(
-            any(call["tool"] == "cargo" and "build" in call["args"] for call in self.calls())
-        )
+        self.assertNotIn("AREAL_CORE_BIN", env)
+
+
+if __name__ == "__main__":
+    unittest.main()

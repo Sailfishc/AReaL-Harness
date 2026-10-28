@@ -25,9 +25,10 @@ FROM runtime-builder AS runtime-tests
 RUN apk add --no-cache bubblewrap python3 coreutils
 RUN cargo build --locked --profile ci -p areal-runtime -p areal-runtime-fs \
     && cargo test --locked --profile ci -p areal-runtime-exec-native -p areal-runtime --features areal-runtime/native-tests --no-run \
-    && cargo test --locked --profile ci -p areal-engine --features native-tests --test provider_replay --no-run
+    && cargo test --locked --profile ci -p areal-engine --features native-tests --test provider_replay --no-run \
+    && cargo test --locked --profile ci -p areal-app-server --test side_workspace_read --no-run
 ENV AREAL_TEST_BIN_DIR=/src/target/ci
-CMD ["sh", "-ec", "cargo test --offline --locked --profile ci -p areal-runtime-exec-native -p areal-runtime --features areal-runtime/native-tests && cargo test --offline --locked --profile ci -p areal-engine --features native-tests --test provider_replay"]
+CMD ["sh", "-c", "result=0; cargo test --offline --locked --no-fail-fast --profile ci -p areal-runtime-exec-native -p areal-runtime --features areal-runtime/native-tests || result=$?; cargo test --offline --locked --profile ci -p areal-engine --features native-tests --test provider_replay || result=$?; cargo test --offline --locked --profile ci -p areal-app-server --test side_workspace_read -- --ignored || result=$?; exit $result"]
 
 FROM ${BASE_IMAGE}
 

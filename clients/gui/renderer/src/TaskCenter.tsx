@@ -1556,7 +1556,7 @@ export function TaskCenter({
     setCreating(false);
     setSelected("");
     requestAnimationFrame(() =>
-      layout.current?.querySelector<HTMLButtonElement>('[aria-label="新建自动化"]')?.focus(),
+      layout.current?.querySelector<HTMLButtonElement>(".task-new")?.focus(),
     );
   };
   const visibleRows = listed.filter(

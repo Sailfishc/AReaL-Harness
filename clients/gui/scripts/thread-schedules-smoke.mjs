@@ -565,7 +565,7 @@ async function recoverScheduledCreation() {
     facts.ui.draftTiming = {
       clickAt: await page.evaluate(() => performance.timeOrigin + performance.now()),
     };
-    await page.getByRole("button", { name: "新建自动化", exact: true }).evaluate((element) => {
+    await page.getByRole("button", { name: "新建定时任务", exact: true }).evaluate((element) => {
       element.click();
       element.click();
     });
@@ -663,7 +663,7 @@ async function recoverScheduledCreation() {
       text: "帮我创建一个定时任务：",
     },
   );
-  await page.getByRole("button", { name: "新建自动化", exact: true }).click();
+  await page.getByRole("button", { name: "新建定时任务", exact: true }).click();
   await page.getByTestId("chat-input").waitFor();
   await until(
     async () => !(await page.locator(".task-conversation-pending").count()),
@@ -709,7 +709,7 @@ async function verifyGlobalDraftAndRun(existingTasks = []) {
   await page.getByRole("menuitem", { name: "定时任务", exact: true }).click();
   assert.equal(await page.getByRole("combobox", { name: "运行位置筛选", exact: true }).count(), 0);
   assert.equal(await page.getByLabel("筛选任务", { exact: true }).count(), 0);
-  await page.getByRole("button", { name: "新建自动化", exact: true }).click();
+  await page.getByRole("button", { name: "新建定时任务", exact: true }).click();
   assert.equal(
     await page.getByTestId("areal-workbench").getAttribute("data-project-id"),
     projectId,

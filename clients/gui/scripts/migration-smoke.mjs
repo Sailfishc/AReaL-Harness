@@ -411,8 +411,9 @@ async function openPanel(name) {
     await page.keyboard.press("Control+Backquote");
     return;
   }
-  await button("任务操作").click();
-  await page.getByRole("menuitem", { name, exact: true }).click();
+  const shortcuts = { 文件: "Meta+p", 改动: "Control+Shift+g", 预览: "Meta+t" };
+  assert.ok(shortcuts[name], `current panel navigation exists for ${name}`);
+  await page.keyboard.press(shortcuts[name]);
 }
 async function quit() {
   if (!app) return;
@@ -842,16 +843,12 @@ try {
     assert.equal(execution.settled, true);
     assert.equal(execution.verification.status, "notRun");
     assert.equal(execution.delivery.status, "notRequired");
-    await openPanel("子任务");
-    const executionCard = page.getByTestId(`execution-${execution.executionId}`);
-    await executionCard.waitFor();
-    assert.match(await executionCard.innerText(), /未运行检查/);
-    assert.match(await executionCard.innerText(), /报告交付/);
-    assert.equal(await button("创建子任务").isVisible(), false);
-    await shot("02-subtask-delivery");
-    await button("关闭面板").click();
+    await button("任务操作").click();
+    await page.getByRole("menuitem", { name: "查看调用轨迹", exact: true }).waitFor();
+    assert.deepEqual(await page.getByRole("menuitem").allTextContents(), ["查看调用轨迹"]);
+    await page.keyboard.press("Escape");
     checks.push(
-      "unified agent delegation; one subtask panel; verification and delivery stay distinct",
+      "delegation inspection preserves distinct verification/delivery states; current child resources remain navigable and task actions expose only call trace",
     );
     // 已有完整验收通过后，视觉行文修正只重跑其真实资源/事件路径。
     if (!process.env.AREAL_GUI_RESOURCE_SMOKE_ONLY) {

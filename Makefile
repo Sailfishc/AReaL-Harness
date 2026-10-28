@@ -119,18 +119,9 @@ hooks-install: ## 显式安装仓库的推送前门禁
 check-changed: ## 本地影响范围快检；显式 CI_BASE，ARGS=--plan 仅输出计划
 	python3 scripts/check-changed.py --base "$(CI_BASE)" $(ARGS)
 
-ci-gui-static: ## GUI 可移植静态检查；CI_BASE 必须为实际比较引用
-	@set -eu; \
-	test -n "$(CI_BASE)" || { echo 'CI_BASE is required' >&2; exit 1; }; \
-	base="$$(git merge-base "$(CI_BASE)" HEAD)"; \
-	export AREAL_DESIGN_BASE="$$base"; \
-	pnpm --dir clients/gui build:desktop; \
-	pnpm --dir clients/gui --filter @areal/ui build; \
-	pnpm --dir clients/gui check; \
-	pnpm --dir clients/gui verify:design; \
-	pnpm --dir clients/gui typecheck; \
-	pnpm --dir clients/gui run verify; \
-	pnpm --dir clients/gui test:regressions
+ci-gui-static: ## 共享计划的 GUI 提交前静态、类型、生产构建与预算检查
+	@test -n "$(CI_BASE)" || { echo 'CI_BASE is required' >&2; exit 1; }
+	python3 scripts/ci-preflight.py --base "$(CI_BASE)" --groups gui-portable --phase commit
 
 ci-gui-health: ## 无依赖安装的 GUI 健康合同与基线检查
 	@set -eu; \
@@ -146,16 +137,13 @@ ci-gui-health: ## 无依赖安装的 GUI 健康合同与基线检查
 	fi; \
 	node clients/gui/scripts/gui-health.mjs > target/ci/gui/health.json
 
-ci-gui-portable: ## 独立构建输入并运行不依赖 Core 的 portable 合同
-	pnpm --dir clients/gui build:desktop
-	pnpm --dir clients/gui --filter @areal/ui build
-	pnpm --dir clients/gui --filter @areal/gui-renderer build
-	cd clients/gui && node scripts/test-manifest.mjs
-	cd clients/gui && AREAL_CORE_BIN= node scripts/run-portable-tests.mjs
+ci-gui-portable: ## 共享计划的 portable 全集；缺能力明确阻塞
+	@test -n "$(CI_BASE)" || { echo 'CI_BASE is required' >&2; exit 1; }
+	python3 scripts/ci-preflight.py --base "$(CI_BASE)" --groups gui-portable
 
-ci-core-contracts: ## 必须显式提供匹配且可执行的 AREAL_CORE_BIN；不允许跳过
-	@test -n "$(AREAL_CORE_BIN)" && test -x "$(AREAL_CORE_BIN)" || { echo 'AREAL_CORE_BIN must name the matching executable' >&2; exit 1; }
-	cd clients/gui && AREAL_CORE_BIN="$(AREAL_CORE_BIN)" node scripts/run-portable-tests.mjs --core-contracts
+ci-core-contracts: ## 构建匹配输入并执行全部 Core 合同；固定 Core 必须哈希匹配
+	@test -n "$(CI_BASE)" || { echo 'CI_BASE is required' >&2; exit 1; }
+	python3 scripts/ci-preflight.py --base "$(CI_BASE)" --groups core-contracts --with-dependencies
 
 ci-preflight: ## 推送前完整门禁与逐阶段报告；显式 CI_BASE，不替代完整 CI
 	@test -n "$(CI_BASE)" || { echo 'CI_BASE is required' >&2; exit 1; }
@@ -229,6 +217,7 @@ verify-harness: ## 全部常规与原生集成验收（容量测试单独运行�
 
 verify-native: build ## macOS 原生后端与 Harness 集成验收（通用回归由 Linux CI 执行）
 	AREAL_TEST_BIN_DIR="$(CURDIR)/target/debug" cargo test --locked -p areal-engine --features native-tests --test provider_replay
+	cargo test --locked -p areal-app-server --test side_workspace_read -- --ignored
 	cargo test --locked -p areal-runtime-exec-native
 	cargo test --locked -p areal-runtime --features native-tests --test native_transport
 	$(MAKE) -j4 launcher-test runtime-smoke harness-smoke examples-desktop-api workgroup-smoke

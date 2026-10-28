@@ -10,6 +10,7 @@ import {
   captureSmokeFailure,
   resizeConversation,
   selectConversation,
+  openSideChat,
 } from "./smoke-navigation.mjs";
 import assert from "node:assert/strict";
 
@@ -404,11 +405,26 @@ try {
       protocol: "chatCompletions",
       endpoint,
       models: ["fixture", "fixture-alt"],
+      modelCapabilities: Object.fromEntries(
+        ["fixture", "fixture-alt"].map((id) => [
+          id,
+          {
+            tools: true,
+            vision: true,
+            reasoning: true,
+            reasoningEffortOptions: ["none", "minimal", "low", "medium", "high", "xhigh"],
+          },
+        ]),
+      ),
       parameters: {},
     },
   });
   await until(
-    (s) => project(s).models.some((model) => model.modelId === "fixture-alt"),
+    (s) =>
+      project(s).models.some(
+        (model) =>
+          model.modelId === "fixture-alt" && model.reasoningEffortOptions?.includes("high"),
+      ),
     "provider catalog",
   );
   const input = () => page.locator("[data-testid=chat-input]");
@@ -424,13 +440,34 @@ try {
   const sendAndWait = async () => {
     const count = received.length;
     await button("发送").click();
-    await until(
-      (s) =>
-        Object.values(project(s).state.threads).some(
-          (t) => t.turns?.at(-1)?.status === "completed",
-        ) && received.length > count,
-      "send completed",
-    );
+    try {
+      await until(
+        (s) =>
+          Object.values(project(s).state.threads).some(
+            (t) => t.turns?.at(-1)?.status === "completed",
+          ) && received.length > count,
+        "send completed",
+      );
+    } catch (error) {
+      await writeFile(
+        join(scratch, "send-timeout-state.json"),
+        JSON.stringify(
+          {
+            snapshot: await state(),
+            composer: await page.evaluate(() => ({
+              input: document.querySelector('[data-testid="chat-input"]')?.textContent,
+              send: document.querySelector('[data-testid="chat-send-button"]')?.outerHTML,
+              draftStorage: Object.fromEntries(
+                Object.entries(localStorage).filter(([key]) => key.startsWith("areal-gui:draft:")),
+              ),
+            })),
+          },
+          null,
+          2,
+        ),
+      );
+      throw error;
+    }
   };
   if (filesRegression) {
     await runComposerFilesAcceptance({
@@ -878,6 +915,8 @@ try {
     await button("模型").click();
     await page.getByRole("button", { name: "选择模型", exact: true }).click();
     await page.getByRole("radio", { name: "fixture-alt", exact: true }).click();
+    assert.match(await button("模型").innerText(), /未指定/);
+    await page.getByRole("button", { name: "中", exact: true }).click();
     const slider = page.getByRole("slider", { name: "思考强度" });
     await slider.waitFor();
     await slider.fill("4");
@@ -1444,10 +1483,10 @@ try {
       .at(-1).content;
     assert.equal(firstPluginMessage.split("COMPOSER_PLUGIN_EXACT_BODY").length - 1, 1);
     await selectConversation(page, tid);
-    // This compatibility journey protects the persisted read-only Side policy.
-    await button("任务操作").click();
-    await page.getByRole("menuitem", { name: "历史旁路讨论", exact: true }).click();
-    const sideInput = page.getByTestId("side-chat-input");
+    const parentConfiguration = project(await state()).configurations[tid];
+    await openSideChat(page);
+    const sidePane = page.getByTestId("side-chat-pane").filter({ visible: true });
+    const sideInput = sidePane.getByRole("textbox", { name: "随心输入", exact: true });
     await sideInput.fill("side plugin @composer");
     const beforeSidePlugin = received.length;
     await page.getByRole("option", { name: /composer-plugin.*Composer plugin fixture/ }).waitFor();
@@ -1464,7 +1503,7 @@ try {
     await page.getByRole("option", { name: /composer-plugin.*Composer plugin fixture/ }).click();
     assert.equal(received.length, beforeSidePlugin);
     await shot("plugin-mention-side-draft");
-    await page.getByTestId("side-chat-send").click();
+    await sidePane.getByRole("button", { name: "发送", exact: true }).click();
     const sideCompleted = await until(
       (s) =>
         received.length > beforeSidePlugin &&
@@ -1486,18 +1525,20 @@ try {
       )
       .at(-1).content;
     assert.match(sidePluginMessage, /plugin:\/\/composer-plugin@composer-fixture/);
-    assert.ok(
-      !sidePluginMessage.includes("COMPOSER_PLUGIN_EXACT_BODY"),
-      "Side mention does not borrow parent Profile Skill body",
+    assert.equal(
+      sidePluginMessage.split("COMPOSER_PLUGIN_EXACT_BODY").length - 1,
+      1,
+      "executable Side inherits the parent Profile Skill and resolves plugin intent once",
     );
     const sidePluginThread = Object.values(project(sideCompleted).state.threads).find(
       (row) => row.conversation?.kind === "side" && row.turns?.at(-1)?.status === "completed",
     );
-    assert.equal(project(sideCompleted).configurations[sidePluginThread.id].readOnly, true);
-    await page.waitForFunction(() => {
-      const editor = document.querySelector('[data-testid="side-chat-input"]');
-      return editor?.getAttribute("contenteditable") === "true" && editor.textContent === "";
-    });
+    assert.equal(sidePluginThread.conversation.policy.kind, "sideExecutableV2");
+    assert.deepEqual(project(sideCompleted).configurations[tid], parentConfiguration);
+    await page.waitForFunction(
+      (editor) => editor.getAttribute("contenteditable") === "true" && editor.textContent === "",
+      await sideInput.elementHandle(),
+    );
     const beforeSideFollowUp = received.length;
     const sideTurnsBefore = sidePluginThread.turns.length;
     await sideInput.fill("side follow-up @composer");
@@ -1505,7 +1546,7 @@ try {
     await sideInput.press("Enter");
     assert.equal(received.length, beforeSideFollowUp, "existing Side plugin selection never sends");
     await sideInput.locator('[data-mention-category="plugins"]').waitFor();
-    await page.getByTestId("side-chat-send").click();
+    await sidePane.getByRole("button", { name: "发送", exact: true }).click();
     const sideFollowUpCompleted = await until(
       (s) =>
         received.length > beforeSideFollowUp &&
@@ -1528,18 +1569,20 @@ try {
     assert.match(sideFollowUpMessage, /side follow-up/);
     assert.match(sideFollowUpMessage, /plugin:\/\/composer-plugin@composer-fixture/);
     assert.match(sideFollowUpMessage, /请在本次请求中使用所选插件 composer-plugin/);
-    assert.ok(
-      !sideFollowUpMessage.includes("COMPOSER_PLUGIN_EXACT_BODY"),
-      "existing Side follow-up retains intent without parent Skill body",
+    assert.equal(
+      sideFollowUpMessage.split("COMPOSER_PLUGIN_EXACT_BODY").length - 1,
+      1,
+      "executable Side follow-up retains its inherited Profile Skill without duplication",
     );
-    assert.equal(project(sideFollowUpCompleted).configurations[sidePluginThread.id].readOnly, true);
+    assert.equal(
+      project(sideFollowUpCompleted).state.threads[sidePluginThread.id].conversation.policy.kind,
+      "sideExecutableV2",
+    );
+    assert.deepEqual(project(sideFollowUpCompleted).configurations[tid], parentConfiguration);
 
-    await page
-      .getByRole("region", { name: "旁路讨论" })
-      .getByRole("button", { name: "返回主会话", exact: true })
-      .click();
+    await page.getByRole("button", { name: "关闭面板", exact: true }).click();
     checks.push(
-      "canonical paste resolves Core metadata; removing chip preserves manual Skill; first-message plugin draft survives navigation/reload; new and existing legacy Side send reference intent under read-only Core policy",
+      "canonical paste resolves Core metadata; removing chip preserves manual Skill; first-message plugin draft survives navigation/reload; new and existing executable Side send reference intent without modifying parent configuration",
     );
     await checkComposition(`areal-gui:draft:${pid}:${tid}`, "chat");
     // Use native typing: fill() uses the editor bridge and repairs the selection itself.
