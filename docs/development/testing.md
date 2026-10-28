@@ -36,6 +36,41 @@ macOS 原生 smoke 需要 Seatbelt，Linux 原生 smoke 需要 `/usr/bin/bwrap` 
 
 Linux 宿主常规检查使用 `make verify CARGO_TEST_ARGS='--exclude areal-runtime-exec-native'`。原生后端测试要求 `/usr/bin/bwrap` 和 user namespace；CI 的独立任务构建 Dockerfile 的 `runtime-tests` 目标，在带 Bubblewrap 的受控容器中实际运行包含 `outer-container-perf` 的全部后端测试，并启用 `areal-runtime/native-tests` 运行 daemon 的 `native_transport` 目标。该目标经私有 stdio 启动真实 daemon 和完整 Runtime bundle，使 Linux 在 daemon 旁找到 reaper；原生沙箱用例保留普通命令/Hook 并发进展和外部 writer 排他断言，四个 portable transport 用例仍属于默认测试。`make verify-native` 先构建 bundle，再在 macOS 显式运行同一原生目标。该 feature 仅选择测试目标，不改变生产行为；不能只排除 portable 宿主的原生测试就视为完成验收。
 
+## 可重复故障、本地快检与缓存验收
+
+从仓库根选择与改动相关的入口：
+
+```sh
+make check-changed CI_BASE=<actual-comparison-ref> ARGS=--plan
+make check-changed CI_BASE=<actual-comparison-ref>
+python3 -m unittest scripts.tests.test_check_changed
+cargo test --locked -p areal-engine --test http_model --test provider_replay --test model_timeouts
+cargo test --locked -p areal-engine --lib first_event_deadline_is_fixed_and_activity_starts_a_new_idle_window
+cargo test --locked -p areal-engine --test model_input_budget
+node --test clients/gui/scripts/desktop-projection-transport.test.mjs
+pnpm --dir clients/gui test:navigation-cache
+pnpm --dir clients/gui test:unit renderer/src/readingViews.test.ts
+```
+
+`check-changed` 解析一次 merge-base，将相对于基线的暂存差量、未暂存差量与未跟踪文件取并集；重命名两侧路径都纳入。暂存内容与工作区相互抵消时仍选检。`ciScopes` 复用 CI 原范围，未知代码的本地扩大单列为 `conservativeFallback`。GUI 候选来自现有 manifest；共享 Rust/schema 保守选入 workspace 和 SDK 消费者。计划给出输入摘要、命令、理由、命中路径、缺条件未执行项与 deferred 验收。
+
+执行对象明确为 `working-tree`：暂存区内容影响选检和漂移检测，但命令读取工作区，部分暂存文件不据此宣称 index 内容已验收。没有整轮通过缓存。`passed-selected-checks` 仅表示所选检查通过；`partial` 表示缺少条件，`invalidated` 表示运行前后工作区或暂存区变化，`failed` 表示命令失败；这三种状态均返回非零。没有改动时为 `no-changes`。完整预检、CI、真实供应商、原生桌面和安装包仍按各自入口执行。
+
+Provider 回放夹具位于 `core/engine/tests/fixtures/provider-replay`，经真实 HTTP 字节、生产 decoder/Engine 和临时存储验证错误前文本、终止事件后断流、取消后迟到回答。请求到达与放行使用通知，不以固定 sleep 猜测。纯计时策略复用 Tokio 暂停时间；真实 HTTP 超时测试保留其 I/O 边界。字节块是服务器写入边界，不能假设操作系统一定保持网络分包。
+
+真实 Runtime 写入恢复需要已部署并验证的同批固定 bundle，使用显式 feature 运行：
+
+```sh
+AREAL_TEST_BIN_DIR=/absolute/verified/bin cargo test --locked -p areal-engine --features test-support --test provider_replay persisted_runtime_write_survives_disconnect_and_reopen_without_replay
+AREAL_CORE_BIN=/absolute/verified/bin/areal pnpm --dir clients/gui test:history-compat
+```
+
+该原生测试在 `test-support` 下编译并使用既有测试构造入口，本改动不改变生产行为；未设置固定路径时应失败，不能当作跳过后通过。Runtime 场景核对写入后的真实持久记录、重开后工具结果及哨兵文件，防止把网络里程碑当作落盘或把恢复当作重放授权。`history-compat` 需要已构建 GUI；`profiles.json` 声明旧格式分页、已结算子会话和三种终态，runner 核对公开历史页、顺序、关系及 Renderer 文本，同时保持来源哈希不变和零模型请求。当前这两条原生路径的最终验收状态见[质量设计](t3code-quality-design.md)。
+
+`model_input_budget` 从默认 Desktop 的真实出站求解请求计量固定指令、环境说明及每工具的 name/description/parameters。首个 profile 明确不含 Runtime 与插件；动态用户正文和随机路径不计入固定基线。基线变化报告分项与工具名，必须人工审阅更新，不自动调整生产输入或额度。
+
+`test:navigation-cache` 使用生产 React App、真实 Chrome 和 fixture PlatformServices，记录无关 UI 操作的派生计算次数，检查名称、未读、运行、排序和新快照刷新，并保存源码身份及截图。它不启动 Core/Electron，也不验证安装包或感知延迟。`readingViews` 单测覆盖 32 项内存边界、最近访问淘汰、存储不可用和语义锚点重载；真实主题与布局连续性仍需 Renderer 场景。旧 `conversation-flow` 场景在 `.tool-summary-row .tool-failed` 定位器超时；生产折叠失败状态由 `ActivityRowStatus` 的 `data-tone="failed"` 表达。该 markup 与 `readingViews` 容量裁剪属于不同边界，本专项未修改旧 runner，完整对话流未计为通过。
+
 ## 本地验证产物与启动诊断
 
 `make build` / `make release` 在 Cargo 成功后写入 `target/<profile>/verification-build.json`，绑定现有 Core `inputHash`、构建提交和整套 Core/Runtime 的 SHA-256。GUI 构建沿用 bundle 分析插件，在 `renderer/dist/verification-build.json` 中记录 GUI 输入摘要与输出文件哈希；构建期间源码改变则失败。

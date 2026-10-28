@@ -18,6 +18,7 @@ type ReadingCheckpoint = {
 };
 const readingCheckpointKey = "areal-gui:reading-views:v1";
 const readingCheckpointLimit = 64 * 1024;
+const readingViewLimit = 32;
 export const readingViews = new Map<string, ReadingView>();
 let readingViewsHydrated = false;
 let savedReadingCheckpoint: string | null = null;
@@ -38,7 +39,7 @@ export function hydrateReadingViews() {
       !checkpointRecord(checkpoint) ||
       checkpoint.version !== 1 ||
       !Array.isArray(checkpoint.views) ||
-      checkpoint.views.length > 32
+      checkpoint.views.length > readingViewLimit
     )
       return;
     for (const entry of [...checkpoint.views].reverse()) {
@@ -89,6 +90,11 @@ export function hydrateReadingViews() {
   } catch {}
 }
 export function saveReadingViews() {
+  // 存储不可用时也限制进程内缓存，避免每次滚动遍历全部曾访问的会话。
+  for (const owner of readingViews.keys()) {
+    if (readingViews.size <= readingViewLimit) break;
+    readingViews.delete(owner);
+  }
   try {
     const views: ReadingCheckpoint[] = [];
     for (const [owner, view] of [...readingViews].reverse()) {
@@ -100,7 +106,7 @@ export function saveReadingViews() {
       if (JSON.stringify({ version: 1, views: [...views, entry] }).length > readingCheckpointLimit)
         continue;
       views.push(entry);
-      if (views.length === 32) break;
+      if (views.length === readingViewLimit) break;
     }
     const serialized = JSON.stringify({ version: 1, views });
     if (serialized === savedReadingCheckpoint) return;

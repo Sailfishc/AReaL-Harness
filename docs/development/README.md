@@ -4,7 +4,7 @@
 
 先阅读[架构](../design/architecture.md)、[开发规范](../../AGENTS.md)和[Agent 改进目标与方法](agent-improvement.md)。所有命令从仓库根目录执行。
 
-[T3 Code 质量补充设计](t3code-quality-design.md)列出协议回放、可控时序、投影一致性与本地快检等候选改进及验收边界，尚未作为已实现能力发布。
+[T3 Code 质量补充设计](t3code-quality-design.md)说明协议回放、可控时序、投影一致性、本地快检和 GUI 派生缓存的实现与验收边界；操作入口见[测试指南](testing.md)。
 
 ## 环境
 
@@ -49,6 +49,7 @@ GUI 验收的服务清理检查复用产品的原生 Core 启动适配，并异�
 |---|---|
 | 格式 | `make fmt` / `make fmt-check` |
 | 静态检查 | `make lint` |
+| 本地改动快检 | `make check-changed CI_BASE=<ref>`；`ARGS=--plan` 仅输出计划，所选检查的结果与未执行条件分别报告 |
 | Rust / SDK / 脚本 | `make test` / `make sdk-test` / `make script-test` |
 | 常规回归 | `make verify` |
 | 原生集成 | `make verify-harness`，包含常规回归 |

@@ -60,6 +60,7 @@
     "test:history-compat": "node scripts/history-copy-smoke.mjs",
     "test:connection": "node scripts/connection-smoke.mjs",
     "test:history-navigation-ui": "node scripts/history-navigation-ui-smoke.mjs",
+    "test:navigation-cache": "node scripts/navigation-cache-ui-smoke.mjs",
     "test:history-recovery": "node --test scripts/core-read-recovery.test.mjs scripts/bounded-history-client.test.mjs scripts/desktop-projection-transport.test.mjs scripts/lifecycle-bounded-history.test.mjs scripts/history-reobserve.test.mjs && node scripts/large-history-smoke.mjs && node scripts/bounded-history-ui-smoke.mjs && node scripts/thread-restoration-ui-smoke.mjs",
     "test:startup": "node scripts/startup-timing-smoke.mjs",
     "test:history": "node --test scripts/history.test.mjs && node scripts/history-smoke.mjs",

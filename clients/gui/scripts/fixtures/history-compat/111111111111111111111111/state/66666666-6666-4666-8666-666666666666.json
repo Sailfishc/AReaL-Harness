@@ -1,0 +1,101 @@
+{
+  "version": 14,
+  "thread": {
+    "id": "66666666-6666-4666-8666-666666666666",
+    "sessionId": "66666666-6666-4666-8666-666666666666",
+    "parentThreadId": null,
+    "preview": "Synthetic terminal outcomes",
+    "modelProvider": "fixture",
+    "createdAt": 1,
+    "updatedAt": 1,
+    "status": {
+      "type": "idle"
+    },
+    "cwd": "/history-compat-fixture",
+    "cliVersion": "0.1.4",
+    "source": "cli",
+    "ephemeral": false,
+    "desktop": {
+      "configuration": {
+        "revision": 1,
+        "model": null,
+        "provider": null,
+        "profile": null
+      },
+      "plan": {
+        "revision": 0,
+        "steps": []
+      },
+      "loadedSkills": {},
+      "queue": {
+        "revision": 1,
+        "paused": true,
+        "pauseReason": "serverDraining",
+        "items": []
+      },
+      "interactionRevision": 0,
+      "interactions": [],
+      "receipts": [],
+      "uploads": []
+    },
+    "turns": [
+      {
+        "id": "terminal-completed",
+        "status": "completed",
+        "error": null,
+        "items": [
+          {
+            "type": "agentMessage",
+            "id": "terminal-item-completed",
+            "text": "HISTORY_TERMINAL_COMPLETED"
+          }
+        ],
+        "configuration": {
+          "revision": 1,
+          "model": null,
+          "provider": null,
+          "profile": null
+        }
+      },
+      {
+        "id": "terminal-failed",
+        "status": "failed",
+        "error": {
+          "message": "Synthetic retained failure"
+        },
+        "items": [
+          {
+            "type": "agentMessage",
+            "id": "terminal-item-failed",
+            "text": "HISTORY_TERMINAL_FAILED"
+          }
+        ],
+        "configuration": {
+          "revision": 1,
+          "model": null,
+          "provider": null,
+          "profile": null
+        }
+      },
+      {
+        "id": "terminal-interrupted",
+        "status": "interrupted",
+        "error": null,
+        "items": [
+          {
+            "type": "agentMessage",
+            "id": "terminal-item-interrupted",
+            "text": "HISTORY_TERMINAL_INTERRUPTED"
+          }
+        ],
+        "configuration": {
+          "revision": 1,
+          "model": null,
+          "provider": null,
+          "profile": null
+        }
+      }
+    ],
+    "name": "Synthetic terminal outcomes"
+  }
+}

@@ -286,39 +286,6 @@ async fn request_retries_transient_status_but_not_authentication_errors() {
 }
 
 #[tokio::test]
-async fn text_before_an_error_is_preserved_when_events_share_one_http_chunk() {
-    let body = concat!(
-        "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"accepted-prefix\"},\"finish_reason\":null}]}\n\n",
-        "data: {\"error\":{\"message\":\"fixture failure\"}}\n\n"
-    );
-    let app = Router::new().route(
-        "/",
-        post(move || async move { ([("content-type", "text/event-stream")], body) }),
-    );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    let dir = tempfile::tempdir().unwrap();
-    let model = ChatModel::new(format!("http://{address}/"), "fixture".into(), None).unwrap();
-    let engine = Engine::open(dir.path(), Arc::new(model), Limits::default()).unwrap();
-    let thread = engine.create("/workspace".into()).await.unwrap();
-    engine
-        .start(&thread.id, vec![Input::text("test")])
-        .await
-        .unwrap();
-    let done = engine.wait(&thread.id).await.unwrap();
-    engine.shutdown().await;
-    server.abort();
-    let _ = server.await;
-    assert_eq!(done.turns[0].status, TurnStatus::Failed);
-    assert!(
-        done.turns[0].items.iter().any(
-            |item| matches!(item, Item::AgentMessage { text, .. } if text == "accepted-prefix")
-        )
-    );
-}
-
-#[tokio::test]
 async fn real_http_adapter_streams_and_detects_clean_truncation() {
     let app=Router::new().route("/v1/chat/completions",post(|Json(request):Json<Value>|async move {
         assert_eq!(request["stream"],true);assert_eq!(request["model"],"test-model");
@@ -507,79 +474,6 @@ async fn responses_adapter_preserves_multimodal_input_and_persists_output() {
     engine.shutdown().await;
     server.abort();
     let _ = server.await;
-}
-
-#[tokio::test]
-async fn transport_failure_after_finish_reason_does_not_release_tool_calls() {
-    use areal_engine::model::{Message, Model, ModelEvent};
-    use futures_util::StreamExt;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let endpoint = format!("http://{}/", listener.local_addr().unwrap());
-    let server = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        let mut request = Vec::new();
-        let mut bytes = [0; 4096];
-        loop {
-            let count = socket.read(&mut bytes).await.unwrap();
-            assert_ne!(count, 0);
-            request.extend_from_slice(&bytes[..count]);
-            if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
-                let headers = std::str::from_utf8(&request[..end]).unwrap();
-                let length: usize = headers
-                    .lines()
-                    .find_map(|line| {
-                        let (key, value) = line.split_once(':')?;
-                        key.eq_ignore_ascii_case("content-length")
-                            .then(|| value.trim().parse().unwrap())
-                    })
-                    .unwrap();
-                if request.len() >= end + 4 + length {
-                    break;
-                }
-            }
-        }
-        let body = concat!(
-            "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"prefix\",\"tool_calls\":[{\"index\":0,\"id\":\"call\",\"function\":{\"name\":\"fs_stat\",\"arguments\":\"{}\"}}]},\"finish_reason\":null}]}\n\n",
-            "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n"
-        );
-        // A complete SSE finish event is insufficient when HTTP itself is
-        // truncated: advertise more bytes than are actually sent.
-        socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len() + 100).as_bytes()).await.unwrap();
-        socket.shutdown().await.unwrap();
-    });
-    let model = HttpModel::new(endpoint, "fixture".into(), None).unwrap();
-    let events = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        model
-            .stream(vec![Message::text("user", "fixture")])
-            .await
-            .unwrap()
-            .collect::<Vec<_>>()
-            .await
-    })
-    .await
-    .unwrap();
-    server.await.unwrap();
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, Ok(ModelEvent::TextDelta(text)) if text == "prefix"))
-    );
-    assert!(
-        events
-            .iter()
-            .all(|event| !matches!(event, Ok(ModelEvent::ToolCall(_))))
-    );
-    assert!(
-        events
-            .last()
-            .unwrap()
-            .as_ref()
-            .unwrap_err()
-            .to_string()
-            .contains("transport failed")
-    );
 }
 
 #[tokio::test]

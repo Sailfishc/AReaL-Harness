@@ -69,19 +69,21 @@ export function useSessionNavigation(
     entries: { projectId: string; threadId: string }[];
     index: number;
   }>({ entries: [], index: -1 });
-  const library = snapshot.library ?? {
-    projects: {},
-    threads: {},
-    projectOrder: [],
-    settings: {},
-  };
-  const projects = snapshot.projects
-    .filter((p) => !library.projects?.[p.id]?.hidden)
-    .sort((a, b) => {
-      const order = library.projectOrder ?? [];
-      const rank = (id: string) => (order.includes(id) ? order.indexOf(id) : order.length);
-      return rank(a.id) - rank(b.id);
-    });
+  const library = useMemo(
+    () => snapshot.library ?? { projects: {}, threads: {}, projectOrder: [], settings: {} },
+    [snapshot.library],
+  );
+  const projects = useMemo(
+    () =>
+      snapshot.projects
+        .filter((p) => !library.projects?.[p.id]?.hidden)
+        .sort((a, b) => {
+          const order = library.projectOrder ?? [];
+          const rank = (id: string) => (order.includes(id) ? order.indexOf(id) : order.length);
+          return rank(a.id) - rank(b.id);
+        }),
+    [snapshot.projects, library],
+  );
   // Sidebar visibility must not change the owner of an explicitly opened resource.
   const logicalProject = noProject
     ? undefined

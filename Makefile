@@ -21,7 +21,7 @@ endif
 	cordis-pin update-cordis sdk-test harness harness-smoke verify-harness \
 	setup setup-node sdk-build script-test launcher-test workgroup-smoke unified-execution-smoke delegation-permissions-smoke capacity-workgroup local-service-smoke upgrade-smoke tui-upgrade-smoke \
 	verify-native integration-boundaries ci-preflight ci-gui-static ci-gui-health \
-	ci-gui-portable ci-core-contracts workflow-lint hooks-install
+	ci-gui-portable ci-core-contracts workflow-lint hooks-install check-changed
 
 help: ## 显示常用操作（默认目标）
 	@printf '%s\n' '用法：make <target> [ARGS="..."]' ''
@@ -116,6 +116,9 @@ workflow-lint: ## 校验 GitHub Actions workflow
 
 hooks-install: ## 显式安装仓库的推送前门禁
 	python3 scripts/git-hooks.py install --base "$(CI_BASE)"
+
+check-changed: ## 本地影响范围快检；显式 CI_BASE，ARGS=--plan 仅输出计划
+	python3 scripts/check-changed.py --base "$(CI_BASE)" $(ARGS)
 
 ci-gui-static: ## GUI 可移植静态检查；CI_BASE 必须为实际比较引用
 	@set -eu; \

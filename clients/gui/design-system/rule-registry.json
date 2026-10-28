@@ -4520,7 +4520,7 @@
       "title": "Messages 继续拥有阅读状态",
       "owner": "clients/gui/renderer/src/Messages.md#同窗口-renderer-恢复阅读",
       "strength": "must",
-      "textSha256": "c824709108483ab784557901dd6e71df2eb9279399bb739de5eb22b7d4ca8dc2"
+      "textSha256": "f69b7ea1bb21ff57ea76f7988f325724cbb4635738c26ca7d98452944bcb3399"
     },
     {
       "id": "R-MESSAGES-005",

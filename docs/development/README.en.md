@@ -4,7 +4,7 @@
 
 Read the [architecture](../design/architecture.en.md), [repository instructions](../../AGENTS.md) and [agent improvement goals and method](agent-improvement.en.md) first. Run commands from the repository root.
 
-The [T3 Code quality design proposal](t3code-quality-design.en.md) describes candidate improvements and acceptance boundaries for protocol replay, controlled ordering, projection consistency, and local checks. These are not yet shipped capabilities.
+The [T3 Code quality design](t3code-quality-design.en.md) describes implemented protocol replay, controlled ordering, projection consistency, local checks, and GUI derivation caching with their acceptance boundaries. See the [testing guide](testing.en.md) for commands.
 
 ## Environment
 
@@ -49,6 +49,7 @@ GUI acceptance cleanup checks reuse the product's native Core launcher and query
 |---|---|
 | Formatting | `make fmt` / `make fmt-check` |
 | Static analysis | `make lint` |
+| Change-scoped local checks | `make check-changed CI_BASE=<ref>`; `ARGS=--plan` prints the plan, with selected-check outcomes and unavailable prerequisites reported separately |
 | Rust / SDK / scripts | `make test` / `make sdk-test` / `make script-test` |
 | Regular regression | `make verify` |
 | Native integration | `make verify-harness`, including regular regression |

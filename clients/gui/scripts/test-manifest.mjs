@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -103,6 +104,46 @@ async function main() {
   const rootIndex = args.indexOf("--root");
   const root = resolve(value("--root") ?? (rootIndex >= 0 ? args[rootIndex + 1] : gui));
   const manifest = await readTestManifest(root);
+  if (args.includes("--select-changed")) {
+    const input = JSON.parse(readFileSync(0, "utf8"));
+    for (const key of ["paths", "available"])
+      if (!Array.isArray(input[key]) || !input[key].every((item) => typeof item === "string"))
+        throw new Error(`Changed test selection requires ${key}`);
+    if (!platforms.includes(input.platform)) throw new Error("Invalid changed test platform");
+    const areas = areasForPaths(input.paths);
+    const candidates = manifest.filter(
+      (entry) =>
+        entry.layer !== "e2e" &&
+        (entry.layer === "unit" ||
+          !areas.length ||
+          entry.areas.some((area) => areas.includes(area))),
+    );
+    const selected = selectTests(candidates, {
+      platform: input.platform,
+      available: input.available,
+    });
+    console.log(
+      JSON.stringify({
+        areas,
+        selected,
+        unexecuted: candidates
+          .filter((entry) => !selected.includes(entry.script))
+          .map((entry) => ({
+            script: entry.script,
+            platformSupported: entry.platforms.includes(input.platform),
+            missingRequirements: entry.requires.filter((item) => !input.available.includes(item)),
+          })),
+        deferred: manifest
+          .filter(
+            (entry) =>
+              entry.layer === "e2e" &&
+              (!areas.length || entry.areas.some((area) => areas.includes(area))),
+          )
+          .map((entry) => entry.script),
+      }),
+    );
+    return;
+  }
   if (args.includes("--ci-matrix")) {
     const base = value("--base");
     const paths = base

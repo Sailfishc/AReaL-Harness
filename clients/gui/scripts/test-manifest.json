@@ -312,6 +312,14 @@
     "requires": ["browser", "gui-build", "git"]
   },
   {
+    "script": "test:navigation-cache",
+    "layer": "e2e",
+    "platforms": ["darwin", "linux"],
+    "areas": ["history", "navigation"],
+    "requires": ["browser", "gui-build", "git"],
+    "notes": "Real React App in Chrome with isolated PlatformServices; counts directory derivations and checks snapshot invalidation."
+  },
+  {
     "script": "test:history-recovery",
     "layer": "e2e",
     "platforms": ["darwin", "linux"],

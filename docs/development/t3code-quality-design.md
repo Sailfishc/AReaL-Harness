@@ -2,121 +2,111 @@
 
 # 借鉴 T3 Code：可测试性、可靠性与研发效率补充设计
 
-## 状态与设计结论
+## 状态与实现边界
 
-本文是待评审的补充设计，承接已有“受理记录、定时任务与仓库 lint 插件”规格的 A/B/C 工作包。D–I 是候选工作包，尚未实现或验收；这里的目标行为不构成当前产品能力承诺。
+本设计承接“受理记录、定时任务与仓库 lint 插件”规格的 A/B/C 工作包。D–I 的最小实现已落到现有测试、夹具和快检入口；J 落到 Renderer 导航派生缓存与阅读状态所有者。已运行证据与仍需原生验收的部分分别列出。
 
-源码对照：T3 Code `93a9e079b107a13b0c312920b917b5f61a8f720c`；AReaL-Harness HEAD `2d3c4b14183f54cbee8ba467cd023c94ab5f6005` 及分析时的工作区。AReaL 工作区存在受理恢复、任务界面、上下文等并行修改，因此本文对这些位置只描述已读到的机制，不判定相关工作包已经完成。依据是本地源码和测试静态阅读，未运行两个产品，也未测量提速或故障率。
+T3 参考源码固定为 `93a9e079b107a13b0c312920b917b5f61a8f720c`。AReaL 沿用 Rust Core/Runtime、真实 HTTP 适配器、Desktop 投影、测试清单和固定产物验证流程。协议回放只替代外部模型；Renderer 派生缓存不参与权威会话状态和写请求结算。
 
-优先借鉴的是把失败变成可重复的输入、可控制的时序和可核对的结果。沿用 Rust Core/Runtime、现有 HTTP 模型夹具、Desktop 投影和测试清单；Effect、SQLite 事件溯源和中央 Orchestrator 不作为迁移前提。
+| 工作包 | 当前实现 | 已运行证据与边界 |
+| --- | --- | --- |
+| D. Provider 协议回放 | 版本化 JSON、真实 HTTP 字节、出站字段检查、暂停与断连 | D/E 的 HTTP、回放和超时合计 23 项通过；真实 Runtime 写入恢复固定槽 1 项通过 |
+| E. 可控时序 | 请求到达/放行里程碑、ResponseDeadline 虚拟时间测试 | 上述 23 项及 1 项虚拟时间测试通过；保留真实 HTTP 时间边界 |
+| F. 投影一致性 | 缺帧关闭、重连全量基线、旧连接隔离、历史释放 | 7 项 Desktop 本地传输测试通过；不覆盖手机或 Relay |
+| G. 本地影响范围快检 | CI 范围与 manifest 复用、计划说明、输入变化失效 | 11 项临时 Git 合同及 5 项 manifest 测试通过；完整快检结果依赖所选环境条件 |
+| H. 代表性历史夹具 | 旧格式长历史、已结算子会话、三种终态及 profile 断言 | 真实 Electron/Core 验收通过；40 Turn 读取 1 个旧页，来源与读取中副本不变，模型请求为零 |
+| I. 模型输入体积基线 | 默认 Desktop 无 Runtime/插件 profile 的分项字节基线 | 1 项真实 Engine/HTTP 测试通过，包含独立实例对照及输入增减反例 |
+| J. GUI 派生与阅读缓存 | 不可变输入缓存、侧栏非原地排序、32 项内存上限 | Chrome 计算次数/新快照验证及 4 项阅读缓存测试通过；完整旧对话流场景仍有定位器失败 |
 
-| 工作包 | 新增价值 | 首个切片 | 建议顺序 |
-| --- | --- | --- | --- |
-| D. Provider 协议回放 | 相同断流、分块和工具调用问题能离线重现 | 一个真实 HTTP 适配器、两类已有失败场景 | 第一批 |
-| E. 可控时序 | 测试能精确进入竞态窗口 | 给 D 的取消场景补里程碑；迁移一个时间策略测试 | 随 D 实施 |
-| F. 投影一致性验收 | 重连和历史加载不会悄悄恢复错误状态 | Desktop 同一条观察链上的缺帧与旧响应场景 | 第二批 |
-| G. 本地影响范围快检 | 迭代时更快拿到相关检查结果 | 复用 CI 范围与 GUI manifest，输出选择理由 | 可与第一批独立推进 |
-| H. 有代表性的数据夹具 | 开发环境与验收使用相同复杂数据形态 | 扩展现有 history-compat 的合成样本 | 第二批 |
-| I. 模型输入体积基线 | 工具和系统上下文增长可解释、可检查 | 默认配置的静态指令和工具 schema 分项计量 | 后续小切片 |
-
-D/F/H 是本次补充；E/G/I 深化原规格末尾已提出的时间控制、快检与上下文预算建议。F 与原规格提到的移动端连接设计相关，但这里只设计观察链验收，共享连接运行时仍由原专项拥有。
+D/F/H 补充协议故障、观察链和历史数据形态；E/G/I 深化时间控制、快检与上下文预算。J 以实际重算与容量证据选择最小修复。各项入口和证据不能互相替代，也不直接证明整体 Agent 能力、实际费用或用户感知延迟改善。
 
 ## D. 在真实 Provider 适配器边界回放协议
 
 **T3 依据。** `packages/provider-testing/src/replayTranscript.ts` 解析带元数据的 NDJSON，并将工作区占位符实例化；`replayGate.ts` 提供 `waitForReached/release`；`ProviderReplayHarness.ts` 将回放适配器接入真实编排和持久化服务。恢复测试还把持久状态带入后续运行。见[协议回放](https://github.com/pingdotgg/t3code/blob/93a9e079b107a13b0c312920b917b5f61a8f720c/packages/provider-testing/src/replayTranscript.ts)、[检查点](https://github.com/pingdotgg/t3code/blob/93a9e079b107a13b0c312920b917b5f61a8f720c/packages/provider-testing/src/replayGate.ts)、[恢复测试](https://github.com/pingdotgg/t3code/blob/93a9e079b107a13b0c312920b917b5f61a8f720c/apps/server/src/orchestration-v2/testkit/OrchestratorReplayRecovery.integration.test.ts)。
 
-**我们的基础。** [http_model.rs](../../core/engine/tests/http_model.rs) 已覆盖真实 HTTP 适配、分块、终止标记之后断流、采样参数和能力配置；[solve_only_http.rs](../../core/engine/tests/support/solve_only_http.rs) 已封装请求用途隔离。[history-smoke.mjs](../../clients/gui/scripts/history-smoke.mjs) 使用真实 Core/Runtime 和局部 SSE 模型。缺口是这些场景主要由各测试内的服务代码表达；可以试验把相同协议故障作为可复用输入资产保存。
+**实现。** [http_replay.rs](../../core/engine/tests/support/http_replay.rs) 读取版本化 JSON，声明 ChatCompletions 协议和合成来源，按 JSON pointer 检查必要出站字段，再发送指定 HTTP 字节。响应可在请求已到达时停放，或声明比实际发送更多的 Content-Length 复现传输截断。`request(index)` 与 `release(index)` 控制先后顺序；场景结束核对脚本消费，失败或 Drop 清理自有服务任务。
 
-**最小设计。** 在 `core/engine/tests/support/` 扩展现有 HTTP 测试支持，第一版只服务实际选择的协议。记录三类动作：核对出站请求的必要语义字段、发送指定入站字节、在标记点等待或断开。场景元数据包含协议版本、请求用途、合成或脱敏来源、预期终态。源数据经脱敏再入库；不在生产路径增加自动流量录制。
+[provider_replay.rs](../../core/engine/tests/provider_replay.rs) 经生产 HttpModel/decoder、Engine 和临时存储验证：同一 chunk 中错误前的文本保留；finish_reason 后断流不放行工具；取消后迟到回答不会改变已持久化的 Interrupted 状态。原 `http_model.rs` 的两项测试迁入该入口，场景数据位于 `tests/fixtures/provider-replay`。
 
-测试路径为“回放 HTTP 服务 → 生产 HttpModel/decoder → Engine → 真实临时存储”；需要检查工具副作用时再接入真实 Runtime。只有 HTTP 服务是替身，Engine 的恢复、持久化和工具结算仍走生产实现。适配器输入应保留原始字节边界，避免先归一化成正确事件而漏掉 decoder 错误。输出用语义断言，不冻结整段内部日志。
-
-**验收。** 从现有测试选择“一个 HTTP chunk 中先有文本再有错误”和“finish_reason 后传输失败”两个案例，分别核对已观察文本、失败类型、工具是否获准执行。再加入同一脚本在工具结果持久化后断连的集成案例，核对工作区副作用次数、持久结果和恢复后的 Turn；重启必须启动新的 Engine/进程并复用隔离数据目录。完整记录与截断记录分别有明确预期，不能把不完整回放当成正常结束。定向反例是在隔离副本提前放行工具或丢弃已观察文本，相关断言必须失败。
-
-**代价与边界。** fixture 会随供应商协议变化维护。先证明两个案例共享的数据格式足够，再决定是否给 GUI runner 读取同一数据；暂不建立跨语言执行框架。回放验证协议与恢复契约，真实供应商兼容性仍由专项测试验证。A 工作包拥有创建请求受理语义，D 不重新定义 UNKNOWN 的可重试条件。
+真实 Runtime 场景以 `test-support` feature 显式选择：完成文件工具写入并独立核对持久记录，下一次模型请求断连，再重新打开 Engine；哨兵内容与工具结果数量检查已完成写入没有重放。它要求 `AREAL_TEST_BIN_DIR` 指向同批已验证固定 bundle，固定槽原生用例 1 项已通过，覆盖正常关闭旧 Engine 后重开；运行中进程崩溃不在此证据内。完整与截断脚本各有预期，回放通过不代表真实供应商兼容性或安装包通过。
 
 ## E. 用里程碑控制顺序，用虚拟时间验证策略
 
 **T3 依据。** [DeterministicRuntime.ts](https://github.com/pingdotgg/t3code/blob/93a9e079b107a13b0c312920b917b5f61a8f720c/apps/server/src/orchestration-v2/testkit/DeterministicRuntime.ts) 提供 TestClock 和固定随机种子；回放 gate 区分“到达”和“释放”。[ThreadSettlementService.test.ts](https://github.com/pingdotgg/t3code/blob/93a9e079b107a13b0c312920b917b5f61a8f720c/apps/server/src/orchestration-v2/ThreadSettlementService.test.ts) 通过 Deferred 和 TestClock 控制竞争。该仓库也存在轮询辅助代码，不能据此宣称其所有测试都已确定化。
 
-**我们的基础。** [model_load.rs](../../core/engine/tests/model_load.rs) 已使用 `start_paused` 和 `tokio::time::advance`；`http_model.rs` 已用 Notify 等待 Activity 后再放行终态。[model_timeouts.rs](../../core/engine/tests/model_timeouts.rs) 仍含真实 HTTP 等待；[desktop-projection-transport.test.mjs](../../clients/gui/scripts/desktop-projection-transport.test.mjs) 使用短间隔轮询等待 socket/历史释放。
+**实现。** 取消场景使用回放请求到达通知，先等待 Turn 结算为 Interrupted，再释放迟到响应，并在新 Engine 实例中检查保存结果。该场景替代原依靠延迟响应头制造时间窗口的取消测试；网络 EOF 与持久化结果分别断言。
 
-**最小设计。** 由当前 fixture 暴露 `requestObserved`、`frameDelivered`、`resultPersisted` 等实际可观察里程碑，需要哪个就增加哪个。语义策略测试复用 Tokio 暂停时间；跨 socket 的集成测试用消息/通知等待具体事件。持久化里程碑必须在写入完成后发出，不能把模型服务“已发送响应”冒充 Core“已落盘”。本地无法观察时，优先走现有事件或测试依赖边界；新增测试钩子只在测试构建可用。
+[watchdog.rs](../../core/engine/src/watchdog.rs) 的 `first_event_deadline_is_fixed_and_activity_starts_a_new_idle_window` 使用 Tokio 暂停时间，检查首事件绝对期限及 Activity 后新的 idle window。`model_timeouts.rs` 保留四项真实 HTTP 超时边界；虚拟时间仅控制策略计时，不假设 socket、Main、页面和系统 I/O 共用时钟。
 
-**验收。** 选一个取消场景，明确“请求到达 → 发起取消 → 释放迟到响应”，断言迟到结果不能复活已结束 Turn，且相关资源释放；选一个纯时间策略测试，在注册计时器之后推进到期限前后，核对只发生预期一次转换。等待事件保留总期限，超时作为失败诊断。反例为绕过迟到结果守卫，或错误移动超时起算点；对应测试必须失败。
-
-**代价与边界。** 页面时钟、Main 计时器、Core 时间与系统 I/O 不共享一个虚拟时钟。真实 HTTP 超时测试可以保留少量墙钟用例。按修改涉及的测试逐步迁移，避免建立覆盖整个系统的 Clock 抽象或一次性禁用所有 sleep。收益用迁移前后同场景耗时、首跑失败与重试次数报告，不预设提速比例。
+运行 `cargo test --locked -p areal-engine --test http_model --test provider_replay --test model_timeouts`，以及 `cargo test --locked -p areal-engine --lib first_event_deadline_is_fixed_and_activity_starts_a_new_idle_window`。已通过结果为前者 23 项、后者 1 项；其中不含 feature 门控的 Runtime 场景。精确里程碑和定向错误断言用于解释失败，保留总期限，不能以重试后成功掩盖首跑失败。
 
 ## F. 补齐快照、增量和重连的一致性验收
 
 **T3 依据。** [subscribeBeforeSnapshot.ts](https://github.com/pingdotgg/t3code/blob/93a9e079b107a13b0c312920b917b5f61a8f720c/apps/server/src/utils/subscribeBeforeSnapshot.ts) 有两种实现：共享 mutex 内先读快照再订阅，或无共享锁时先订阅再读快照；其[测试](https://github.com/pingdotgg/t3code/blob/93a9e079b107a13b0c312920b917b5f61a8f720c/apps/server/src/utils/subscribeBeforeSnapshot.test.ts) 在读取窗口中插入变化。[shell-sync.test.ts](https://github.com/pingdotgg/t3code/blob/93a9e079b107a13b0c312920b917b5f61a8f720c/packages/client-runtime/src/state/shell-sync.test.ts) 还检查旧异步保存、权威快照重置及缓存补全冲突。借鉴的是可执行的边界不变量，不能只照函数名复制顺序。
 
-**我们的基础。** [state-projection.cjs](../../clients/gui/packages/workbench/client/state-projection.cjs) 已校验 stream、sequence、delta base，重复/旧序号返回已有状态；Desktop 传输测试已有背压合并、命令回执顺序和历史释放隔离；[bounded-history-client.test.mjs](../../clients/gui/scripts/bounded-history-client.test.mjs) 与 [history-reobserve.test.mjs](../../clients/gui/scripts/history-reobserve.test.mjs) 已覆盖历史观察。第一步是核对覆盖矩阵，已有用例只增加必要断言。
+**实现。** 继续使用 [state-projection.cjs](../../clients/gui/packages/workbench/client/state-projection.cjs) 的 stream、sequence、delta base 约束及 ServiceConnection 的连接归属守卫，在 [desktop-projection-transport.test.mjs](../../clients/gui/scripts/desktop-projection-transport.test.mjs) 增加真实本地 WebSocket 观察场景。覆盖重复/旧帧不回退、缺失 base 导致连接关闭、新连接读取完整权威基线，以及旧连接迟到帧不能覆盖新连接。
 
-**最小设计。** 在现有 Desktop 观察链测试中控制“订阅/快照交接、投影帧交付、旧历史请求完成”三个边界。比较的对象是公开状态中的项目/Thread 身份、Turn 状态、条目内容和历史可继续加载性；期望来自预先声明的业务结果或独立权威读取，不能由被测 encoder 自己生成全部预期。
+现有背压合并、回执顺序和历史 acquire/release 的其他客户端隔离继续由同一入口保护。`node --test clients/gui/scripts/desktop-projection-transport.test.mjs` 共 7 项通过；恢复后的公开语义状态与服务快照核对，并检查没有自动重发用户写请求。
 
-| 注入场景 | 应验证的结果 |
-| --- | --- |
-| 首次快照与开始观察之间发生变更 | 变更出现在快照或后续通知中，不静默遗漏 |
-| 重复帧、同一 stream 的旧帧 | 语义状态不重复应用或回退 |
-| delta 缺少 base | 拒绝错误增量；所属连接恢复路径重新取得完整基线 |
-| 新连接已建立，旧连接响应才返回 | 旧响应不能覆盖新连接状态；新 stream 用新的 reader/基线 |
-| 释放历史视图后 load/acquire 才完成 | 该视图不再占用资源，其他客户端仍可读取 |
-
-**验收。** 先在现有测试补缺，再选缺帧恢复场景跨真实本地 socket 验证最终公开状态与权威读取一致；同时核对没有重新发送用户写请求。反例为取消 base 校验或允许旧连接结果写入，矩阵中的相应案例必须失败。只有发现生产路径缺陷才修改生产代码，并按具体契约解释恢复动作。
-
-**代价与边界。** sequence 是否可重置取决于 stream/连接身份，不能照搬 T3 的低序号权威重置规则。先验证 Desktop，Remote 复用语义用例时再增加自己的传输与权限验收；本地 socket 通过不代表手机或 Relay 已验收。
+sequence 的重置仍绑定新 stream/reader，未照搬 T3 的低序号重置语义。这里的证据覆盖 Desktop 传输及投影，完整 Core 历史、手机与 Relay 各自执行专项验收；测试出现真实契约缺陷时才扩展生产修复范围。
 
 ## G. 与 CI 共用范围判断的本地快检
 
 **T3 依据。** [check-changed.ts](https://github.com/pingdotgg/t3code/blob/93a9e079b107a13b0c312920b917b5f61a8f720c/scripts/check-changed.ts) 复用 CI 的 `decide/readWorkspace`，包含未提交和未跟踪文件，对受影响包及依赖方检查类型，并运行邻近测试；摘要明确列出留给 CI 的检查。通过缓存还会复核输入是否在运行期间变化。
 
-**我们的基础。** [ci-scope.py](../../scripts/ci-scope.py) 判断 GUI/release 大范围；[test-manifest.mjs](../../clients/gui/scripts/test-manifest.mjs) 已有领域选择及未知路径全量回退；[check.mjs](../../clients/gui/scripts/check.mjs) 已做改动文件静态检查；[Makefile](../../Makefile) 的 `ci-preflight` 已统一较完整的推送前检查。需要补的是适合日常迭代的选检计划，而非再建一个发布门禁。
+**实现。** [check-changed.py](../../scripts/check-changed.py) 提供 `make check-changed CI_BASE=<ref>`；`ARGS=--plan` 仅输出 JSON 计划。入口解析一次 merge-base，纳入已提交、暂存、未暂存、未跟踪、删除及重命名两侧路径，输出输入摘要、命令、理由、命中路径与未覆盖项。暂存与工作区差量取并集，即使内容相互抵消也选检；输入摘要包含 cached diff，纯暂存区变化也会使证据失效。命令验收对象明确为 `working-tree`，部分暂存文件的 index 内容只参与选检与漂移检测。
 
-**最小设计。** 新增薄的本地入口（建议名 `make check-changed CI_BASE=<ref>`，目前不存在），解析一次 merge-base，纳入已提交、暂存、未暂存、未跟踪及删除/重命名路径。调用现有范围判断和 manifest，输出每个选择的命令、命中路径、依赖条件与未覆盖项。GUI 内部领域选择继续归 manifest；Core/shared schema/工具链等共享边界采用宽范围，首版不推断精细 Rust 依赖图。
+`ciScopes` 原样复用 [ci-scope.py](../../scripts/ci-scope.py)；未知代码的本地扩大单列为 `conservativeFallback`，不冒充原 CI 已识别。GUI 通过 [test-manifest.mjs](../../clients/gui/scripts/test-manifest.mjs) 的 stdin JSON `--select-changed` 接口复用领域、平台和依赖条件，保留共享 unit 测试。共享 Rust/schema 保守执行 workspace 检查与 SDK 消费者检查，暂不推断精细 Rust 依赖图。
 
-第一版只选检和执行，暂不缓存“整轮通过”。纯静态步骤可在输入准备完成后并行；读写相同构建产物或固定槽的步骤按依赖顺序执行。现有 `ci-preflight` 与 CI 仍执行各自要求的检查。
-
-**验收。** 在临时 Git 仓库中验证普通源码、schema、锁文件、测试 runner、删除、重命名、未跟踪文件与未知路径；相同路径输入在本地和 CI 入口得到相同适用范围。共享 schema 必须选入消费者，未知代码路径不能输出“无需测试”，缺依赖明确失败或列为未执行，不能变成通过。执行期输入发生变化时报告证据失效。定向反例为漏掉一个共享路径映射，选择契约测试必须失败。
-
-**代价与边界。** 维护的是已有 owner 的选择规则，避免另建一份路径白名单。只有选检正确性与实际耗时证明值得后，才考虑按源码、锁文件、工具版本、配置和产物身份缓存；不能只用 HEAD 作为 key。比较同一修改的快检与预检耗时，并保留各自覆盖范围。
+执行为顺序运行，无整轮通过缓存。所选命令成功也只报告 `passed-selected-checks`；缺条件为 `partial`，输入变化为 `invalidated`，失败为 `failed`，没有改动为 `no-changes`。`partial`、`invalidated`、`failed` 返回非零；E2E、原生桌面、真实供应商与安装包仍列为 deferred。11 项临时 Git 合同与 5 项既有 manifest 测试通过；隔离反例去掉未知代码的 GUI 扩大后，选择合同按预期失败。
 
 ## H. 将复杂历史做成可复用的开发与验收夹具
 
 **T3 依据。** [migrate-dev-db.ts](https://github.com/pingdotgg/t3code/blob/93a9e079b107a13b0c312920b917b5f61a8f720c/apps/server/scripts/migrate-dev-db.ts) 以只读源建立隔离副本，选择停止的 Thread 家族，清除待执行工作及认证会话，再迁移和裁剪；[测试](https://github.com/pingdotgg/t3code/blob/93a9e079b107a13b0c312920b917b5f61a8f720c/apps/server/scripts/migrate-dev-db.test.ts) 验证来源/目标隔离和旧数据升级。价值在真实数据形态进入开发循环。
 
-**我们的基础。** [history-copy-smoke.mjs](../../clients/gui/scripts/history-copy-smoke.mjs) 已支持合成 fixture 和显式本地来源，检查 idle、终态 Turn、无队列/托管执行，核对来源哈希，并以拒绝模型请求的服务验证只读历史。已有固定产物身份及隔离目录机制，见[测试指南](testing.md)。
+**实现。** [profiles.json](../../clients/gui/scripts/fixtures/history-compat/profiles.json) 声明合成来源、旧存储版本和语义预期：已结算子会话关系、40 Turn 的分页历史，以及 completed/failed/interrupted 三种终态。样本保留版本 14 的原始格式；[history-copy-smoke.mjs](../../clients/gui/scripts/history-copy-smoke.mjs) 复用原有私有副本与来源哈希核对，增加公开 history acquire/page 结果、顺序、关系、终态与 Renderer 可见文本断言。
 
-**最小设计。** 沿用 `scripts/fixtures/history-compat` 与现有 runner，先增加小而有代表性的合成 profile：长历史/分页、分支与子任务关系、失败及中断终态。每份包含格式版本、语义预期与来源类别；迁移样本保留旧格式，不能先用新版本重新保存。GUI 开发预览和对应 smoke 消费同一份样本，确有第二个消费者后再提取共用加载代码。
+入口仍为 `pnpm --dir clients/gui test:history-compat`，需要匹配的固定 Core 与已构建 GUI；`AREAL_CORE_BIN` 指定源码测试产物，包验收可显式选择 executable。只读 profile 保留 idle、无队列、无托管执行与零模型请求约束；活动恢复数据仍由 D/F 专项拥有。没有新增默认复制用户数据的开发启动行为。
 
-只读历史 profile 继续满足已有静止约束。崩溃、待受理、暂停 Goal 等活动数据属于 D/F 的专用恢复 fixture，使用不同验收入口；不能为方便载入而把这些状态统一改成成功。真实本地副本仍需显式来源，首版不增加默认复制用户目录的启动行为。
-
-**验收。** 旧格式样本经当前 Core 读取后，标题、Thread 关系、原始内容和继续分页一致；浏览历史时模型请求数为零，来源哈希不变。用真实 Renderer 检查长历史和分支可打开。每个 profile 关联所保护的不变量，反例是移除对应兼容分支或破坏历史引用后测试失败。
-
-**代价与边界。** 合成数据不能证明所有真实升级都兼容；保留现有显式本地副本与安装包验收。以复现问题所需手工准备步骤减少、同一样本可重复载入为收益，不用 fixture 数量作为质量指标。
+真实 Electron/Core 验收已通过：40 Turn 样本实际加载 1 个旧页，子会话关系、三种终态与可见文本一致；来源及读取中的副本摘要不变，模型请求为零，隔离服务正常退出。合成样本不能覆盖全部真实用户数据，显式本地副本和安装包验收继续分别执行。
 
 ## I. 为静态模型输入建立分项体积基线
 
 **T3 依据。** [AgentContextBudget.test.ts](https://github.com/pingdotgg/t3code/blob/93a9e079b107a13b0c312920b917b5f61a8f720c/apps/server/src/provider/AgentContextBudget.test.ts) 从生产构造函数及工具注册结果测量附加提示和模型可见工具字段的 UTF-8 字节，与版本化基线比较。
 
-**我们的基础。** [request_budget.rs](../../core/engine/src/model/request_budget.rs) 已控制请求/媒体字节上限；[context.rs](../../core/engine/tests/context.rs) 已覆盖压缩和 token 限额；`http_model.rs` 核对实际请求的指令位置与工具 schema 稳定性。运行时超限保护和默认静态输入增长是两种不同问题。
+**实现。** [model_input_budget.rs](../../core/engine/tests/model_input_budget.rs) 经生产 `Engine::create_configured`、默认配置和真实 HTTP 适配器捕获求解请求；辅助命名由已有 SolveOnlyHttpModel 边界隔离。首个 profile 是 `desktop-default-no-runtime-or-plugins`，不把本机 Runtime 或第三方插件能力计入默认无宿主测试。
 
-**最小设计。** 在现有 HTTP 请求捕获测试中，从实际生产组装结果分别统计默认系统指令、内置工具 `name/description/parameters`、固定环境说明。按当前确有支持的协议与配置区分，首版仅默认配置；用户历史、用户 Skills 正文、动态检索内容和媒体单列，不纳入固定默认体积。将可审阅的计量基线放在测试资产中，输出字段差量与新增来源。
+固定基线 [model-input-budget.json](../../core/engine/tests/fixtures/model-input-budget.json) 分别记录 system 指令 11,758 UTF-8 字节、Execution settings 段 563 字节，以及 18 个工具的 name/description/parameters 计量，模型可见工具函数 JSON 合计 12,686 字节。不同临时目录、ID 与用户正文的两次独立 Engine 请求计量一致。动态用户历史、Skills 正文、检索和媒体不纳入该固定 profile。
 
-**验收。** 未改变输入时计量稳定；增加静态提示或工具描述后相关分项报告增长，不能自动更新基线。移除一个工具描述也必须被稳定计量识别；授权增长由同一代码变更说明其必要性及对默认输入的影响。UTF-8 字节只是确定性的增长信号，不转换成未经验证的 token、费用或成功率结论。
+`cargo test --locked -p areal-engine --test model_input_budget` 的 1 项测试通过，包括增加/减少工具描述和增加 system 指令的反例；变化输出分项与工具名称，基线必须人工审阅更新。该检查不自动删提示、截断工具或改变生产预算。字节是确定性增长信号，不转换成未验证的 token、费用或成功率结论；Agent 行为修改仍遵循[改进方法](agent-improvement.md)。
 
-**代价与边界。** 测试不自动删提示、截断工具或修改生产预算。只有后续要改变 Agent 行为时才按[Agent 改进方法](agent-improvement.md) 做效果对照。避免对动态全部请求做精确 golden，也不照搬 T3 的具体额度。
+## J. GUI 派生缓存与 Design System 连续性
 
-## 交付顺序与停止条件
+用户操作跨越 Renderer 意图、Desktop 传输与投影、Core 权威会话、Runtime 副作用。改进循环是：定义可观察目标，追踪调用与状态所有权，以同一场景验证机制，实施最小修复，再检查结果。源码重复调用是候选证据；计算次数、缓存容量、数据新鲜度和用户交互分别验证，减少计算不自动等于感知延迟降低。
 
-推荐先完成 D 的两个回放场景并嵌入 E 的里程碑，同时独立实现 G 的选检计划；随后根据实际缺口推进 F/H。I 是独立的小型检查，可在工具或提示词变更频繁时提前。各工作包以独立 diff 和验收证据交付，不要求一次性建设统一测试平台。
-
-| 目标 | 应记录的证据 | 不能由此推出 |
+| 所有者 | 缓存或保留内容 | 更新与释放边界 |
 | --- | --- | --- |
-| 可测试性 | 固定输入、精确失败位置、正确实现通过且定向错误失败 | 供应商行为已完全覆盖 |
-| 可靠性 | 重启后公开状态正确、副作用次数正确、旧响应被隔离 | 仅单元测试即可证明发行可靠 |
-| 研发效率 | 同场景首跑耗时、准备步骤、首跑失败与重试次数、选检范围 | 测试数量少就一定更快或更好 |
+| Core / Runtime | 历史、受理记录、执行事实 | 沿既有持久化与生命周期合同；Renderer 缓存不参与写请求结算 |
+| Desktop / workbench | 带 stream、sequence、base 的投影及有界历史页 | 按现有重连、基线校验和 view release 处理 |
+| Renderer 导航 | 排序项目、会话目录和侧栏派生结果 | 完整不可变输入引用变化即重算，组件卸载释放 |
+| Messages / readingViews | 按阅读 owner 隔离的布局与语义锚点 | 保存刷新最近访问顺序，超过既有 32 项边界淘汰最旧项 |
+| Design System | 导航、阅读、返回与状态反馈约束 | 组件就近合同拥有规则，验收复用生产组件 |
 
-运行命令以现有入口为准：Rust 用聚焦的 `cargo test --locked -p areal-engine --test <目标>`；投影传输用 `node --test clients/gui/scripts/desktop-projection-transport.test.mjs`；历史兼容用 `pnpm --dir clients/gui test:history-compat` 并准备匹配的固定产物。新增测试登记进已有 runner/manifest，GUI、Core、真实供应商、原生桌面和安装包证据分别报告。
+`useSessionNavigation` 原先每次渲染都创建排序项目数组，`App` 随后重建全量目录；侧栏还原地排序输入摘要。选择先稳定上游项目引用，再缓存目录与侧栏派生，排序不修改输入。重命名、未读、运行状态、项目顺序及新权威快照必须及时刷新。缓存不按 Thread ID 长期保留业务对象，不掩盖 pending/UNKNOWN。
 
-本设计停止在候选方案与验收契约。实现前逐项复核并行工作是否已覆盖目标；已满足的项直接复用。仅在具体测试证明生产契约缺陷时扩大到产品修复，协议、持久化与 UI 改动同步更新其已有文档。
+`readingViews` 原有 sessionStorage 上限为 32 项、65,536 字符，内存 Map 却不淘汰。隔离复现访问 1024 个 owner 后内存为 1024 项、持久化为 32 项，每次保存仍复制全部 Map。选择在原保存所有者按相同 32 项边界裁剪，即使存储不可用也限制容量。保留语义锚点，不保存 DOM、正文或 Core 历史。
+
+后端历史已有视图、页数和字节限额。跨会话保留完整历史页会改变 release 与资源归属，当前证据不支持本轮引入。Messages 条目投影缓存保留为后续候选，需独立测量。
+
+交互分类为 I-NAV、I-READ、I-RECOVER，子对话返回涉及 I-RETURN。复用 App、Sidebar、Messages 和现有 Token。约束引用[交互模式](../../clients/gui/design-system/interactions.md)的 NAV-CONTEXT-01、READ-CONTINUITY-01、RECOVER-TRUTH-01、RETURN-CONTEXT-01，以及 [Messages 合同](../../clients/gui/renderer/src/Messages.md)的 R-MESSAGES-004/005；本轮不新增设计规则或视觉角色。
+
+同源 Renderer 夹具比较优化前后无关 UI 操作的目录重算次数，并检查新快照中的名称、未读、运行和排序即时更新。阅读缓存检查最近访问淘汰、存储不可用和语义锚点重载；主题、字号与布局变化沿既有阅读逻辑。截图、原始计数和未通过项分别记录；静态设计检查、Renderer 交互、Electron/Core 历史与安装包各自保留证据边界。
+
+
+**已运行证据。** `pnpm --dir clients/gui test:navigation-cache` 在真实 React App/Chrome、fixture PlatformServices 边界测量相同无关 UI 操作：优化前 catalog 重算增量 13、projectVisits 156、comparisons 38,805，优化后均为 0；重命名、未读、运行状态、排序和新权威快照五类刷新通过。计数说明该场景减少了派生计算，不是端到端耗时或用户感知延迟结论。
+
+`readingViews.test.ts` 的 4 项测试通过。Chrome 主题切换和重载检查的语义阅读锚点偏差为 1px；旧 `conversation-flow` 场景在 `.tool-summary-row .tool-failed` 定位器超时；生产折叠失败状态由 `ActivityRowStatus` 的 `data-tone="failed"` 表达。该 markup 与 `readingViews` 容量裁剪属于不同边界，本专项未修改旧 runner，完整对话流未计为通过。原生 Electron/Core 历史、平台输入和安装包仍保留各自验收边界。
+
+## 验证入口与完成边界
+
+具体操作见[测试指南](testing.md)。D/E/F/G/I 与 J 的局部机制证据已建立；Core HTTP/回放/超时与固定槽 Runtime 合计 24 项、虚拟时间 1 项通过，文本丢失和错误首事件期限的两个隔离反例均触发断言失败并恢复复验。匹配的 Core/GUI 构建、固定槽 doctor、GUI 类型、设计与格式检查通过。H 的真实 Electron/Core 合成历史专项通过；真实用户升级数据和安装包继续独立验收。未执行、失败和仅局部通过分别报告，不用测试总数代替覆盖范围。每个定向反例只在隔离环境或已捕获的测试请求边界注入，完成后恢复正式输入。

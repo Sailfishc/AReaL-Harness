@@ -70,6 +70,31 @@ pub(crate) fn idle_error(phase: &str) -> anyhow::Error {
 mod tests {
     use super::*;
 
+    #[tokio::test(start_paused = true)]
+    async fn first_event_deadline_is_fixed_and_activity_starts_a_new_idle_window() {
+        let start = Instant::now();
+        let mut response = ResponseDeadline::new(Duration::from_secs(5), Duration::from_secs(2));
+        let first = tokio::time::sleep_until(response.deadline());
+        tokio::pin!(first);
+        assert!(futures_util::poll!(&mut first).is_pending());
+        tokio::time::advance(Duration::from_secs(4)).await;
+        assert_eq!(response.deadline(), start + Duration::from_secs(5));
+        assert!(futures_util::poll!(&mut first).is_pending());
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert!(futures_util::poll!(&mut first).is_ready());
+        assert!(response.idle_error("model").to_string().contains("request"));
+
+        response.observe_event();
+        let idle = tokio::time::sleep_until(response.deadline());
+        tokio::pin!(idle);
+        assert!(futures_util::poll!(&mut idle).is_pending());
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert!(futures_util::poll!(&mut idle).is_pending());
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert!(futures_util::poll!(&mut idle).is_ready());
+        assert!(response.idle_error("model").to_string().contains("stream"));
+    }
+
     #[test]
     fn arbitrarily_many_network_retries_have_a_bounded_backoff() {
         let error = model::ModelFailure::Transport.into();

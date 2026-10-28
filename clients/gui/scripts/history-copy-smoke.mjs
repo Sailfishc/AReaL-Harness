@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { parseArgs } from "node:util";
-import { captureSmokeFailure } from "./smoke-navigation.mjs";
+import { captureSmokeFailure, selectConversation } from "./smoke-navigation.mjs";
 import { withSmokeDeadline } from "./smoke-deadline.mjs";
 
 // 沿用历史副本专项：只把来源作为输入，所有 Core 写入和清理均落在私有副本。
@@ -29,6 +29,7 @@ const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const hashes = new Map(),
   copyHashes = new Map(),
   sessions = new Map(),
+  originals = new Map(),
   stateDirectories = new Map(),
   checks = [];
 let app,
@@ -38,6 +39,7 @@ let app,
   copyUnchangedWhileOpen = false,
   sourceUnchanged = false;
 let projectIndexHash;
+let profiles;
 let modelRequests = 0;
 const server = createServer((_request, response) => {
   modelRequests++;
@@ -126,6 +128,17 @@ try {
   projectIndexHash = hashes.get("projects.json");
   hashes.delete("projects.json");
   copyHashes.delete("projects.json");
+  if (fixtureMode) {
+    profiles = JSON.parse(await sourceBytes("profiles.json"));
+    assert.equal(profiles.version, 1, "Unsupported history fixture profile format");
+    assert.equal(profiles.source, "synthetic");
+    assert.ok(Array.isArray(profiles.profiles) && profiles.profiles.length > 0);
+    assert.equal(
+      new Set(profiles.profiles.map((profile) => profile.id)).size,
+      profiles.profiles.length,
+    );
+    copyHashes.delete("profiles.json");
+  }
   assert.ok(Array.isArray(projects) && projects.length > 0, "History source has no projects");
   const isolatedProjects = [];
   for (const project of projects) {
@@ -154,6 +167,7 @@ try {
       assert.equal(record.thread.id, name.slice(0, -5), "History filename and thread ID differ");
       assertIdle(record);
       records.set(record.thread.id, record.thread);
+      if (fixtureMode) originals.set(record.thread.id, structuredClone(record));
       // 受控样本的占位工作区只在副本中填充；私有历史保留全部原始字节及 cwd。
       let copied = bytes;
       if (fixtureMode) {
@@ -258,6 +272,62 @@ try {
       sourceStatePresent: stateDirectories.get(join(project.id, "state")) !== null,
       connected: true,
     });
+  }
+  for (const profile of profiles?.profiles ?? []) {
+    const stored = originals.get(profile.threadId);
+    assert.ok(stored, `Missing profile ${profile.id}`);
+    assert.equal(stored.version, profile.storedVersion, "Migration sample was rewritten");
+    const original = stored.thread;
+    assert.equal(original.turns.length, profile.turnCount);
+    const request = {
+      projectId: profile.projectId,
+      threadId: profile.threadId,
+      viewId: `history-compat-${profile.id}`,
+    };
+    await call("open", { projectId: profile.projectId, threadId: profile.threadId });
+    const acquired = await call("history", { ...request, operation: "acquire" });
+    assert.equal(acquired.supported, true, "Fixture profiles require bounded history");
+    let pages = 0;
+    const read = () =>
+      page.evaluate(
+        async ({ projectId, threadId }) =>
+          (await window.arealDesktop.snapshot()).projects.find((value) => value.id === projectId)
+            .state.threads[threadId],
+        request,
+      );
+    let thread = await read();
+    while (!thread.displayHistory.complete) {
+      assert.ok(pages < profile.maxPages, "History profile did not reach its oldest page");
+      const older = await call("history", { ...request, operation: "loadOlder" });
+      assert.ok(older.data.length > 0, "Incomplete history returned an empty page");
+      pages++;
+      thread = await read();
+    }
+    assert.ok(pages >= profile.minPages, "Long-history fixture did not exercise paging");
+    for (const field of ["name", "preview", "parentThreadId", "sessionId"])
+      assert.equal(thread[field] ?? null, original[field] ?? null, `${profile.id}: ${field}`);
+    const content = (value) =>
+      value.turns.map((turn) => ({
+        id: turn.id,
+        status: turn.status,
+        error: turn.error ?? null,
+        items: turn.items.map(({ id, type, text }) => ({ id, type, text })),
+      }));
+    assert.deepEqual(
+      content(thread),
+      content(original),
+      `${profile.id}: chronological history changed`,
+    );
+    for (const [turnId, status] of Object.entries(profile.terminalStates ?? {}))
+      assert.equal(thread.turns.find((turn) => turn.id === turnId)?.status, status);
+    if (profile.parentThreadId)
+      assert.equal(thread.parentThreadId, profile.parentThreadId, "Settled child lost its parent");
+    if (profile.visibleText) {
+      await selectConversation(page, profile.threadId);
+      await page.getByText(profile.visibleText, { exact: false }).last().waitFor();
+    }
+    await call("history", { ...request, operation: "release" });
+    checks.push({ profile: profile.id, turns: thread.turns.length, olderPages: pages });
   }
   copyUnchangedWhileOpen = await unchanged(join(scratch, "core"), copyHashes);
   assert.equal(

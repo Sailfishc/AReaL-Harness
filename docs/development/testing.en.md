@@ -38,6 +38,41 @@ macOS native smoke tests require Seatbelt; Linux native smoke tests require `/us
 
 Linux host checks use `make verify CARGO_TEST_ARGS='--exclude areal-runtime-exec-native'`. Native backend tests require `/usr/bin/bwrap` and user namespaces; a separate CI job builds the Dockerfile's `runtime-tests` target and runs every backend test, including `outer-container-perf`, inside the controlled Bubblewrap container. It also enables `areal-runtime/native-tests` and runs the daemon's `native_transport` target. That target starts the real daemon over private stdio with the complete Runtime bundle, so Linux resolves the reaper beside the daemon. Its native sandbox test keeps the ordinary-command/hook progress and foreign-writer exclusion assertions; the four portable transport tests remain in the default suite. `make verify-native` builds the bundle before explicitly running the same native target on macOS. The feature selects this test target only and changes no production behavior. Excluding native tests from the portable host lane alone does not complete validation.
 
+## Repeatable faults, local checks, and cache acceptance
+
+Select relevant entry points from the repository root:
+
+```sh
+make check-changed CI_BASE=<actual-comparison-ref> ARGS=--plan
+make check-changed CI_BASE=<actual-comparison-ref>
+python3 -m unittest scripts.tests.test_check_changed
+cargo test --locked -p areal-engine --test http_model --test provider_replay --test model_timeouts
+cargo test --locked -p areal-engine --lib first_event_deadline_is_fixed_and_activity_starts_a_new_idle_window
+cargo test --locked -p areal-engine --test model_input_budget
+node --test clients/gui/scripts/desktop-projection-transport.test.mjs
+pnpm --dir clients/gui test:navigation-cache
+pnpm --dir clients/gui test:unit renderer/src/readingViews.test.ts
+```
+
+`check-changed` resolves merge-base once and unions staged changes relative to that baseline, unstaged changes, and untracked files. Both sides of renames are included. Staged and working-tree changes cancelling each other still select checks. `ciScopes` reuses CI's existing scope; conservative local expansion for unknown code is separately reported as `conservativeFallback`. GUI candidates come from the manifest; shared Rust/schema changes conservatively include workspace and SDK consumers. The plan reports an input hash, commands, reasons, matching paths, unavailable prerequisites, and deferred acceptance.
+
+The validation target is explicitly `working-tree`. Index contents affect selection and drift detection, but commands read working-tree files; partial staging does not establish validation of index contents. There is no passing-run cache. `passed-selected-checks` means only selected checks passed. `partial` means prerequisites are missing, `invalidated` means working-tree or index inputs changed, and `failed` means a command failed; all three return nonzero. Empty changes report `no-changes`. Full preflight, CI, live providers, native desktop, and packages retain separate entry points.
+
+Provider replay fixtures in `core/engine/tests/fixtures/provider-replay` exercise real HTTP bytes, production decoder/Engine, and temporary storage for retained text before errors, disconnects after finish events, and late answers after cancellation. Notifications control request arrival/release instead of fixed sleeps. Pure timer policy uses paused Tokio time while real HTTP timeout tests preserve I/O coverage. Server write chunks do not guarantee operating-system network packet boundaries.
+
+Real Runtime write recovery requires a deployed and verified fixed bundle from the same build, selected explicitly:
+
+```sh
+AREAL_TEST_BIN_DIR=/absolute/verified/bin cargo test --locked -p areal-engine --features test-support --test provider_replay persisted_runtime_write_survives_disconnect_and_reopen_without_replay
+AREAL_CORE_BIN=/absolute/verified/bin/areal pnpm --dir clients/gui test:history-compat
+```
+
+This native test compiles under `test-support` and uses existing test construction APIs; this change does not alter production behavior. Missing fixed paths must fail rather than count as a passing skip. The Runtime case independently checks persisted writes, tool results after reopen, and a sentinel file; network milestones do not establish persistence and recovery does not authorize replay. `history-compat` also needs built GUI artifacts. Its `profiles.json` declares old-format paging, settled child relationships, and three terminal outcomes. The runner checks public history pages, order, relationships, and Renderer text while preserving source hashes and zero model requests. See the [quality design](t3code-quality-design.en.md) for current acceptance status of these two native paths.
+
+`model_input_budget` measures fixed instructions, environment text, and each tool's name/description/parameters from actual outbound solve requests under default Desktop configuration. The initial profile excludes Runtime/plugins; dynamic user content and random paths stay outside its fixed baseline. Changes report components and tool names and require manual baseline review without changing production inputs or limits.
+
+`test:navigation-cache` uses the production React App, real Chrome, and fixture PlatformServices to count derivations for unrelated UI actions, check name/unread/running/order/new-snapshot freshness, and save source identity and screenshots. It does not start Core/Electron or establish package or perceived-latency acceptance. `readingViews` unit tests cover the 32-entry memory bound, recency eviction, unavailable storage, and semantic-anchor reload; real theme/layout continuity needs Renderer scenarios. The legacy `conversation-flow` scenario times out at `.tool-summary-row .tool-failed`; production collapsed failure state is expressed by `ActivityRowStatus` with `data-tone="failed"`. That markup is a separate boundary from the `readingViews` capacity change. This effort does not change the legacy runner, and the complete conversation flow is not counted as passing.
+
 ## Local verification artifacts and startup diagnostics
 
 After Cargo succeeds, `make build` / `make release` writes `target/<profile>/verification-build.json`, binding the existing Core `inputHash`, build revision and SHA-256 of the complete Core/Runtime set. GUI builds extend the existing bundle analysis plugin with `renderer/dist/verification-build.json`, recording GUI inputs and output hashes; source changes during a build fail it.
