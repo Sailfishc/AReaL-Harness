@@ -30,16 +30,46 @@ preflight = load("ci-preflight")
 
 
 class CiContracts(unittest.TestCase):
+    def test_native_container_copies_side_test_runtime_fixture_inputs(self):
+        dockerfile = (ROOT / "tests/e2e/docker/Dockerfile").read_text()
+        image = dockerfile.split("\nFROM ${BASE_IMAGE}", 1)[0]
+        copies = re.findall(r"^COPY (\S+) (\S+)$", image, re.MULTILINE)
+        source = ROOT / "core/app-server/tests/side_workspace_read.rs"
+        paths = re.findall(
+            r'concat!\(\s*env!\("CARGO_MANIFEST_DIR"\)\s*,\s*"([^"]+)"\s*\)',
+            source.read_text(),
+        )
+        self.assertTrue(paths, "native Side acceptance must retain its untrusted MCP fixture")
+        for path in paths:
+            asset = (source.parent.parent / path.lstrip("/")).resolve()
+            self.assertTrue(asset.is_file(), f"missing native fixture: {asset}")
+            expected = "/src/" + asset.relative_to(ROOT).as_posix()
+            delivered = set()
+            for copied, destination in copies:
+                origin = ROOT / copied
+                if origin.is_dir() and asset.is_relative_to(origin):
+                    target = Path(destination) / asset.relative_to(origin)
+                elif asset == origin:
+                    target = (
+                        Path(destination) / origin.name
+                        if destination.endswith("/")
+                        else Path(destination)
+                    )
+                else:
+                    continue
+                delivered.add(os.path.normpath(str(Path("/src") / target)))
+            self.assertIn(
+                expected,
+                delivered,
+                f"native runtime fixture is absent from its image path: {expected}",
+            )
+
     def test_container_installs_the_matching_reaper_beside_in_process_test_hosts(self):
         dockerfile = (ROOT / "tests/e2e/docker/Dockerfile").read_text()
         stage = dockerfile.split("FROM runtime-builder AS runtime-tests\n", 1)[1].split(
             "\nFROM ", 1
         )[0]
-        recipes = [
-            line.removeprefix("RUN ")
-            for line in stage.replace("\\\n", " ").splitlines()
-            if line.startswith("RUN ")
-        ]
+        instructions = stage.replace("\\\n", " ").splitlines()
         bundle = re.search(r"^ENV AREAL_TEST_BIN_DIR=/src/(.+)$", stage, re.MULTILINE)[1]
         manifest = tomllib.loads((ROOT / "runtime/exec-native/Cargo.toml").read_text())
         reaper = manifest["bin"][0]["name"]
@@ -58,14 +88,28 @@ class CiContracts(unittest.TestCase):
                 path = tools / name
                 path.write_text("#!/bin/sh\nexit 0\n")
                 path.chmod(0o755)
-            done = subprocess.run(
-                ["sh", "-c", "set -e\n" + "\n".join(recipes)],
-                cwd=root,
-                env={**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"]},
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            for instruction in instructions:
+                if instruction.startswith("COPY "):
+                    _, origin, destination = instruction.split()
+                    target = (
+                        root / Path(destination).relative_to("/src")
+                        if destination.startswith("/src/")
+                        else root / destination
+                    )
+                    if (ROOT / origin).is_dir():
+                        shutil.copytree(ROOT / origin, target, dirs_exist_ok=True)
+                    else:
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(ROOT / origin, target)
+                if instruction.startswith("RUN "):
+                    done = subprocess.run(
+                        ["sh", "-c", "set -e\n" + instruction.removeprefix("RUN ")],
+                        cwd=root,
+                        env={**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"]},
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
             helper = binary / "deps" / reaper
             self.assertTrue(helper.is_file(), "in-process integration host has no sibling reaper")
             self.assertEqual(helper.read_bytes(), (binary / reaper).read_bytes())

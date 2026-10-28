@@ -40,6 +40,8 @@ Linux host checks use `make verify CARGO_TEST_ARGS='--exclude areal-runtime-exec
 
 Integration tests that embed Runtime inside the Cargo test process need the matching reaper beside that host in `target/<profile>/deps/`. The `runtime-tests` image installs and checks this artifact in a separate layer, retaining compiled-test layers. The offline CI contract executes the actual installation commands and verifies location, bytes, and executable permissions; compiler and package-manager boundary fixtures do not replace native Linux container acceptance.
 
+Native Side acceptance also starts an MCP fixture at runtime through `CARGO_MANIFEST_DIR`. The image must copy that file to the corresponding source path. The offline contract extracts these paths from the test source and checks the image's COPY mappings; the Docker build also checks readability. Successful compilation does not establish delivery of runtime fixtures.
+
 ## Repeatable faults, local checks, and cache acceptance
 
 Select relevant entry points from the repository root:
