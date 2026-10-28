@@ -1,6 +1,7 @@
 import { SessionBodyReader, CommandState, acceptSessionMessage } from "@areal/remote-client";
 import assert from "node:assert/strict";
 import { BrowserState } from "../renderer/remote-web/browser-state.mjs";
+import { browserDeviceName } from "../renderer/remote-web/device-name.mjs";
 const baseline = {
   connectionId: "c",
   gatewayGeneration: "g",
@@ -207,6 +208,7 @@ const context = createContext({
   window: { addEventListener() {}, dispatchEvent() {} },
   Event,
   navigator: { onLine: true },
+  browserDeviceName,
   BrowserState: class extends BrowserState {
     constructor(options) {
       super({ ...options, indexedDB: null, sessionStorage: null, channel: null });

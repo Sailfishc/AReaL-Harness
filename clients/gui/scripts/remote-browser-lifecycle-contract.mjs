@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { createContext, runInContext } from "node:vm";
 import { IDBFactory } from "fake-indexeddb";
 import { BrowserState } from "../renderer/remote-web/browser-state.mjs";
+import { browserDeviceName } from "../renderer/remote-web/device-name.mjs";
 
 const connectionSource = await readFile(
   new URL("../packages/remote-client/src/connection.mjs", import.meta.url),
@@ -257,6 +258,7 @@ function page({
       };
     },
     acceptSessionMessage,
+    browserDeviceName,
     BrowserState: class extends BrowserState {
       constructor(options) {
         super({ ...options, indexedDB: db, sessionStorage: drafts, channel: null });
