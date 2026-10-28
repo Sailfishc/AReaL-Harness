@@ -7,7 +7,7 @@ import {
   STANDARD_SLASH_TRIGGER,
   type LexicalSubmitResult,
 } from "./lib/lexicalInputPolicy.js";
-/* eslint-disable max-lines */
+/* eslint-disable max-lines -- Lexical 输入插件与编辑器壳在同一模块内协作，存量体积由 GUI 健康门禁约束。 */
 /**
  * LexicalChatInput — 基于 Lexical 的聊天输入框
  *
