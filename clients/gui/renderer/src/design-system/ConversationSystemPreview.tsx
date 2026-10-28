@@ -14,6 +14,13 @@ import { AgentAvatar } from "../AgentIdentity.js";
 import { ToolEvent } from "../ToolEvent.js";
 import { SentAttachment } from "../MessageAttachment.js";
 import { ConversationComposer } from "../ConversationComposer.js";
+import {
+  activityRunLabel,
+  activityRunStages,
+  activityStageIcon,
+} from "../conversationPresentation.js";
+import { useI18n } from "../i18n/IntlProvider.js";
+import type { Data } from "../services.js";
 import { WorkbenchShell } from "../app-shell/WorkbenchShell.js";
 import { ReviewPanelIcon } from "../app-shell/panelIcons.js";
 import { Button } from "../components/ui/button.js";
@@ -105,6 +112,17 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
       : []),
   ];
   const activities = systemActivities(phase, revision);
+  const { t } = useI18n();
+  // 组标题与图标取自生产的 activityRunLabel（CONV-ACTIVITY-01），预览不另写一套文案。
+  const group = (items: Data[]) => {
+    const run = { key: "工具", items };
+    return {
+      label: activityRunLabel(run, t),
+      icon: <ActivityIcon kind={activityStageIcon(activityRunStages(run)[0])} />,
+    };
+  };
+  const readGroup = group(activities);
+  const editGroup = group([editedActivity, verificationActivity]);
   const agents = previewSubagents(agentMode);
   const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
   const childState =
@@ -306,8 +324,8 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
               </p>
               <ActivityGroup
                 indicator={<ActivityIcon kind="chevron" size={14} />}
-                label="读取文件、运行命令 · 30 项活动"
-                icon={<ActivityIcon kind="command" />}
+                label={readGroup.label}
+                icon={readGroup.icon}
                 status={
                   phase === "attention" ? (
                     <div className="cs-attention">
@@ -373,8 +391,8 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
               </Button>
               <ActivityGroup
                 indicator={<ActivityIcon kind="chevron" size={14} />}
-                label="已编辑文件、运行命令"
-                icon={<ActivityIcon kind="edit" />}
+                label={editGroup.label}
+                icon={editGroup.icon}
               >
                 <ToolEvent
                   item={editedActivity}
