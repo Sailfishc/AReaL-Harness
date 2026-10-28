@@ -3,6 +3,7 @@
 const WebSocket = require("ws");
 const { EventEmitter } = require("node:events");
 const { LIMITS } = require("./remote-session-acceptor.cjs");
+const { desktopTlsOptions } = require("./desktop-network.cjs");
 
 // 每条通道只有字节、存活、背压和关闭；Noise/授权/业务分派全部归共同 acceptor。
 class RelayEndpoint extends EventEmitter {
@@ -83,6 +84,7 @@ class RelayTransport {
     const relay = remote.config.relay;
     if (typeof relay !== "string") throw new Error("Relay 未配置");
     this.socket = new WebSocket(relay.replace(/^https:/, "wss:") + "/remote/socket", {
+      ...desktopTlsOptions(),
       headers: { "X-Areal-Relay-Capabilities": "push" },
       maxPayload: LIMITS.transportFrameBytes,
       perMessageDeflate: false,
