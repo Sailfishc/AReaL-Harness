@@ -61,6 +61,48 @@ def write_json(path, value):
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
 
 
+def renderer_receipt(root, directory):
+    receipt = json.loads((directory / RECEIPT).read_text())
+    if receipt["inputHash"] != gui_inputs(root):
+        raise ValueError("Renderer build inputs differ from checkout; run make gui-build")
+    if "index.html" not in receipt["files"]:
+        raise ValueError("Renderer receipt must include index.html")
+    for name, expected_hash in receipt["files"].items():
+        if Path(name).is_absolute() or ".." in Path(name).parts:
+            raise ValueError("invalid Renderer artifact path")
+        if digest(directory / name) != expected_hash:
+            raise ValueError(f"Renderer artifact changed: {name}")
+    return receipt
+
+
+def snapshot_renderer(args):
+    source = args.source_dir.resolve()
+    receipt = renderer_receipt(args.root, source)
+    destination = args.output_dir.resolve()
+    destination.mkdir(parents=True, exist_ok=False)
+    for name in receipt["files"]:
+        target = destination / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source / name, target)
+    # 复制期间输入或产物变化不能被独立目录掩盖；成功回执最后发布。
+    if renderer_receipt(args.root, source) != receipt:
+        raise ValueError("Renderer build changed during snapshot")
+    for name, expected_hash in receipt["files"].items():
+        if digest(destination / name) != expected_hash:
+            raise ValueError(f"Renderer snapshot changed during copy: {name}")
+    result = {
+        **receipt,
+        "sourceRoot": str(args.root),
+        "sourceRevision": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=args.root, text=True
+        ).strip(),
+        "sourceDirectory": str(source),
+        "snapshotDirectory": str(destination),
+    }
+    write_json(destination / RECEIPT, result)
+    return result
+
+
 @contextmanager
 def slot_lock(directory):
     lock = directory / LOCK
@@ -223,14 +265,7 @@ def doctor(args):
         if core["passed"] and json.loads(core["stdout"]).get("inputHash") != expected:
             raise ValueError("Core build-info differs from checkout inputs")
         gui = args.root / "clients/gui/renderer/dist"
-        renderer = json.loads((gui / RECEIPT).read_text())
-        if renderer["inputHash"] != gui_inputs(args.root):
-            raise ValueError("Renderer build inputs differ from checkout; run make gui-build")
-        for name, expected_hash in renderer["files"].items():
-            if Path(name).is_absolute() or ".." in Path(name).parts:
-                raise ValueError("invalid Renderer artifact path")
-            if digest(gui / name) != expected_hash:
-                raise ValueError(f"Renderer artifact changed: {name}")
+        renderer = renderer_receipt(args.root, gui)
         report["build"] = {"core": receipt, "renderer": renderer}
     except (OSError, ValueError, KeyError) as error:
         report["errors"].append(str(error))
@@ -244,6 +279,9 @@ def main():
     parser.add_argument("--root", type=Path, default=ROOT)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("gui-inputs")
+    snapshot = commands.add_parser("snapshot-renderer")
+    snapshot.add_argument("--source-dir", type=Path, required=True)
+    snapshot.add_argument("--output-dir", type=Path, required=True)
     record = commands.add_parser("record-core")
     record.add_argument("--profile", choices=("debug", "release"), default="debug")
     copy = commands.add_parser("deploy")
@@ -259,6 +297,8 @@ def main():
     try:
         if args.command == "gui-inputs":
             result = {"inputHash": gui_inputs(args.root)}
+        elif args.command == "snapshot-renderer":
+            result = snapshot_renderer(args)
         elif args.command == "record-core":
             directory = args.root / "target" / args.profile
             result = build_receipt(args.root, directory)

@@ -89,6 +89,17 @@ Deployment reuses existing process/open-file inspection and rejects occupied slo
 
 Before Electron starts, doctor checks Core's embedded input identity, all component hashes, Renderer inputs and output hashes. Reports include each of the three programs' path, SHA, probe command, exit code or signal, and macOS signature check. A failed probe does not discard remaining diagnostics and produces a nonzero exit. Use a new report filename for each attempt; existing reports cannot be overwritten. The file helper's no-request probe checks startup without performing a file operation. Neither exit zero nor a valid signature proves manual authorization. `authorization` defaults to `unknown`; after actual human observation, record each component separately with options such as `--authorization-observation areal=allowed`. SIGKILL is recorded as a signal without attributing it to endpoint protection. Reports do not replace real Runtime, provider or packaged-app acceptance.
 
+Static browser acceptance uses the existing `verification.py` to create a private copy of a build matching the current GUI inputs:
+
+```sh
+python3 scripts/verification.py snapshot-renderer --source-dir "$PWD/clients/gui/renderer/dist" --output-dir "$PWD/.scratch/verification/renderer-1"
+pnpm --dir clients/gui test:history-navigation-ui
+```
+
+The output directory must not already exist. The command checks the build receipt, source digest, and every output file before and after copying, publishing the snapshot receipt only after success. Rebuilding shared `renderer/dist` subsequently cannot change the copied artifacts. The receipt records the source revision, input digest, original build directory, and copied file hashes; it identifies this run's artifacts, not later source changes. Follow [concurrent changes and final acceptance](README.en.md#concurrent-changes-and-final-acceptance) for worktree selection and build sequencing.
+
+The history-navigation runner calls this entry point automatically and serves only its private static copy. `AREAL_RENDERER_DIST` still requires a receipt matching the current sources. `renderer/test-fixtures/history-navigation.ts` implements the production `DesktopBridge` and participates in Renderer typechecking; removing `onPreviewEvent` or `onUpdate` fails before browser startup. The runner builds the fixture with the existing Vite toolchain and requires its input digest to match the Renderer, retaining the real desktop adapter and projection reader. Assertions cover mouse and keyboard history navigation, cold-project switching, preservation of UNKNOWN requests, and zero submissions. The boundary is Chrome + Renderer + a bridge fixture, excluding Electron/Core.
+
 The task catalog smoke fixture lives in `clients/gui/renderer/test-fixtures/scheduled-workspace.tsx`, is typechecked with Renderer, and is loaded directly by the existing browser runner. It checks new intents routed through `onStartDraft`, project defaults, explicit reconciliation and observed receipts for legacy requests. Only the IPC boundary is replaced by the fixture.
 
 ## GUI test registry and platform qualification

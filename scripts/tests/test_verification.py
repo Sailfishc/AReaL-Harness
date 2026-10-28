@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -127,6 +128,56 @@ class VerificationTests(unittest.TestCase):
         self.assertIn(
             "Renderer build inputs differ", " ".join(self.doctor("source.json", False)["errors"])
         )
+
+    def test_renderer_snapshot_survives_rebuild_and_refuses_overwrite(self):
+        destination = self.root / "private renderer"
+        args = ("snapshot-renderer", "--source-dir", self.renderer, "--output-dir", destination)
+        receipt = self.cli(*args)
+        self.assertEqual(receipt["inputHash"], verification.gui_inputs(self.root))
+        self.assertEqual(receipt["snapshotDirectory"], str(destination.resolve()))
+        self.assertEqual(
+            receipt["sourceRevision"],
+            verification.build_receipt(self.root, self.source)["sourceRevision"],
+        )
+        self.assertIn("File exists", self.cli(*args, passed=False)["error"])
+        (self.renderer / "index.html").write_text("another build")
+        (self.root / "clients/gui/renderer/input.ts").write_text("another source")
+        self.assertEqual((destination / "index.html").read_text(), "original")
+        self.cli(*args, passed=False)
+        self.assertEqual(json.loads((destination / verification.RECEIPT).read_text()), receipt)
+
+    def test_renderer_snapshot_rejects_stale_and_changed_builds(self):
+        destination = self.root / "snapshot"
+        args = ("snapshot-renderer", "--source-dir", self.renderer, "--output-dir", destination)
+        (self.renderer / "index.html").write_text("tampered")
+        self.assertIn("Renderer artifact changed", self.cli(*args, passed=False)["error"])
+        self.assertFalse(destination.exists())
+        (self.renderer / "index.html").write_text("original")
+        (self.root / "clients/gui/renderer/input.ts").write_text("changed")
+        self.assertIn("Renderer build inputs differ", self.cli(*args, passed=False)["error"])
+        self.assertFalse(destination.exists())
+
+    def test_renderer_copy_interrupted_by_rebuild_has_no_success_receipt(self):
+        from argparse import Namespace
+
+        destination = self.root / "snapshot"
+        copy = verification.shutil.copyfile
+
+        def concurrent_build(source, target):
+            result = copy(source, target)
+            (self.renderer / "index.html").write_text("concurrent build")
+            return result
+
+        with patch.object(verification.shutil, "copyfile", side_effect=concurrent_build):
+            with self.assertRaisesRegex(ValueError, "Renderer artifact changed"):
+                verification.snapshot_renderer(
+                    Namespace(
+                        root=self.root,
+                        source_dir=self.renderer,
+                        output_dir=destination,
+                    )
+                )
+        self.assertFalse((destination / verification.RECEIPT).exists())
 
     def test_killed_and_missing_components_keep_full_diagnostics(self):
         runtime = self.source / "areal-runtime"

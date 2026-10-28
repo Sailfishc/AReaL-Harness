@@ -87,6 +87,17 @@ python3 scripts/verification.py doctor --core "$PWD/.local/dev-bin/verification/
 
 doctor 在启动 Electron 前检查 Core 内嵌输入身份、整套组件哈希、Renderer 源码和输出哈希。报告包含三个程序的路径、SHA、探测命令、退出码或信号，以及 macOS 签名检查；任一失败仍保留其余探测，返回非零。每次使用新的报告文件，已有报告拒绝覆盖。文件助手无请求探测只验证启动，不执行文件操作。退出 0 和签名有效均不证明人工授权；`authorization` 默认 `unknown`，人工实际观察后可用 `--authorization-observation areal=allowed` 等逐组件记录。SIGKILL 只记为信号，不能自动归因为防护拦截。报告不替代真实 Runtime、供应商或安装包验收。
 
+浏览器静态验收通过现有 `verification.py` 从匹配当前 GUI 输入的构建创建独立副本：
+
+```sh
+python3 scripts/verification.py snapshot-renderer --source-dir "$PWD/clients/gui/renderer/dist" --output-dir "$PWD/.scratch/verification/renderer-1"
+pnpm --dir clients/gui test:history-navigation-ui
+```
+
+输出目录必须尚不存在；复制前后核对构建回执、源码摘要和每个输出文件，全部成功后才发布副本回执。后续共享 `renderer/dist` 重建不会改变已复制产物。回执保留源码提交、输入摘要、原构建路径和副本文件哈希，证明的是本轮产物，不代表后来源码通过。工作区选择和终验期间的构建顺序遵循[并行修改与终验](README.md#并行修改与终验)。
+
+历史导航 runner 自动调用该入口，只服务本轮静态副本；设置 `AREAL_RENDERER_DIST` 仍要求其回执匹配当前源码。`renderer/test-fixtures/history-navigation.ts` 直接实现生产 `DesktopBridge`，随 Renderer 类型检查；删掉 `onPreviewEvent` 或 `onUpdate` 会在启动浏览器前失败。runner 以现有 Vite 构建该夹具并核对与 Renderer 相同的输入摘要，保留真实桌面适配器和投影读取路径。检查覆盖鼠标与键盘历史导航、冷项目切换、UNKNOWN 原请求保留和零提交；边界是 Chrome + Renderer + bridge 夹具，不覆盖 Electron/Core。
+
 任务目录 smoke 的页面夹具位于 `clients/gui/renderer/test-fixtures/scheduled-workspace.tsx`，与 Renderer 一起类型检查，并由原浏览器 runner 直接加载。它验证新意图经 `onStartDraft` 打开草稿、项目默认值及旧请求的显式核对与被动回执；夹具仅替换 IPC 边界。
 
 ## GUI 测试清单与平台资格
