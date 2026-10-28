@@ -1,4 +1,4 @@
-// CONV-ACTIVITY-01 / CONV-PARALLEL-01：连续同一阶段的工具合成一段；子代理开始与完成是各自成段的事件。
+// CONV-ACTIVITY-01 / CONV-PARALLEL-01：两段文字之间的工具合成一组；子代理开始与完成是各自成段的事件。
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -76,21 +76,6 @@ for (const entry of cases)
       );
   });
 
-test("contiguous same-stage tools merge; a different stage starts a new run", () => {
-  const rows = [
-    tool("c1", "run_command"),
-    tool("c2", "run_command"),
-    tool("r1", "fs_read"),
-    tool("s1", "search_files"),
-    tool("c3", "run_command"),
-  ];
-  assert.deepEqual(shape(activityRuns(rows)), [
-    ["运行命令", ["c1", "c2"]],
-    ["探索", ["r1", "s1"]],
-    ["运行命令", ["c3"]],
-  ]);
-});
-
 test("CONV-ACTIVITY-01 行动作跟随界面语言，文件行只给出路径供悬停", () => {
   const read = tool("r1", "fs_read", { arguments: { path: "core/engine/src/sessions.rs" } });
   const command = tool("c1", "run_command", {
@@ -110,47 +95,23 @@ test("CONV-ACTIVITY-01 行动作跟随界面语言，文件行只给出路径供
   assert.equal(toolPresentation(command).state, "running");
 });
 
-test("reasoning groups and breaker rows stay on their own and split runs", () => {
+test("reasoning groups and breaker rows stay on their own and split groups", () => {
   const spawn = tool("a1", "agent_spawn");
   const rows = [
     tool("c1", "run_command"),
+    tool("r1", "fs_read"),
     { id: "g1", type: "reasoningGroup", items: [] },
     tool("c2", "run_command"),
     spawn,
     tool("c3", "run_command"),
   ];
   assert.deepEqual(shape(activityRuns(rows, (item) => item === spawn)), [
-    ["运行命令", ["c1"]],
+    ["工具", ["c1", "r1"]],
     [null, ["g1"]],
-    ["运行命令", ["c2"]],
+    ["工具", ["c2"]],
     [null, ["a1"]],
-    ["运行命令", ["c3"]],
+    ["工具", ["c3"]],
   ]);
-});
-
-test("unknown tools merge only with the same tool name", () => {
-  const rows = [
-    tool("x1", "lookup_ticket"),
-    tool("x2", "lookup_ticket"),
-    tool("y1", "post_comment"),
-  ];
-  assert.deepEqual(shape(activityRuns(rows)), [
-    ["调用 lookup_ticket", ["x1", "x2"]],
-    ["调用 post_comment", ["y1"]],
-  ]);
-});
-
-test("labels count completed steps; running uses the progressive form", () => {
-  const done = { key: "运行命令", items: [tool("c1", "run_command"), tool("c2", "run_command")] };
-  assert.equal(activityRunLabel(done, translators["zh-CN"]), "已运行 2 条命令");
-  const running = {
-    key: "运行命令",
-    items: [
-      tool("c1", "run_command"),
-      tool("c2", "run_command", { status: "inProgress", success: undefined }),
-    ],
-  };
-  assert.equal(activityRunLabel(running, translators["zh-CN"]), "正在运行命令");
 });
 
 test("a child's finish is drawn only from a settled wait receipt", async () => {

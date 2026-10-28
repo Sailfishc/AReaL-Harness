@@ -158,6 +158,8 @@
 | `--activity-chevron-size` | `14px` | 活动行与活动组摘要的展开箭头尺寸 |
 | `--activity-icon-gap` | `6px` | 活动行行首图标与文字、动作与对象之间的间距；展开后子项缩进 = 图标尺寸 + 本间距 |
 | `--activity-list-max-height` | `240px` | 活动组展开后列表的最大高度，超过后在列表内纵向滚动 |
+| `--activity-list-fade` | `24px` | 活动列表可继续向下滚动时底部渐隐的高度；滚到底后渐隐消失 |
+| `--conversation-fade` | `24px` | 对话时间线在 Composer 上沿的渐隐高度，正文滚到 Composer 下方时逐渐淡出 |
 | `--focus-width` | `2px` | 键盘焦点轮廓线宽 |
 | `--focus-offset` | `2px` | 键盘焦点轮廓与元素边缘的距离 |
 | `--browser-file-status-max-height` | `112px` | 浏览器文件交接状态列表的既有最大高度；来自renderer/src/BrowserFileHandoff.layout.css，D2保持原几何。 |

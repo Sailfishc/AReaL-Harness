@@ -65,7 +65,7 @@ import { ImageAnnotationList } from "./ImageAnnotationViews.js";
 import { sentBrowserAnnotations } from "./browserAnnotations.js";
 import { SentReviewComments } from "./ReviewCommentViews.js";
 import { ScheduledTaskCards } from "./ScheduledTasks.js";
-import { TurnFileSummary } from "./TurnFileSummary.js";
+import { TurnChangesPill, TurnFileSummary } from "./TurnFileSummary.js";
 import type { Data, Action } from "./services.js";
 type TranscriptSelectionSnapshot = {
   owner: string;
@@ -1384,7 +1384,6 @@ export function Messages({
                       <TurnExecution
                         key={item.id}
                         items={item.items}
-                        live={turn.status === "inProgress" && item === segments.at(-1)}
                         turn={turn}
                         project={project}
                         threadId={thread.id}
@@ -1630,7 +1629,20 @@ export function Messages({
           </PopoverContent>
         </Popover>
       )}
-      {!embedded && readingHistory && <TimelineBottomButton onClick={returnToBottom} />}
+      {!embedded && (
+        <>
+          {/* 时间线在 Composer 上沿渐隐，提示上方还有内容；不拦截指针（CONV-PROCESS-01）。 */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-1 h-(--conversation-fade) bg-linear-to-b from-transparent to-background"
+          />
+          {/* 运行中的改动小条与“滚动到底部”并排居中；空时不占位也不拦截指针。 */}
+          <div className="timeline-float pointer-events-none absolute bottom-3 left-1/2 z-3 flex -translate-x-1/2 items-center gap-(--spacing-inline) *:pointer-events-auto">
+            <TurnChangesPill turn={thread.turns?.at(-1)} onReview={onReview} />
+            {readingHistory && <TimelineBottomButton onClick={returnToBottom} />}
+          </div>
+        </>
+      )}
     </div>
   );
 }

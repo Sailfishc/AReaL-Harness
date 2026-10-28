@@ -623,6 +623,7 @@ try {
               .getAnimations()
               .filter(
                 (animation) =>
+                  animation.timeline === document.timeline &&
                   animation.playState === "running" &&
                   Number.isFinite(animation.effect?.getComputedTiming().endTime),
               )
@@ -707,7 +708,7 @@ try {
       assert.equal(
         await readingGroup.count(),
         1,
-        "adjacent same-action commands form one collapsible run",
+        "tools between two messages form one collapsible group",
       );
       await toggleHere(readingGroup, undefined, "activity group mouse expansion");
       await toggleHere(readingGroup, "Enter", "activity group keyboard collapse");
@@ -870,12 +871,13 @@ try {
             await liveTurn
               .locator('.areal-activity-group[data-presentation="collapsible"]')
               .count(),
-            0,
-            "heterogeneous command, plan and reasoning stay inline",
+            1,
+            "a command and a plan read between two messages form one group",
           );
           assert.equal(
             await liveTurn.locator('.areal-activity-group[data-presentation="inline"]').count(),
-            3,
+            1,
+            "reasoning stays on its own",
           );
         }
         if (shape === "grouped") {
@@ -893,8 +895,8 @@ try {
           );
           assert.match(
             await readingGroup.innerText(),
-            /^正在运行命令$/,
-            "running run uses the progressive stage label without tool detail or unfinished counts",
+            /^已探索，已运行命令$/,
+            "group titles stay past tense without counts; live progress belongs to the tail status (CONV-ACTIVITY-01)",
           );
         }
       }
@@ -959,7 +961,7 @@ try {
       );
       const earlier = timeline.locator('[data-side-item-id="timeline-progress"]');
       const durationToggle = timeline.getByRole("button", {
-        name: "执行过程：Working for 19s",
+        name: "执行过程：Worked for 19s",
         exact: true,
       });
       assert.equal(await durationToggle.getAttribute("aria-expanded"), "false");
@@ -1050,9 +1052,11 @@ try {
         height: el.clientHeight,
         full: el.scrollHeight,
         overflow: getComputedStyle(el).overflowY,
+        fade: getComputedStyle(el).getPropertyValue("--areal-activity-list-fade"),
       }));
       assert.equal(activitySize.overflow, "auto");
       assert.ok(activitySize.height <= 240 && activitySize.full > activitySize.height);
+      assert.equal(activitySize.fade, "24px", "a list with more below fades at its bottom edge");
       await activity.press("End");
       await page.waitForFunction(
         () =>
@@ -1060,6 +1064,16 @@ try {
             .querySelector('#conversation-timeline [data-tool-id="timeline-read"]')
             .closest(".areal-activity-list").scrollTop > 0,
       );
+      await page.waitForFunction(() => {
+        const list = document
+          .querySelector('#conversation-timeline [data-tool-id="timeline-read"]')
+          .closest(".areal-activity-list");
+        return (
+          list.scrollTop + list.clientHeight >= list.scrollHeight - 1 &&
+          getComputedStyle(list).getPropertyValue("--areal-activity-list-fade") === "0px"
+        );
+      });
+      checks.push("the activity list bottom fade disappears once the list is scrolled to its end");
       assert.equal(await activity.evaluate((el) => el.clientHeight), activitySize.height);
       const imageDisclosure = timeline.getByRole("button", {
         name: "已查看 1 张图片",
@@ -1108,7 +1122,7 @@ try {
       assert.equal(
         scrollOwners.group,
         "visible",
-        "a solitary command remains inline while its own output scrolls",
+        "an open command lifts the group list height limit while its own output scrolls",
       );
       const fileList = timeline.getByRole("region", { name: "本轮文件", exact: true });
       assert.equal(await fileList.isVisible(), true);

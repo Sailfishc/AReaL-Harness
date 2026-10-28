@@ -134,8 +134,8 @@ export function activityStageIcon(stage: string | null): string {
 }
 
 /**
- * 把时间线行切成连续同一阶段的段：连续的读取、搜索、列目录合成一段“探索”，命令另起一段。
- * 只有普通工具调用参与合并；思考组、子代理创建等行各自成段，保持原有顺序。
+ * 两段可见文字之间的工具调用合成一组（CONV-ACTIVITY-01），不论读、改还是运行命令。
+ * 思考组、子代理创建与完成等行各自成段并打断分组，保持原有顺序。
  */
 export function activityRuns(
   rows: Data[],
@@ -143,7 +143,7 @@ export function activityRuns(
 ): { key: string | null; items: Data[] }[] {
   const runs: { key: string | null; items: Data[] }[] = [];
   for (const item of rows) {
-    const key = item.type === "dynamicToolCall" && !isBreaker(item) ? activityStage(item) : null;
+    const key = item.type === "dynamicToolCall" && !isBreaker(item) ? "工具" : null;
     const last = runs.at(-1);
     if (key !== null && last?.key === key) last.items.push(item);
     else runs.push({ key, items: [item] });
@@ -151,59 +151,54 @@ export function activityRuns(
   return runs;
 }
 
+// 组标题短语的固定顺序：改动最值得注意，其次是其他工具，再是探索，命令最后。
+const stageRank = (stage: string) =>
+  stage === "修改文件" ? 0 : stage === "探索" ? 2 : stage === "运行命令" ? 3 : 1;
+
+/** 组内出现的阶段，按标题顺序排列；同一顺位按首次出现。 */
+export function activityRunStages(run: { items: Data[] }): string[] {
+  const stages = [...new Set(run.items.map(activityStage))];
+  return stages.sort((a, b) => stageRank(a) - stageRank(b));
+}
+
 /**
- * 合并段的标题：动词短语加已完成子项的真实计数；计数为零就省略，失败数单独写出。
- * 段的进行与完成看阶段边界，不看瞬时子项：子项仍在运行，或它是运行中回合最新一段的最后一段
- * （后面还没有出现可见的其他内容），都算进行中，避免模型在两次调用之间思考时标题来回翻转。
+ * 组标题是过去式短语串，例如“已修改 2 个文件，已探索，已运行命令”。只有修改文件带去重后的
+ * 已完成文件数；其余阶段不计数。失败数单独写在末尾。进行中的状态只由回合末尾一行表达
+ * （CONV-STATUS-01），标题不随子项运行而切换时态。
  */
-export function activityRunLabel(
-  run: { key: string | null; items: Data[] },
-  t: Translate,
-  open = false,
-): string {
-  const action = run.key ?? "执行活动";
+export function activityRunLabel(run: { key: string | null; items: Data[] }, t: Translate): string {
+  if (run.key === null) return t("chat.activity.run.generic", { tense: "done" });
   const views = run.items.map((item) => ({ item, view: toolPresentation(item) }));
-  const active = open || views.some(({ view }) => view.running);
-  const tense = active ? "running" : "done";
-  const done = views.filter(({ view }) => view.state === "completed").map(({ item }) => item);
   const failures = views.filter(({ view }) => view.failed).length;
-  const count = (tools: string[]) => done.filter((item) => tools.includes(item.tool)).length;
-  const failed = failures ? t("chat.activity.part.failures", { count: failures }) : "";
-  const join = (head: string, parts: string[]) => {
-    const tail = parts.filter(Boolean).join(t("chat.activity.part.separator"));
-    return tail ? t("chat.activity.run.withDetails", { action: head, parts: tail }) : head;
-  };
-  if (action === "探索") {
-    const files = count(["fs_read", "read_file"]);
-    const searches = count(["search_files"]);
-    const lists = count(["fs_list"]);
-    const skills = count(["skill_read"]);
-    const plans = count(["plan_read"]);
-    return join(t("chat.activity.run.explore", { tense }), [
-      files ? t("chat.activity.part.files", { count: files }) : "",
-      searches ? t("chat.activity.part.searches", { count: searches }) : "",
-      lists ? t("chat.activity.part.directories", { count: lists }) : "",
-      skills ? t("chat.activity.part.skills", { count: skills }) : "",
-      plans ? t("chat.activity.part.plan") : "",
-      failed,
-    ]);
-  }
-  if (action === "运行命令")
-    return join(t("chat.activity.run.commands", { tense, count: done.length }), [failed]);
-  if (action === "修改文件") {
-    const paths = new Set(done.map((item) => toolPresentation(item).detail).filter(Boolean));
-    return join(t("chat.activity.run.edits", { tense, count: paths.size }), [failed]);
-  }
-  const label =
-    action === "执行活动"
-      ? t("chat.activity.run.generic", { tense })
-      : action === "等待任务"
-        ? t("chat.activity.run.wait", { tense })
-        : toolActionText(run.items[0], tense, t);
-  return join(label, [
-    !active && done.length > 1 ? t("chat.activity.part.times", { count: done.length }) : "",
-    failed,
-  ]);
+  const phrases = activityRunStages(run).map((stage) => {
+    if (stage === "修改文件") {
+      const paths = new Set(
+        views
+          .filter(({ item, view }) => view.state === "completed" && activityStage(item) === stage)
+          .map(({ view }) => view.detail)
+          .filter(Boolean),
+      );
+      return t("chat.activity.run.edits", { tense: "done", count: paths.size });
+    }
+    if (stage === "探索") return t("chat.activity.run.explore", { tense: "done" });
+    if (stage === "运行命令") return t("chat.activity.run.commands", { tense: "done" });
+    if (stage === "等待任务") return t("chat.activity.run.wait", { tense: "done" });
+    return toolActionText(
+      run.items.find((item) => activityStage(item) === stage)!,
+      "done",
+      t,
+    );
+  });
+  // 英文短语接在逗号后时首字母小写（“Edited 2 files, explored”）；中文不受影响。
+  const label = [...new Set(phrases)]
+    .map((phrase, index) => (index ? phrase.charAt(0).toLowerCase() + phrase.slice(1) : phrase))
+    .join(t("chat.activity.part.separator"));
+  return failures
+    ? t("chat.activity.run.withDetails", {
+        action: label,
+        parts: t("chat.activity.part.failures", { count: failures }),
+      })
+    : label;
 }
 
 /**

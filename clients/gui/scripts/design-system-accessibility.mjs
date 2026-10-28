@@ -269,15 +269,22 @@ export async function runAccessibility(page, scratch, gui, checks, samples) {
             await new Promise((resolve) =>
               requestAnimationFrame(() => requestAnimationFrame(resolve)),
             );
+            // 只等时间驱动、会自然结束的过渡；滚动驱动的渐隐随滚动位置变化，不会“结束”。
+            // 等待期间被取消的动画已不再改变取样，其 finished 以 AbortError 拒绝，视为已完成。
             await Promise.all(
               document
                 .getAnimations()
                 .filter(
                   (animation) =>
+                    animation.timeline === document.timeline &&
                     animation.playState === "running" &&
                     Number.isFinite(animation.effect?.getComputedTiming().endTime),
                 )
-                .map((animation) => animation.finished),
+                .map((animation) =>
+                  animation.finished.catch((error) => {
+                    if (error?.name !== "AbortError") throw error;
+                  }),
+                ),
             );
           });
           const result = await new AxeBuilder({ page: scenario })

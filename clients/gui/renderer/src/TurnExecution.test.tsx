@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { TurnExecution } from "./TurnExecution.js";
+import type { Data } from "./services.js";
 
 vi.mock("./i18n/IntlProvider.js", async () => {
   const { createIntl } = await import("react-intl");
@@ -22,11 +23,15 @@ const read = (id: string) => ({
   arguments: { path: `${id}.ts` },
   contentItems: [],
 });
-const render = (live: boolean) =>
+const command = (id: string) => ({
+  ...read(id),
+  tool: "run_command",
+  arguments: { command: "pnpm test" },
+});
+const render = (items: Data[]) =>
   renderToStaticMarkup(
     createElement(TurnExecution, {
-      items: [read("a"), read("b")],
-      live,
+      items,
       turn: { id: "turn", status: "inProgress" },
       project,
       threadId: "thread",
@@ -34,12 +39,15 @@ const render = (live: boolean) =>
     }),
   );
 
-describe("TurnExecution stage boundary", () => {
-  it("keeps the open segment in progress while the model thinks between calls", () => {
-    expect(render(true)).toContain("正在探索 · 2 个文件");
+describe("TurnExecution groups", () => {
+  it("keeps the title in past tense while the model thinks between calls", () => {
+    expect(render([read("a"), read("b")])).toContain("<span>已探索</span>");
   });
-  it("settles the segment once later visible content closed it", () => {
-    expect(render(false)).toContain("已探索 · 2 个文件");
+  it("puts reads and commands between two messages into one group", () => {
+    const markup = render([command("c"), read("a")]);
+    expect(markup).toContain("<span>已探索，已运行命令</span>");
+    expect(markup).toContain('data-activity-icon="search"');
+    expect(markup.match(/areal-activity-group/g)).toHaveLength(1);
   });
 });
 

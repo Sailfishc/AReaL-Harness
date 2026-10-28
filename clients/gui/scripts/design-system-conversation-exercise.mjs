@@ -348,7 +348,7 @@ export async function runConversationExercise(page, scratch, gui, report) {
   assert.equal(await latest().locator(".turn-progress-body .assistant-message-final").count(), 0);
   assert.ok((await final().innerText()).includes("共 32 个水果"));
   const total = () =>
-    latest().getByRole("button", { name: "执行过程：Working for 36s", exact: true });
+    latest().getByRole("button", { name: "执行过程：Worked for 36s", exact: true });
   // Frame the settled disclosure through the real reading owner. A DOM jump
   // can be counteracted by response-space layout and is not a reader action.
   await messages.hover({ position: { x: 40, y: 40 } });

@@ -46,6 +46,8 @@
   --activity-chevron-size: 14px;
   --activity-icon-gap: 6px;
   --activity-list-max-height: 240px;
+  --activity-list-fade: 24px;
+  --conversation-fade: 24px;
   --focus-width: 2px;
   --focus-offset: 2px;
   --radius-message: 16px;

@@ -1,310 +1,96 @@
 {
-  "$description": "CONV-ACTIVITY-01 的唯一行为表：scripts/activity-runs.test.mjs 逐条执行，Messages.md 的示例表由 scripts/design-generated.mjs 从这里生成。tools 每项为 [id, 工具名, 参数?, 额外字段?]；runs 为期望的分段与标题。",
+  "$description": "CONV-ACTIVITY-01 的唯一行为表：scripts/activity-runs.test.mjs 逐条执行，Messages.md 的示例表由 scripts/design-generated.mjs 从这里生成。tools 每项为 [id, 工具名, 参数?, 额外字段?]；runs 为期望的分组与标题。",
   "cases": [
     {
-      "name": "连续读取、搜索、列目录按探索阶段分组，标题计已完成子项",
+      "name": "只读的读取、搜索、列目录合成一组，标题不计数",
       "tools": [
-        [
-          "r1",
-          "fs_read",
-          {
-            "path": "README.md"
-          }
-        ],
-        [
-          "r2",
-          "read_file",
-          {
-            "path": "src/app.ts"
-          }
-        ],
-        [
-          "r3",
-          "fs_read",
-          {
-            "path": "README.md"
-          }
-        ],
-        [
-          "l1",
-          "fs_list",
-          {
-            "path": "src"
-          }
-        ],
-        [
-          "s1",
-          "search_files",
-          {
-            "pattern": "ActivityGroup"
-          }
-        ]
+        ["r1", "fs_read", { "path": "README.md" }],
+        ["r2", "read_file", { "path": "src/app.ts" }],
+        ["l1", "fs_list", { "path": "src" }],
+        ["s1", "search_files", { "pattern": "ActivityGroup" }]
+      ],
+      "runs": [
+        { "items": ["r1", "r2", "l1", "s1"], "label": { "zh-CN": "已探索", "en": "Explored" } }
+      ]
+    },
+    {
+      "name": "两段文字之间的读、改、命令合成一组，短语按修改、探索、命令排序",
+      "tools": [
+        ["c1", "run_command", { "command": "pnpm test" }],
+        ["r1", "fs_read", { "path": "a.ts" }],
+        ["e1", "fs_apply_patch", { "path": "a.ts" }],
+        ["c2", "run_command", { "command": "pnpm test" }]
       ],
       "runs": [
         {
-          "items": ["r1", "r2", "r3", "l1", "s1"],
+          "items": ["c1", "r1", "e1", "c2"],
           "label": {
-            "zh-CN": "已探索 · 3 个文件，1 次搜索，1 个目录",
-            "en": "Explored · 3 files, 1 search, 1 directory"
+            "zh-CN": "已修改 1 个文件，已探索，已运行命令",
+            "en": "Edited 1 file, explored, ran commands"
           }
         }
       ]
     },
     {
-      "name": "探索计数按文件、搜索、目录的固定顺序排列",
+      "name": "只有修改文件带计数，按文件去重",
       "tools": [
-        [
-          "s1",
-          "search_files",
-          {
-            "pattern": "schedule"
-          }
-        ],
-        [
-          "l1",
-          "fs_list",
-          {
-            "path": "a"
-          }
-        ],
-        [
-          "l2",
-          "fs_list",
-          {
-            "path": "b"
-          }
-        ],
-        [
-          "l3",
-          "fs_list",
-          {
-            "path": "c"
-          }
-        ]
-      ],
-      "runs": [
-        {
-          "items": ["s1", "l1", "l2", "l3"],
-          "label": {
-            "zh-CN": "已探索 · 1 次搜索，3 个目录",
-            "en": "Explored · 1 search, 3 directories"
-          }
-        }
-      ]
-    },
-    {
-      "name": "连续命令合成一段并带条数，不同动作另起一段",
-      "tools": [
-        [
-          "c1",
-          "run_command",
-          {
-            "command": "git status"
-          }
-        ],
-        [
-          "c2",
-          "run_command",
-          {
-            "command": "pnpm test"
-          }
-        ],
-        [
-          "r1",
-          "fs_read",
-          {
-            "path": "a.ts"
-          }
-        ],
-        [
-          "r2",
-          "fs_read",
-          {
-            "path": "b.ts"
-          }
-        ],
-        [
-          "c3",
-          "run_command",
-          {
-            "command": "git diff"
-          }
-        ]
-      ],
-      "runs": [
-        {
-          "items": ["c1", "c2"],
-          "label": {
-            "zh-CN": "已运行 2 条命令",
-            "en": "Ran 2 commands"
-          }
-        },
-        {
-          "items": ["r1", "r2"],
-          "label": {
-            "zh-CN": "已探索 · 2 个文件",
-            "en": "Explored · 2 files"
-          }
-        },
-        {
-          "items": ["c3"],
-          "label": {
-            "zh-CN": "已运行 1 条命令",
-            "en": "Ran 1 command"
-          }
-        }
-      ]
-    },
-    {
-      "name": "段内仍有运行中的命令时用进行时并省略完成计数",
-      "tools": [
-        [
-          "c1",
-          "run_command",
-          {
-            "command": "git status"
-          }
-        ],
-        [
-          "c2",
-          "run_command",
-          {
-            "command": "pnpm build"
-          },
-          {
-            "status": "inProgress",
-            "success": null
-          }
-        ]
-      ],
-      "runs": [
-        {
-          "items": ["c1", "c2"],
-          "label": {
-            "zh-CN": "正在运行命令",
-            "en": "Running commands"
-          }
-        }
-      ]
-    },
-    {
-      "name": "编辑按文件去重计数",
-      "tools": [
-        [
-          "e1",
-          "fs_apply_patch",
-          {
-            "path": "a.ts"
-          }
-        ],
-        [
-          "e2",
-          "fs_write",
-          {
-            "path": "a.ts"
-          }
-        ],
-        [
-          "e3",
-          "fs_write",
-          {
-            "path": "b.ts"
-          }
-        ]
+        ["e1", "fs_apply_patch", { "path": "a.ts" }],
+        ["e2", "fs_write", { "path": "b.ts" }],
+        ["e3", "fs_write", { "path": "b.ts" }]
       ],
       "runs": [
         {
           "items": ["e1", "e2", "e3"],
-          "label": {
-            "zh-CN": "已修改 2 个文件",
-            "en": "Edited 2 files"
-          }
+          "label": { "zh-CN": "已修改 2 个文件", "en": "Edited 2 files" }
         }
       ]
     },
     {
-      "name": "未分类工具只与同名工具合并，标题保留真实工具名",
+      "name": "命令组不计条数",
       "tools": [
+        ["c1", "run_command"],
+        ["c2", "run_command"],
+        ["c3", "run_command"]
+      ],
+      "runs": [
+        { "items": ["c1", "c2", "c3"], "label": { "zh-CN": "已运行命令", "en": "Ran commands" } }
+      ]
+    },
+    {
+      "name": "组内仍有运行中的项时标题保持过去式，进行中由回合末尾表达",
+      "tools": [
+        ["c1", "run_command"],
+        ["c2", "run_command", {}, { "status": "inProgress", "success": null }]
+      ],
+      "runs": [{ "items": ["c1", "c2"], "label": { "zh-CN": "已运行命令", "en": "Ran commands" } }]
+    },
+    {
+      "name": "具名工具排在探索之前，保留真实工具名",
+      "tools": [
+        ["r1", "fs_read", { "path": "a.ts" }],
         ["x1", "lookup_ticket"],
-        ["x2", "lookup_ticket"],
-        ["y1", "post_comment"]
+        ["x2", "lookup_ticket"]
       ],
       "runs": [
         {
-          "items": ["x1", "x2"],
+          "items": ["r1", "x1", "x2"],
           "label": {
-            "zh-CN": "已调用 lookup_ticket · 2 次",
-            "en": "Called lookup_ticket · 2 times"
-          }
-        },
-        {
-          "items": ["y1"],
-          "label": {
-            "zh-CN": "已调用 post_comment",
-            "en": "Called post_comment"
+            "zh-CN": "已调用 lookup_ticket，已探索",
+            "en": "Called lookup_ticket, explored"
           }
         }
       ]
     },
     {
-      "name": "技能读取与文件读取属于同一探索阶段",
+      "name": "失败的步骤留在组内，标题末尾写出失败数",
       "tools": [
-        [
-          "k1",
-          "skill_read",
-          {
-            "path": "SKILL.md"
-          }
-        ],
-        [
-          "r1",
-          "fs_read",
-          {
-            "path": "a.ts"
-          }
-        ]
-      ],
-      "runs": [
-        {
-          "items": ["k1", "r1"],
-          "label": {
-            "zh-CN": "已探索 · 1 个文件，1 个技能",
-            "en": "Explored · 1 file, 1 skill"
-          }
-        }
-      ]
-    },
-    {
-      "name": "失败命令留在原阶段，标题只计成功项并写出失败数",
-      "tools": [
-        [
-          "c1",
-          "run_command",
-          {
-            "command": "git status"
-          }
-        ],
-        [
-          "c2",
-          "run_command",
-          {
-            "command": "pnpm test"
-          },
-          {
-            "success": false,
-            "execution": {
-              "exitCode": 1
-            }
-          }
-        ]
+        ["c1", "run_command"],
+        ["c2", "run_command", {}, { "success": false, "execution": { "exitCode": 1 } }]
       ],
       "runs": [
         {
           "items": ["c1", "c2"],
-          "label": {
-            "zh-CN": "已运行 1 条命令 · 1 个失败",
-            "en": "Ran 1 command · 1 failure"
-          }
+          "label": { "zh-CN": "已运行命令 · 1 个失败", "en": "Ran commands · 1 failure" }
         }
       ]
     }

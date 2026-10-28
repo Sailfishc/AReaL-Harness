@@ -5,10 +5,12 @@ import { join } from "node:path";
 export async function runConversationSystem(page, scratch, checks) {
   await page.setViewportSize({ width: 1440, height: 1100 });
   const preview = page.getByRole("region", { name: "对话流设计预览", exact: true });
-  const activity = preview.getByRole("button", {
-    name: "读取文件、运行命令 · 30 项活动",
-    exact: true,
-  });
+  // 预览的组标题取自生产 activityRunLabel，与真实对话流同源（CONV-ACTIVITY-01）。
+  const activity = preview.getByRole("button", { name: "已探索，已运行命令", exact: true });
+  assert.equal(
+    await preview.getByRole("button", { name: "已修改 1 个文件，已运行命令", exact: true }).count(),
+    1,
+  );
   const image = preview.getByRole("button", { name: "已查看图片 · 界面参考.png", exact: true });
   const sources = preview.getByRole("region", { name: "输入来源", exact: true });
   const contextToggle = preview.getByRole("button", { name: "任务上下文", exact: true });

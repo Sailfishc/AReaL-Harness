@@ -14,7 +14,7 @@ export function completedTimeLabel(turn: Data): string | undefined {
   return turn.status !== "inProgress" &&
     Number.isSafeInteger(turn.durationMs) &&
     turn.durationMs >= 0
-    ? `Working for ${durationText(turn.durationMs)}`
+    ? `Worked for ${durationText(turn.durationMs)}`
     : undefined;
 }
 
