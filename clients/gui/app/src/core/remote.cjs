@@ -15,6 +15,7 @@ const { request: httpsRequest } = require("node:https");
 const { createHash } = require("node:crypto");
 const QRCode = require("qrcode");
 const { SessionAcceptor } = require("./remote-session-acceptor.cjs");
+const { distinctName, forgetRevoked, renameDevice, revokeDevice } = require("./remote-devices.cjs");
 const { startDirect } = require("./remote-direct.cjs");
 const { createRemoteNetworkAdapter, validateHttpsOrigin } = require("./remote-network.cjs");
 const PRESETS = Object.freeze({
@@ -71,6 +72,9 @@ class RemoteControl {
     this.channels = new Map();
     /** @type {Map<string,PendingPair>} */
     this.pending = new Map();
+    // 最近连接时间只在本次运行内记录，避免每次连接都写加密配置。
+    /** @type {Map<string,number>} */
+    this.lastSeen = new Map();
     this.connected = false;
     this.sessions = new SessionAcceptor(this);
     this.push = new RemotePush(this);
@@ -199,6 +203,8 @@ class RemoteControl {
       deviceGrants: (this.config?.deviceGrants ?? []).map(({ push, ...grant }) => ({
         ...grant,
         pushRegistered: !!push,
+        online: grant.status === "active" && this.sessions.online(grant.devicePeerId),
+        lastSeenAt: this.lastSeen.get(grant.devicePeerId) ?? null,
       })),
       devices: [],
       pending: [...this.pending].map(([id, entry]) => ({
@@ -353,7 +359,10 @@ class RemoteControl {
           throw new Error("请至少选择一个已有项目");
         if (request.preset !== "Observer" && request.preset !== "Operator")
           throw new Error("请选择 Observer 或 Operator");
-        const displayName = entry?.name ?? previous?.displayName;
+        const displayName =
+          request.operation === "approve" && entry
+            ? distinctName(this.config.deviceGrants ?? [], entry.name, request.id)
+            : previous?.displayName;
         if (displayName === undefined) throw new Error("设备未获授权");
         const clientKind =
           request.operation === "approve" ? entry?.clientKind : previous?.clientKind;
@@ -366,6 +375,11 @@ class RemoteControl {
           capabilities: [...PRESETS[request.preset]],
           revision: (previous?.revision ?? 0) + 1,
           status: "active",
+          ...(request.operation === "approve"
+            ? { pairedAt: Date.now() }
+            : previous?.pairedAt
+              ? { pairedAt: previous.pairedAt }
+              : {}),
           ...(request.operation === "updateGrant" && previous?.push ? { push: previous.push } : {}),
         };
         // 本地确认是期限内的决定；持久写入期间不返回 ready，失败后仍可重试确认。
@@ -394,27 +408,15 @@ class RemoteControl {
         entry?.accept(grant);
         break;
       }
-      case "revoke": {
-        const previous = (this.config.deviceGrants ?? []).find(
-          (value) => value.devicePeerId === request.id,
-        );
-        if (!previous) throw new Error("设备未获授权");
-        await this.save({
-          ...this.config,
-          deviceGrants: (this.config.deviceGrants ?? []).map((value) =>
-            value !== previous
-              ? value
-              : {
-                  ...previous,
-                  push: undefined,
-                  status: "revoked",
-                  revision: previous.revision + 1,
-                },
-          ),
-        });
-        this.closePeer(request.id);
+      case "revoke":
+        await revokeDevice(this, request.id);
         break;
-      }
+      case "renameDevice":
+        await renameDevice(this, request.id, request.name);
+        break;
+      case "forgetRevoked":
+        await forgetRevoked(this);
+        break;
       default:
         throw new Error("无效手机设置操作");
     }

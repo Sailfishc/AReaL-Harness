@@ -1,123 +1,54 @@
-import { GrantReview } from "./RemoteGrantReview.js";
-import { SettingsGroupCard, SettingsRow, SettingsSection } from "@areal/ui/compositions";
-import { Textarea } from "@areal/ui";
-import {
-  useI18n,
-  formatUiMessage,
-  type MessageId,
-  type Translate,
-  type UiMessage,
-} from "../i18n/IntlProvider.js";
-import { SettingsSelect } from "./SettingsPageParts.js";
-import { SettingsDisclosure } from "./SettingsDisclosure.js";
 import { useEffect, useRef, useState } from "react";
-import { Check, Monitor, Smartphone } from "lucide-react";
+import { Smartphone } from "lucide-react";
+import { Button } from "@areal/ui";
+import { SettingsGroupCard } from "@areal/ui/compositions";
+import { useI18n, formatUiMessage, type UiMessage } from "../i18n/IntlProvider.js";
+import {
+  MobileAdvancedNetwork,
+  RelayEnrollForm,
+  networkDiagnostics,
+} from "./MobileAdvancedNetwork.js";
+import { MobileAddDevice, type AddDeviceStep } from "./MobileAddDevice.js";
+import { MobileDevices } from "./MobileDevices.js";
 import "./MobileSettings.css";
-import { Button } from "../components/ui/button.js";
-import { Input } from "../components/ui/input.js";
 
 import type { Action, CommandParams, Data } from "../services.js";
 
-const networkDiagnostics: Record<string, MessageId> = {
-  "funnel-capability-unknown": "settings.mobileSettings.networkDiagnostic.funnelCapabilityUnknown",
-  "funnel-port-denied": "settings.mobileSettings.networkDiagnostic.funnelPortDenied",
-  "unsupported-funnel-port": "settings.mobileSettings.networkDiagnostic.unsupportedFunnelPort",
-  "public-confirmation-required":
-    "settings.mobileSettings.networkDiagnostic.publicConfirmationRequired",
-  unavailable: "settings.mobileSettings.networkDiagnostic.unavailable",
-  "unsupported-version": "settings.mobileSettings.networkDiagnostic.unsupportedVersion",
-  "not-logged-in": "settings.mobileSettings.networkDiagnostic.notLoggedIn",
-  "https-disabled": "settings.mobileSettings.networkDiagnostic.httpsDisabled",
-  "https-unknown": "settings.mobileSettings.networkDiagnostic.httpsUnknown",
-  "mapping-collision": "settings.mobileSettings.networkDiagnostic.mappingCollision",
-  "mapping-exists": "settings.mobileSettings.networkDiagnostic.mappingExists",
-  "mapping-changed": "settings.mobileSettings.networkDiagnostic.mappingChanged",
-  "mapping-absent": "settings.mobileSettings.networkDiagnostic.mappingAbsent",
-  "listener-drift": "settings.mobileSettings.networkDiagnostic.listenerDrift",
-  "unverified-listener": "settings.mobileSettings.networkDiagnostic.unverifiedListener",
-  "network-changed": "settings.mobileSettings.networkDiagnostic.networkChanged",
-  "cleanup-pending": "settings.mobileSettings.networkDiagnostic.cleanupPending",
-  "reconciliation-required": "settings.mobileSettings.networkDiagnostic.reconciliationRequired",
-  "persistence-failed": "settings.mobileSettings.networkDiagnostic.persistenceFailed",
-  "cli-failed": "settings.mobileSettings.networkDiagnostic.cliFailed",
-  timeout: "settings.mobileSettings.networkDiagnostic.timeout",
-  "stale-proposal": "settings.mobileSettings.networkDiagnostic.staleProposal",
-  "invalid-origin": "settings.mobileSettings.networkDiagnostic.invalidOrigin",
-  "invalid-port": "settings.mobileSettings.networkDiagnostic.invalidPort",
-};
-const networkLoginDiagnostics: Record<string, MessageId> = {
-  "logged-in": "settings.mobileSettings.networkLogin.loggedIn",
-  "not-logged-in": "settings.mobileSettings.networkLogin.notLoggedIn",
-  "approval-required": "settings.mobileSettings.networkLogin.approvalRequired",
-  stopped: "settings.mobileSettings.networkLogin.stopped",
-  starting: "settings.mobileSettings.networkLogin.starting",
-  unknown: "settings.mobileSettings.networkLogin.unknown",
-};
-const networkDiagnostic = (t: Translate, code: string) =>
-  t(networkDiagnostics[code] ?? "settings.mobileSettings.networkStatusUnknown", { code });
+type Tone = "good" | "warning" | "idle";
 
+/**
+ * 手机连接页：一张状态卡回答“手机现在能不能连”，下面是设备列表；
+ * 网络细节收进高级网络设置。默认通过中继配对，未开启中继时才使用本机入口。
+ */
 export function MobileSettings({ action, projects }: { action: Action; projects: Data[] }) {
-  const { t, intl } = useI18n();
+  const { t } = useI18n();
   const [state, setState] = useState<Data>({ deviceGrants: [], pending: [] });
   const [error, setError] = useState<string | UiMessage>(""),
     [busy, setBusy] = useState(false);
   const [invite, setInvite] = useState<Data | null>(null);
   const [inviteExpired, setInviteExpired] = useState(false);
-  const [proposal, setProposal] = useState<Data | null>(null);
-  const [serveConfirmed, setServeConfirmed] = useState(false);
-  const [scopeConfirmed, setScopeConfirmed] = useState(false);
-  const [funnelConfirmed, setFunnelConfirmed] = useState(false);
-  const [accessMethod, setAccessMethod] = useState<"private" | "public" | "organization">(
-    "private",
-  );
-  const [httpsPort, setHttpsPort] = useState("443");
-  const [organizationOrigin, setOrganizationOrigin] = useState("");
-  const [visibility, setVisibility] = useState<"private" | "public">("private");
-  const [organizationConfirmed, setOrganizationConfirmed] = useState(false);
-  const [publicConfirmed, setPublicConfirmed] = useState(false);
-  const [recoveryConfirmed, setRecoveryConfirmed] = useState(false);
-  const [relayOrigin, setRelayOrigin] = useState("");
-  const [enrollmentCode, setEnrollmentCode] = useState("");
-  const [relayConfirmed, setRelayConfirmed] = useState(false);
-  const [pairTransport, setPairTransport] = useState<"direct" | "relay">("direct");
-  const networkDetails = useRef<HTMLDetailsElement>(null);
-  useEffect(() => {
-    setRelayOrigin(state.relay ?? "");
-  }, [state.relay]);
-  const run = async (request: CommandParams<"remoteControl">) => {
+  const [adding, setAdding] = useState(false);
+  const [pairedName, setPairedName] = useState("");
+  const doneTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const directUrl = useRef("");
+  const run = async (request: CommandParams<"remoteControl">): Promise<Data | undefined> => {
     setBusy(true);
     setError("");
-    if (["networkPropose", "networkProposeScope"].includes(request.operation)) {
-      setProposal(null);
-      setServeConfirmed(false);
-      setScopeConfirmed(false);
-      setFunnelConfirmed(false);
-    }
     try {
+      const result = await action("remoteControl", request);
       if (request.operation === "pair") {
-        const result = await action("remoteControl", request);
         setInvite(result);
         setInviteExpired(false);
       } else if (
-        request.operation === "networkPropose" ||
-        request.operation === "networkProposeScope"
+        request.operation !== "networkPropose" &&
+        request.operation !== "networkProposeScope"
       ) {
-        setProposal(await action("remoteControl", request));
-      } else {
-        const result = await action("remoteControl", request);
-        setState(result);
-        if (result.directUrl !== state.directUrl) setInvite(null);
-        if (request.operation !== "networkInspect") {
-          setProposal(null);
-          setServeConfirmed(false);
-          setScopeConfirmed(false);
-          setFunnelConfirmed(false);
-          setOrganizationConfirmed(false);
-          setPublicConfirmed(false);
-          setRecoveryConfirmed(false);
-          setInvite(null);
-        }
+        const status = result as Data;
+        setState(status);
+        if (status.directUrl !== directUrl.current) setInvite(null);
+        directUrl.current = status.directUrl ?? "";
       }
+      return result ?? {};
     } catch (error) {
       const failure = error as Error & { code?: string };
       setError(
@@ -129,18 +60,8 @@ export function MobileSettings({ action, projects }: { action: Action; projects:
             }
           : failure.message,
       );
+      return undefined;
     } finally {
-      if (request.operation === "enable") {
-        setEnrollmentCode("");
-        setRelayConfirmed(false);
-      }
-      if (["networkApply", "networkChangeScope"].includes(request.operation)) {
-        setProposal(null);
-        setServeConfirmed(false);
-        setScopeConfirmed(false);
-        setFunnelConfirmed(false);
-        setInvite(null);
-      }
       setBusy(false);
     }
   };
@@ -149,7 +70,9 @@ export function MobileSettings({ action, projects }: { action: Action; projects:
     const read = () =>
       action("remoteControl", { operation: "status" })
         .then((value) => {
-          if (live) setState(value);
+          if (!live) return;
+          setState(value);
+          directUrl.current = value.directUrl ?? "";
         })
         .catch((error) => {
           if (live)
@@ -172,853 +95,159 @@ export function MobileSettings({ action, projects }: { action: Action; projects:
     return () => {
       live = false;
       clearInterval(timer);
+      clearTimeout(doneTimer.current);
     };
   }, [action]);
+
+  const transport = state.enabled ? "relay" : "direct";
   const reconnectUrl =
-    pairTransport === "relay"
+    transport === "relay"
       ? state.relayUrl
       : state.directUrl && state.directHostId
         ? `${state.directUrl}/#host=${encodeURIComponent(state.directHostId)}`
         : "";
-  const entryReady = pairTransport === "relay" ? state.connected : state.directEnabled;
-  const httpsEntry = reconnectUrl?.startsWith("https://");
-  const hasPending = !!state.pending?.length;
-  const step = hasPending
-    ? 2
-    : invite
-      ? 1
-      : !entryReady
-        ? 0
-        : state.deviceGrants?.some((device: Data) => device.status === "active")
-          ? 3
-          : 1;
+  const entryReady = transport === "relay" ? state.connected : state.directEnabled;
+  const pending: Data | undefined = state.pending?.[0];
+  const step: AddDeviceStep = pairedName ? "done" : pending ? "review" : "scan";
+  const relayHost = (() => {
+    try {
+      return new URL(state.relay).host;
+    } catch {
+      return state.relay ?? "";
+    }
+  })();
+
+  const status: { tone: Tone; title: string; description: string } = state.enabled
+    ? state.connected
+      ? {
+          tone: "good",
+          title: t("settings.mobileConnect.ready"),
+          description: t("settings.mobileConnect.readyViaRelay", { host: relayHost }),
+        }
+      : {
+          tone: "warning",
+          title: t("settings.mobileConnect.relayOffline"),
+          description: t("settings.mobileConnect.relayOfflineDescription", { host: relayHost }),
+        }
+    : state.directEnabled
+      ? reconnectUrl.startsWith("https://")
+        ? {
+            tone: "good",
+            title: t("settings.mobileConnect.ready"),
+            description: t("settings.mobileConnect.readyViaDirect", {
+              host: new URL(state.directUrl).host,
+            }),
+          }
+        : {
+            tone: "warning",
+            title: t("settings.mobileSettings.onlyABrowserOnThisComputerCan"),
+            description: t("settings.mobileConnect.localOnlyDescription"),
+          }
+      : {
+          tone: "idle",
+          title: t("settings.mobileConnect.notSetUp"),
+          description: t("settings.mobileConnect.notSetUpDescription"),
+        };
+
+  const pair = () => {
+    setInviteExpired(false);
+    void run({ operation: "pair", transport });
+  };
+  const startAdding = () => {
+    setPairedName("");
+    setAdding(true);
+    pair();
+  };
+  const closeAdding = () => {
+    // 核对中的请求保留，用户可从横幅回来；只有还在等扫码时才作废邀请。
+    if (invite && !pending && !pairedName) void run({ operation: "cancelPair" });
+    clearTimeout(doneTimer.current);
+    setAdding(false);
+    setInvite(null);
+    setInviteExpired(false);
+    setPairedName("");
+  };
+  const review = async (request: CommandParams<"remoteControl">) => {
+    const name = pending?.name ?? "";
+    const result = await run(request);
+    if (!result) return result;
+    if (request.operation === "approve") {
+      setInvite(null);
+      setPairedName(name);
+      doneTimer.current = setTimeout(closeAdding, 2000);
+    } else if (request.operation === "reject" && !invite) closeAdding();
+    return result;
+  };
+
   return (
     <div
       className="settings-sections remote-settings"
       aria-label={t("settings.mobileSettings.phoneConnectionSettings")}
     >
-      <p className="remote-intro">{t("settings.mobileSettings.continueYourWorkFromAPhoneOr")}</p>
-      <ol className="remote-steps" aria-label={t("settings.mobileSettings.connectionSteps")}>
-        {[
-          { key: "选择连接方式", title: t("settings.mobileSettings.chooseAConnectionMethod") },
-          { key: "打开配对链接", title: t("settings.mobileSettings.openThePairingLink") },
-          { key: "确认设备", title: t("settings.mobileSettings.confirmDevice") },
-        ].map(({ key, title }, index) => (
-          <li
-            key={key}
-            data-current={step === index}
-            data-complete={step > index}
-            aria-current={step === index ? "step" : undefined}
-          >
-            <span className="remote-step-number">
-              {step > index ? <Check size={16} /> : intl.formatNumber(index + 1)}
-            </span>
-            <strong>{title}</strong>
-            <small>
-              {
-                [
-                  t("settings.mobileSettings.enableAConnectionEntryFirst"),
-                  t("settings.mobileSettings.theInvitationExpiresInTwoMinutes"),
-                  t("settings.mobileSettings.checkTheFingerprintAndAccessScope"),
-                ][index]
-              }
-            </small>
-          </li>
-        ))}
-      </ol>
-      <div className="remote-reachability">
-        <Monitor size={22} />
-        <div>
-          <strong>
-            {!entryReady
-              ? t("settings.mobileSettings.remoteAccessIsOff")
-              : httpsEntry
-                ? t("settings.mobileSettings.httpsConnectionEntryConfigured")
-                : t("settings.mobileSettings.onlyABrowserOnThisComputerCan")}
-          </strong>
-          <p>
-            {httpsEntry
-              ? t("settings.mobileSettings.phoneAccessStillDependsOnTheNetwork")
-              : t("settings.mobileSettings.thisLocalLinkCannotBeOpenedOn")}
-          </p>
+      <p className="remote-intro">{t("settings.mobileConnect.intro")}</p>
+      {pending && !adding && (
+        <div className="remote-request" role="status">
+          <Smartphone size={18} aria-hidden />
+          <div>
+            <strong>{t("settings.mobileConnect.requestTitle", { device: pending.name })}</strong>
+            <small>{t("settings.mobileConnect.requestDescription")}</small>
+          </div>
+          <Button onClick={() => setAdding(true)}>
+            {t("settings.mobileConnect.reviewRequest")}
+          </Button>
         </div>
-        <Button
-          variant="ghost"
-          onClick={() => {
-            if (networkDetails.current) {
-              networkDetails.current.open = true;
-              networkDetails.current.scrollIntoView({
-                behavior: "smooth",
-                block: "start",
-              });
-            }
-          }}
-        >
-          {t("settings.mobileSettings.setUpPhoneAccess")}
-        </Button>
-      </div>
-      {(error || state.directError || state.migrationError) && (
+      )}
+      <SettingsGroupCard className="remote-status-card">
+        <div className="remote-status" data-tone={status.tone}>
+          <span className="remote-status-icon" aria-hidden>
+            {status.tone === "idle" ? <Smartphone size={18} /> : <span className="remote-dot" />}
+          </span>
+          <div className="remote-status-text">
+            <strong>{status.title}</strong>
+            <small>{status.description}</small>
+          </div>
+          {(state.enabled || state.directEnabled) && (
+            <Button disabled={busy || !entryReady} onClick={startAdding}>
+              {t("settings.mobileConnect.addDevice")}
+            </Button>
+          )}
+        </div>
+        {!state.enabled && <RelayEnrollForm state={state} busy={busy} run={run} />}
+      </SettingsGroupCard>
+      {!adding && (error || state.directError || state.migrationError) && (
         <p className="remote-error" role="alert">
           {formatUiMessage(t, error) || state.directError || state.migrationError}
         </p>
       )}
-      {hasPending ? (
-        <section
-          className="remote-pending"
-          aria-label={t("settings.mobileSettings.confirmConnectionRequests")}
-        >
-          {state.pending.map((device: Data) => (
-            <GrantReview
-              key={device.id}
-              device={device}
-              projects={projects}
-              pending
-              busy={busy}
-              run={run}
-            />
-          ))}
-        </section>
-      ) : (
-        <section
-          className="remote-pairing"
-          aria-label={t("settings.mobileSettings.connectANewDevice")}
-        >
-          <h2>
-            {invite
-              ? t("settings.mobileSettings.openTheLinkThenReturnHereTo")
-              : t("settings.mobileSettings.connectANewDevice2")}
-          </h2>
-          <p className="remote-muted">
-            {invite
-              ? invite.payload.startsWith("https://")
-                ? t("settings.mobileSettings.scanTheQRCodeWithYourPhone")
-                : t("settings.mobileSettings.copyTheLinkIntoABrowserOn")
-              : t("settings.mobileSettings.accessIsAllowedOnlyAfterYouConfirm")}
-          </p>
-          <div className="remote-entry-controls">
-            <div>
-              <div className="mb-1">{t("settings.mobileSettings.connectionMethod")}</div>
-              <SettingsSelect
-                aria-label={t("settings.mobileSettings.pairingEntry")}
-                value={pairTransport}
-                onValueChange={(selectedValue) => {
-                  if (selectedValue !== "direct" && selectedValue !== "relay") return;
-                  setPairTransport(selectedValue);
-                  setInvite(null);
-                }}
-              >
-                <option value="direct">{t("settings.mobileSettings.directConnection")}</option>
-                <option value="relay">{t("settings.mobileSettings.relayService")}</option>
-              </SettingsSelect>
-            </div>
-            {pairTransport === "direct" && !state.directEnabled && (
-              <Button disabled={busy} onClick={() => void run({ operation: "enableDirect" })}>
-                {t("settings.mobileSettings.enableLocalEntry")}
-              </Button>
-            )}
-            {!invite && (
-              <Button
-                disabled={busy || !entryReady}
-                onClick={() => void run({ operation: "pair", transport: pairTransport })}
-              >
-                {t("settings.mobileSettings.generatePairingLink")}
-              </Button>
-            )}
-          </div>
-          {invite && (
-            <div className="remote-invitation">
-              {invite.payload.startsWith("https://") && (
-                <img
-                  width="180"
-                  height="180"
-                  src={invite.qr}
-                  alt={t("settings.mobileSettings.phonePairingQRCode")}
-                />
-              )}
-              <div>
-                <label>
-                  {t("settings.mobileSettings.pairingLink")}
-                  <Textarea
-                    unstyled
-                    data-slot={undefined}
-                    aria-label={t("settings.mobileSettings.pairingLink")}
-                    readOnly
-                    value={invite.payload}
-                    onFocus={(event) => event.target.select()}
-                  />
-                </label>
-                <p className="remote-muted">
-                  {t("settings.mobileSettings.validForTwoMinutesAndOneDevice")}
-                </p>
-                <div className="remote-actions">
-                  <Button
-                    onClick={() => {
-                      void navigator.clipboard.writeText(invite.payload).catch(() =>
-                        setError({
-                          id: "settings.mobileSettings.copyFailedSelectTheLinkAndCopy",
-                        }),
-                      );
-                    }}
-                  >
-                    {t("settings.mobileSettings.copyLink")}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => void run({ operation: "cancelPair" })}
-                  >
-                    {t("settings.mobileSettings.cancelInvitation")}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
-          {inviteExpired && (
-            <p role="status">
-              {t("settings.mobileSettings.thePairingInvitationHasExpiredGenerateA")}
-            </p>
-          )}
-          {reconnectUrl && (
-            <SettingsDisclosure
-              className="remote-reconnect"
-              title={<> {t("settings.mobileSettings.howDoExistingDevicesReconnect")}</>}
-            >
-              <p>{t("settings.mobileSettings.openThisLinkInAnAuthorizedBrowser")}</p>
-              <Input
-                aria-label={t("settings.mobileSettings.currentConnectionLink")}
-                readOnly
-                value={reconnectUrl}
-                onFocus={(event) => event.target.select()}
-              />
-            </SettingsDisclosure>
-          )}
-        </section>
+      <MobileDevices
+        devices={state.deviceGrants ?? []}
+        projects={projects}
+        busy={busy}
+        run={run}
+        reconnectUrl={reconnectUrl ?? ""}
+        error={formatUiMessage(t, error)}
+      />
+      <MobileAdvancedNetwork
+        state={state}
+        busy={busy}
+        run={run}
+        reconnectUrl={reconnectUrl ?? ""}
+      />
+      {adding && (
+        <MobileAddDevice
+          step={step}
+          invite={invite}
+          inviteExpired={inviteExpired}
+          pending={pending}
+          pairedName={pairedName}
+          projects={projects}
+          busy={busy}
+          run={review}
+          onRegenerate={pair}
+          onClose={closeAdding}
+          error={formatUiMessage(t, error)}
+        />
       )}
-      <SettingsSection
-        title={t("settings.mobileSettings.authorizedDevices")}
-        description={t("settings.mobileSettings.savingAccessScopeOrRevokingAccessCloses")}
-      >
-        <SettingsGroupCard>
-          {(state.deviceGrants ?? []).map((device: Data) => (
-            <SettingsDisclosure
-              className="remote-device-management"
-              key={`${device.devicePeerId}:${device.revision}`}
-              title={
-                <>
-                  {" "}
-                  {device.clientKind === "ios" ? <Smartphone size={18} /> : <Monitor size={18} />}
-                  <span>
-                    {device.displayName ??
-                      device.name ??
-                      t("settings.mobileSettings.browserDevice")}
-                    <small>
-                      {t(
-                        device.clientKind === "ios"
-                          ? "settings.mobileSettings.clientKindIOS"
-                          : "settings.mobileSettings.clientKindWeb",
-                      )}
-                      {" · "}
-                      {device.status === "revoked"
-                        ? t("settings.mobileSettings.revoked")
-                        : device.status === "reviewRequired"
-                          ? t("settings.mobileSettings.needsReview")
-                          : device.capabilities?.includes("submit")
-                            ? t("settings.mobileSettings.canOperate")
-                            : t("settings.mobileSettings.viewOnly")}
-                    </small>
-                  </span>
-                  <span>{t("settings.mobileSettings.managePermissions")}</span>{" "}
-                </>
-              }
-            >
-              <GrantReview device={device} projects={projects} busy={busy} run={run} />
-            </SettingsDisclosure>
-          ))}
-          {!state.deviceGrants?.length && (
-            <p className="settings-card-empty">{t("settings.mobileSettings.noPairedDevicesYet")}</p>
-          )}
-        </SettingsGroupCard>
-      </SettingsSection>
-      <SettingsDisclosure
-        className="remote-network-settings"
-        ref={networkDetails}
-        title={
-          <>
-            {" "}
-            <Smartphone size={20} />
-            <span>
-              {t("settings.mobileSettings.phoneAccessAndNetworkSettings")}
-              <small>{t("settings.mobileSettings.configureHTTPSTailscaleOrARelayService")}</small>
-            </span>
-          </>
-        }
-      >
-        <div className="remote-network-content">
-          <SettingsSection
-            title={t("settings.mobileSettings.configurePhoneAccess")}
-            description={t("settings.mobileSettings.chooseHowYourPhoneConnects")}
-          >
-            <SettingsGroupCard>
-              <SettingsRow
-                label={t("settings.mobileSettings.accessMethod")}
-                control={
-                  <SettingsSelect
-                    aria-label={t("settings.mobileSettings.phoneAccessMethod")}
-                    value={accessMethod}
-                    disabled={busy}
-                    onValueChange={(value) => {
-                      if (busy) return;
-                      setAccessMethod(value as "private" | "public" | "organization");
-                      setProposal(null);
-                      setServeConfirmed(false);
-                      setScopeConfirmed(false);
-                      setFunnelConfirmed(false);
-                      setOrganizationConfirmed(false);
-                      setPublicConfirmed(false);
-                      setRecoveryConfirmed(false);
-                    }}
-                  >
-                    <option value="private">{t("settings.mobileSettings.privateNetwork")}</option>
-                    <option value="public">{t("settings.mobileSettings.publicInternet")}</option>
-                    <option value="organization">
-                      {t("settings.mobileSettings.organizationNetwork")}
-                    </option>
-                  </SettingsSelect>
-                }
-              />
-            </SettingsGroupCard>
-            <SettingsGroupCard className="remote-access-panel">
-              <SettingsDisclosure
-                className="remote-connection-details"
-                title={<> {t("settings.mobileSettings.connectionDetailsAndDiagnostics")}</>}
-              >
-                <p>{t("settings.mobileSettings.phonesUsingServeMustJoinTheSame")}</p>
-                <p>{t("settings.mobileSettings.ifTheHostIsOfflineCheckThe")}</p>
-                <Button
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => void run({ operation: "networkInspect" })}
-                >
-                  {t("settings.mobileSettings.checkNetworkTools")}
-                </Button>
-                {state.network?.inspection && (
-                  <div role="status">
-                    <p>
-                      {t("settings.mobileSettings.tailscaleVersionValue", {
-                        version:
-                          state.network.inspection.version ?? t("settings.mobileSettings.unknown"),
-                      })}
-                    </p>
-                    {state.network.inspection.diagnostic && (
-                      <p>{networkDiagnostic(t, state.network.inspection.diagnostic)}</p>
-                    )}
-                    {state.network.inspection.login && (
-                      <p>
-                        {t(
-                          networkLoginDiagnostics[state.network.inspection.login] ??
-                            networkLoginDiagnostics.unknown,
-                        )}
-                      </p>
-                    )}
-                    {state.network.inspection.https && (
-                      <p>
-                        {state.network.inspection.https === "enabled"
-                          ? t("settings.mobileSettings.hostHTTPSSupportIsEnabledThePhone")
-                          : networkDiagnostic(
-                              t,
-                              state.network.inspection.https === "disabled"
-                                ? "https-disabled"
-                                : "https-unknown",
-                            )}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </SettingsDisclosure>
-              {state.network?.diagnostic && (
-                <p className="remote-error" role="alert">
-                  {networkDiagnostic(t, state.network.diagnostic)}
-                </p>
-              )}
-              <fieldset
-                disabled={busy}
-                hidden={accessMethod !== "private"}
-                className="remote-access-fields"
-              >
-                <legend>{t("settings.mobileSettings.tailscaleServePrivateNetwork")}</legend>
-                <p className="remote-muted">
-                  {t("settings.mobileSettings.yourPhoneAndComputerMustJoinThe")}
-                </p>
-                <label>
-                  {t("settings.mobileSettings.httpsPort")}
-                  <Input
-                    aria-label={t("settings.mobileSettings.serveHTTPSPort")}
-                    type="number"
-                    min={1}
-                    max={65535}
-                    value={httpsPort}
-                    onChange={(event) => {
-                      setHttpsPort(event.target.value);
-                      setProposal(null);
-                      setServeConfirmed(false);
-                    }}
-                  />
-                </label>
-                <Button
-                  disabled={busy || !state.directEnabled}
-                  onClick={() =>
-                    void run({
-                      operation: "networkPropose",
-                      httpsPort: Number(httpsPort),
-                    })
-                  }
-                >
-                  {t("settings.mobileSettings.generateServePlan")}
-                </Button>
-                {proposal && !proposal.scope && (
-                  <div>
-                    <p>{proposal.confirmation}</p>
-                    <p>
-                      {t("settings.mobileSettings.entryAddress", { origin: proposal.publicOrigin })}
-                    </p>
-                    <label>
-                      <Input
-                        unstyled
-                        data-slot={undefined}
-                        type="checkbox"
-                        checked={serveConfirmed}
-                        onChange={(event) => setServeConfirmed(event.target.checked)}
-                      />
-                      {t("settings.mobileSettings.iConfirmThisPlanMayChangeThe")}
-                    </label>
-                    <Button
-                      disabled={busy || !serveConfirmed}
-                      onClick={() =>
-                        void run({
-                          operation: "networkApply",
-                          proposalId: proposal.proposalId,
-                          confirmed: true,
-                        })
-                      }
-                    >
-                      {t("settings.mobileSettings.confirmAndApplyServe")}
-                    </Button>
-                  </div>
-                )}
-                {!proposal && (
-                  <p>{t("settings.mobileSettings.generateAPlanThenConfirmItBefore")}</p>
-                )}
-              </fieldset>
-              <fieldset
-                disabled={busy}
-                hidden={accessMethod !== "public"}
-                className="remote-access-fields"
-              >
-                <legend>{t("settings.mobileSettings.tailscaleFunnelPublicInternet")}</legend>
-                <p className="remote-muted">
-                  {t("settings.mobileSettings.publishTheRemoteEntryPairingAndOperations")}
-                </p>
-                {state.network?.scope !== "private" && state.network?.scope !== "public" && (
-                  <p className="remote-muted">
-                    {t("settings.mobileSettings.configureServeOnThePrivateNetworkBefore")}
-                  </p>
-                )}
-                <SettingsDisclosure title={<> {t("settings.mobileSettings.aboutPublicAccess")}</>}>
-                  <p>{t("settings.mobileSettings.theEntryStaysPrivateByDefaultFunnel")}</p>
-                  <p>
-                    {t("settings.mobileSettings.savedScopeValue", {
-                      scope:
-                        state.network?.scope === "public"
-                          ? t("settings.mobileSettings.publicInternet")
-                          : state.network?.scope === "private"
-                            ? t("settings.mobileSettings.private")
-                            : t("settings.mobileSettings.needsVerification"),
-                    })}
-                  </p>
-                  {state.network?.inspection && (
-                    <p>
-                      {t("settings.mobileSettings.funnelPorts", {
-                        ports:
-                          state.network.inspection.funnelPorts == null
-                            ? t("settings.mobileSettings.unknown")
-                            : state.network.inspection.funnelPorts.length
-                              ? intl.formatList(state.network.inspection.funnelPorts.map(String), {
-                                  type: "conjunction",
-                                })
-                              : t("settings.mobileSettings.none"),
-                      })}
-                    </p>
-                  )}
-                  {state.network?.reconciliation && (
-                    <p>
-                      {t("settings.mobileSettings.reconciliationReview", {
-                        status:
-                          {
-                            destination: t("settings.mobileSettings.theTargetScopeIsStillPresent"),
-                            source: t("settings.mobileSettings.theOriginalScopeIsStillPresent"),
-                            absent: t("settings.mobileSettings.theMappingNoLongerExists"),
-                            changed: t("settings.mobileSettings.theMappingWasChangedExternally"),
-                          }[state.network.reconciliation as string] ??
-                          t("settings.mobileSettings.unknown"),
-                      })}
-                    </p>
-                  )}
-                </SettingsDisclosure>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    disabled={
-                      busy ||
-                      !state.directEnabled ||
-                      state.network?.kind !== "tailscale" ||
-                      state.network?.scope !== "private"
-                    }
-                    onClick={() =>
-                      void run({
-                        operation: "networkProposeScope",
-                        scope: "public",
-                      })
-                    }
-                  >
-                    {t("settings.mobileSettings.generatePublicFunnelPlan")}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    disabled={
-                      busy ||
-                      !state.directEnabled ||
-                      state.network?.kind !== "tailscale" ||
-                      state.network?.scope !== "public"
-                    }
-                    onClick={() =>
-                      void run({
-                        operation: "networkProposeScope",
-                        scope: "private",
-                      })
-                    }
-                  >
-                    {t("settings.mobileSettings.generatePlanToRestorePrivateEntry")}
-                  </Button>
-                </div>
-                {proposal?.scope && (
-                  <div>
-                    <p>{proposal.confirmation}</p>
-                    <p>
-                      {t(
-                        "settings.mobileSettings.changingScopeInvalidatesCurrentInvitationsAndConnections",
-                      )}
-                    </p>
-                    <p>
-                      {t("settings.mobileSettings.scopeEntryPlan", {
-                        origin: proposal.publicOrigin,
-                        source:
-                          proposal.sourceScope === "private"
-                            ? t("settings.mobileSettings.private")
-                            : t("settings.mobileSettings.publicInternet"),
-                        destination:
-                          proposal.scope === "public"
-                            ? t("settings.mobileSettings.publicInternet")
-                            : t("settings.mobileSettings.private"),
-                      })}
-                    </p>
-                    <label className="block">
-                      <Input
-                        unstyled
-                        data-slot={undefined}
-                        type="checkbox"
-                        checked={scopeConfirmed}
-                        onChange={(event) => setScopeConfirmed(event.target.checked)}
-                      />
-                      {t("settings.mobileSettings.iConfirmThisPlanMayChangeThe2")}
-                    </label>
-                    {proposal.scope === "public" && (
-                      <label className="block">
-                        <Input
-                          unstyled
-                          data-slot={undefined}
-                          type="checkbox"
-                          checked={funnelConfirmed}
-                          onChange={(event) => setFunnelConfirmed(event.target.checked)}
-                        />
-                        {t("settings.mobileSettings.iConfirmAgainThatThisRemoteEntry")}
-                      </label>
-                    )}
-                    <Button
-                      disabled={
-                        busy || !scopeConfirmed || (proposal.scope === "public" && !funnelConfirmed)
-                      }
-                      onClick={() =>
-                        void run({
-                          operation: "networkChangeScope",
-                          proposalId: proposal.proposalId,
-                          confirmed: true,
-                          publicConfirmed: funnelConfirmed,
-                        })
-                      }
-                    >
-                      {t("settings.mobileSettings.confirmAccessScopeChange")}
-                    </Button>
-                  </div>
-                )}
-              </fieldset>
-              <fieldset
-                disabled={busy}
-                hidden={accessMethod !== "organization"}
-                className="remote-access-fields"
-              >
-                <legend>{t("settings.mobileSettings.organizationHTTPS")}</legend>
-                <p className="remote-muted">
-                  {t("settings.mobileSettings.useAnHTTPSEntryConfiguredByYour")}
-                </p>
-                <label>
-                  {t("settings.mobileSettings.httpsOrigin")}
-                  <Input
-                    aria-label={t("settings.mobileSettings.organizationHTTPSOrigin")}
-                    placeholder="https://remote.example.com"
-                    value={organizationOrigin}
-                    onChange={(event) => {
-                      setOrganizationOrigin(event.target.value);
-                      setOrganizationConfirmed(false);
-                      setPublicConfirmed(false);
-                    }}
-                  />
-                </label>
-                <div className="settings-choice-field">
-                  {t("settings.mobileSettings.accessScope")}
-                  <SettingsSelect
-                    aria-label={t("settings.mobileSettings.organizationEntryAccessScope")}
-                    value={visibility}
-                    onValueChange={(selectedValue) => {
-                      if (selectedValue !== "private" && selectedValue !== "public") return;
-                      setVisibility(selectedValue);
-                      setOrganizationConfirmed(false);
-                      setPublicConfirmed(false);
-                    }}
-                  >
-                    <option value="private">
-                      {t("settings.mobileSettings.privateOrganizationNetwork")}
-                    </option>
-                    <option value="public">
-                      {t("settings.mobileSettings.mayBePubliclyAccessible")}
-                    </option>
-                  </SettingsSelect>
-                </div>
-                <SettingsDisclosure
-                  title={<> {t("settings.mobileSettings.organizationEntryRequirements")}</>}
-                >
-                  <p>{t("settings.mobileSettings.thisSavesOnlyTheExactHTTPSOrigin")}</p>
-                </SettingsDisclosure>
-                <label className="block">
-                  <Input
-                    unstyled
-                    data-slot={undefined}
-                    type="checkbox"
-                    checked={organizationConfirmed}
-                    onChange={(event) => setOrganizationConfirmed(event.target.checked)}
-                  />
-                  {t("settings.mobileSettings.iConfirmTheOrganizationEntryIsReady")}
-                </label>
-                {visibility === "public" && (
-                  <label className="block">
-                    <Input
-                      unstyled
-                      data-slot={undefined}
-                      type="checkbox"
-                      checked={publicConfirmed}
-                      onChange={(event) => setPublicConfirmed(event.target.checked)}
-                    />
-                    {t("settings.mobileSettings.iConfirmAgainThatThisHTTPSEntry")}
-                  </label>
-                )}
-                <Button
-                  disabled={
-                    busy ||
-                    !state.directEnabled ||
-                    !organizationConfirmed ||
-                    (visibility === "public" && !publicConfirmed)
-                  }
-                  onClick={() =>
-                    void run({
-                      operation: "networkConfigureOrganization",
-                      publicOrigin: organizationOrigin,
-                      visibility,
-                      confirmed: true,
-                      publicConfirmed,
-                    })
-                  }
-                >
-                  {t("settings.mobileSettings.saveOrganizationHTTPSOrigin")}
-                </Button>
-              </fieldset>
-              <div
-                className="remote-network-status"
-                role="status"
-                aria-label={t("settings.mobileSettings.networkConfigurationStatus")}
-              >
-                <span>{t("settings.mobileSettings.configurationStatus")}</span>
-                <strong>
-                  {state.network?.kind
-                    ? !state.network.scope
-                      ? t("settings.mobileSettings.needsVerification")
-                      : state.network.kind === "organization"
-                        ? t("settings.mobileSettings.organizationEntry")
-                        : state.network.scope === "public"
-                          ? t("settings.mobileSettings.publicEntry")
-                          : t("settings.mobileSettings.privateEntry")
-                    : t("settings.mobileSettings.notConfigured")}
-                </strong>
-                <span>{t("settings.mobileSettings.phoneConnectionNeedsVerification")}</span>
-              </div>
-              {state.network?.kind && (
-                <SettingsDisclosure
-                  className="remote-network-recovery"
-                  title={<> {t("settings.mobileSettings.restoreOrRemoveThisAppSNetwork")}</>}
-                >
-                  <fieldset disabled={busy} className="p-4">
-                    <p>{t("settings.mobileSettings.restoreChecksTheActualScopeOfThe")}</p>
-                    <label>
-                      <Input
-                        unstyled
-                        data-slot={undefined}
-                        type="checkbox"
-                        checked={recoveryConfirmed}
-                        onChange={(event) => setRecoveryConfirmed(event.target.checked)}
-                      />
-                      {t("settings.mobileSettings.iConfirmOnlyThisAppSRecords")}
-                    </label>
-                    <div className="flex gap-2">
-                      <Button
-                        disabled={busy || !recoveryConfirmed}
-                        onClick={() =>
-                          void run({
-                            operation: "networkRecover",
-                            confirmed: true,
-                          })
-                        }
-                      >
-                        {t("settings.mobileSettings.verifyAndRestore")}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        disabled={busy || !recoveryConfirmed}
-                        onClick={() =>
-                          void run({
-                            operation: "networkRemove",
-                            confirmed: true,
-                          })
-                        }
-                      >
-                        {t("settings.mobileSettings.removeNetworkConfiguration")}
-                      </Button>
-                    </div>
-                  </fieldset>
-                </SettingsDisclosure>
-              )}
-            </SettingsGroupCard>
-          </SettingsSection>
-          <SettingsDisclosure
-            className="remote-relay-settings"
-            title={<> {t("settings.mobileSettings.connectThroughARelayService")}</>}
-          >
-            <SettingsSection
-              title={t("settings.mobileSettings.connectThroughARelayService")}
-              description={t("settings.mobileSettings.yourOrganizationProvidesASameOriginHTTPS")}
-            >
-              <SettingsGroupCard>
-                <fieldset disabled={busy} className="p-4">
-                  <legend>{t("settings.mobileSettings.enrollOrReconnectRelay")}</legend>
-                  <label>
-                    {t("settings.mobileSettings.relayHTTPSOrigin")}
-                    <Input
-                      aria-label={t("settings.mobileSettings.relayHTTPSOrigin")}
-                      value={relayOrigin}
-                      placeholder="https://relay.example.org"
-                      onChange={(event) => {
-                        setRelayOrigin(event.target.value);
-                        setRelayConfirmed(false);
-                      }}
-                    />
-                  </label>
-                  <label>
-                    {t("settings.mobileSettings.administratorOneTimeEnrollmentCode")}
-                    <Input
-                      aria-label={t("settings.mobileSettings.administratorOneTimeEnrollmentCode")}
-                      type="password"
-                      autoComplete="off"
-                      value={enrollmentCode}
-                      onChange={(event) => {
-                        setEnrollmentCode(event.target.value);
-                        setRelayConfirmed(false);
-                      }}
-                    />
-                  </label>
-                  <p>{t("settings.mobileSettings.initialEnrollmentChangingTheOriginOrRe")}</p>
-                  <label>
-                    <Input
-                      unstyled
-                      data-slot={undefined}
-                      type="checkbox"
-                      checked={relayConfirmed}
-                      onChange={(event) => setRelayConfirmed(event.target.checked)}
-                    />{" "}
-                    {t("settings.mobileSettings.iTrustTheRemotePageProvidedBy")}
-                  </label>
-                  <div className="flex gap-2">
-                    <Button
-                      disabled={busy || !relayConfirmed || !relayOrigin}
-                      onClick={() =>
-                        void run({
-                          operation: "enable",
-                          relay: relayOrigin,
-                          confirmed: true,
-                          ...(enrollmentCode ? { code: enrollmentCode } : {}),
-                        })
-                      }
-                    >
-                      {t("settings.mobileSettings.enrollOrEnableRelay")}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={busy || !state.enabled}
-                      onClick={() => void run({ operation: "disable" })}
-                    >
-                      {t("settings.mobileSettings.disconnectRelay")}
-                    </Button>
-                  </div>
-                  <p role="status">
-                    {state.connected
-                      ? t("settings.mobileSettings.relayIsConnectedActualPhoneReachabilityHas")
-                      : state.enabled
-                        ? t("settings.mobileSettings.relayIsDisconnectedCheckTheServiceAnd")
-                        : t("settings.mobileSettings.relayIsOff")}
-                  </p>
-                  {state.connected && (
-                    <p className="remote-muted">
-                      {t(
-                        state.pushSupported
-                          ? "settings.mobileSettings.pushSupported"
-                          : "settings.mobileSettings.pushUnsupported",
-                      )}
-                    </p>
-                  )}
-                  {state.relayError && <p role="alert">{state.relayError}</p>}
-                </fieldset>
-              </SettingsGroupCard>
-            </SettingsSection>
-          </SettingsDisclosure>
-          <SettingsSection
-            title={t("settings.mobileSettings.closeConnectionEntry")}
-            description={t("settings.mobileSettings.stopTheEntryFirstThenRemoveThis")}
-          >
-            <Button
-              variant="outline"
-              disabled={busy || !state.directEnabled}
-              onClick={() => void run({ operation: "disableDirect" })}
-            >
-              {t("settings.mobileSettings.turnOffRemoteAndRemoveMapping")}
-            </Button>
-          </SettingsSection>
-        </div>
-      </SettingsDisclosure>
     </div>
   );
 }

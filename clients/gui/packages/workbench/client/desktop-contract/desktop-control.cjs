@@ -4,7 +4,7 @@ const { modelRecord, count, isLifecycleReceipt, isLifecycleProjection } = requir
 const { resourceInspection } = require("./desktop-control-resources.cjs");
 /** @typedef {'accessibility'|'screenRecording'|'inputMonitoring'} Capability */
 /** @typedef {{operation:'status'|'restart'|'stop',capability?:never}|{operation:'requestAccess'|'openSettings',capability:Capability}} ComputerRequest */
-/** @typedef {{operation:'status'|'networkInspect'|'disable'|'enableDirect'|'disableDirect'|'cancelPair'}|{operation:'reject'|'revoke',id:string}|{operation:'approve'|'updateGrant',id:string,projects:string[],preset:'Observer'|'Operator'}|{operation:'pair',transport?:'direct'|'relay'}|{operation:'networkPropose',httpsPort?:number}|{operation:'networkProposeScope',scope:'private'|'public'}|{operation:'networkApply',proposalId:string,confirmed:true}|{operation:'networkChangeScope',proposalId:string,confirmed:true,publicConfirmed?:boolean}|{operation:'networkRecover'|'networkRemove',confirmed:true}|{operation:'networkConfigureOrganization',publicOrigin:string,visibility:'private'|'public',confirmed:true,publicConfirmed?:boolean}|{operation:'enable',relay:string,code?:string,confirmed:true}} RemoteRequest */
+/** @typedef {{operation:'status'|'networkInspect'|'disable'|'enableDirect'|'disableDirect'|'cancelPair'|'forgetRevoked'}|{operation:'reject'|'revoke',id:string}|{operation:'renameDevice',id:string,name:string}|{operation:'approve'|'updateGrant',id:string,projects:string[],preset:'Observer'|'Operator'}|{operation:'pair',transport?:'direct'|'relay'}|{operation:'networkPropose',httpsPort?:number}|{operation:'networkProposeScope',scope:'private'|'public'}|{operation:'networkApply',proposalId:string,confirmed:true}|{operation:'networkChangeScope',proposalId:string,confirmed:true,publicConfirmed?:boolean}|{operation:'networkRecover'|'networkRemove',confirmed:true}|{operation:'networkConfigureOrganization',publicOrigin:string,visibility:'private'|'public',confirmed:true,publicConfirmed?:boolean}|{operation:'enable',relay:string,code?:string,confirmed:true}} RemoteRequest */
 /** @typedef {{serviceLifecycle:{operation:'check'}|{operation:'update'}|{operation:'stop'}|{operation:'recover'}|{operation:'quitInterface'}|{operation:'stopAndQuit'},serviceStatus:Record<string,never>,stopService:Record<string,never>,recoverResources:Record<string,never>,browserData:{operation:'status'}|{operation:'importChrome'}|{operation:'clearCache'}|{operation:'clearAll'},computerControl:ComputerRequest,exportDiagnostics:Record<string,never>,connectService:Record<string,never>,export:{projectId:string,threadId:string},remoteControl:RemoteRequest}} Requests */
 /** @typedef {keyof Requests} Name */
 /** @template {Name} N @typedef {Requests[N]} Request */
@@ -20,7 +20,7 @@ const { resourceInspection } = require("./desktop-control-resources.cjs");
 /** @typedef {{provider:'lcu',supported:boolean,platform:string,ready:boolean,state:string,reason:string,active:boolean,sessions:number,code?:string}} ExternalStatus */
 /** @typedef {NativeStatus|ExternalStatus} ComputerStatus */
 /** @typedef {{available?:boolean,diagnostic?:string,version?:string,persistentServe?:boolean,funnelPorts?:number[]|null,login?:string,https?:string,policy?:string}} NetworkInspection */
-/** @typedef {{enabled:boolean,connected:boolean,relay:string,relayError:string,relayUrl:string,directEnabled:boolean,directUrl:string,network:{kind:'tailscale'|'organization'|null,scope:'private'|'public'|null,reconciliation:string|null,publicOrigin:string,diagnostic:string,policy:'unknown',phoneAccess:'unknown',inspection:NetworkInspection|null},directHostId:string,directError:string,migrationError:string,pushSupported?:boolean,deviceGrants:Array<{pushRegistered?:boolean,devicePeerId:string,displayName:string,projectIds:string[],capabilities:string[],revision:number,status:'active'|'revoked'|'reviewRequired'}>,devices:[],pending:Array<{id:string,name:string,fingerprint:string,expiresAt:number}>}} RemoteStatus */
+/** @typedef {{enabled:boolean,connected:boolean,relay:string,relayError:string,relayUrl:string,directEnabled:boolean,directUrl:string,network:{kind:'tailscale'|'organization'|null,scope:'private'|'public'|null,reconciliation:string|null,publicOrigin:string,diagnostic:string,policy:'unknown',phoneAccess:'unknown',inspection:NetworkInspection|null},directHostId:string,directError:string,migrationError:string,pushSupported?:boolean,deviceGrants:Array<{pushRegistered?:boolean,devicePeerId:string,displayName:string,clientKind?:'web'|'ios',projectIds:string[],capabilities:string[],revision:number,status:'active'|'revoked'|'reviewRequired',pairedAt?:number,revokedAt?:number,online?:boolean,lastSeenAt?:number|null}>,devices:[],pending:Array<{id:string,name:string,fingerprint:string,expiresAt:number}>}} RemoteStatus */
 /** @typedef {{proposalId:string,publicOrigin:string,confirmation:string}} NetworkProposal */
 /** @template {Name} N @template [P=Requests[N]] @typedef {N extends 'connectService' ? null : N extends 'export'|'exportDiagnostics' ? Canceled|{path:string} : N extends 'serviceStatus' ? ServiceStatus : N extends 'stopService' ? LifecycleResult|Canceled : N extends 'recoverResources' ? RecoveryResult : N extends 'computerControl' ? ComputerStatus : N extends 'browserData' ? P extends {operation:'status'} ? {persistent:true,shared:true,busy:boolean} : P extends {operation:'importChrome'} ? BrowserImportResult : {success:true} : N extends 'remoteControl' ? P extends {operation:'pair'} ? {payload:string,qr:string,expiresAt:number} : P extends {operation:'networkPropose'} ? NetworkProposal : P extends {operation:'networkProposeScope'} ? NetworkProposal & {sourceScope?:'private'|'public',scope:'private'|'public'} : RemoteStatus : N extends 'serviceLifecycle' ? P extends {operation:'check'} ? import('./shared.cjs').LifecycleProjection : P extends {operation:'recover'} ? RecoveryResult : P extends {operation:'quitInterface'|'stopAndQuit'} ? QuitResult : P extends {operation:'update'} ? LifecycleResult|Canceled|RecoveryResult : LifecycleResult|Canceled : never} Response */
 /** @param {unknown} value @returns {value is string[]} */
@@ -86,7 +86,14 @@ function isRemoteRequest(value) {
     case "enableDirect":
     case "disableDirect":
     case "cancelPair":
+    case "forgetRevoked":
       return only(value, ["operation"]);
+    case "renameDevice":
+      return (
+        typeof value.id === "string" &&
+        typeof value.name === "string" &&
+        only(value, ["operation", "id", "name"])
+      );
     case "reject":
     case "revoke":
       return typeof value.id === "string" && only(value, ["operation", "id"]);
@@ -286,7 +293,11 @@ function isRemoteStatus(value) {
         count(grant.revision) &&
         (grant.status === "active" ||
           grant.status === "revoked" ||
-          grant.status === "reviewRequired"),
+          grant.status === "reviewRequired") &&
+        (grant.pairedAt === undefined || count(grant.pairedAt)) &&
+        (grant.revokedAt === undefined || count(grant.revokedAt)) &&
+        (grant.online === undefined || typeof grant.online === "boolean") &&
+        (grant.lastSeenAt === undefined || grant.lastSeenAt === null || count(grant.lastSeenAt)),
     ) &&
     Array.isArray(value.devices) &&
     value.devices.length === 0 &&

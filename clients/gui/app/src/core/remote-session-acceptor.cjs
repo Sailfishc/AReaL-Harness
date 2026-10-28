@@ -180,6 +180,13 @@ class SessionAcceptor {
     void observe(this.remote, socket, this).catch(() => socket.terminate());
   }
   /** @param {string} peer */
+  online(peer) {
+    for (const socket of this.sockets)
+      if (socket.remotePeer === peer && socket.authenticated && socket.readyState === 1)
+        return true;
+    return false;
+  }
+  /** @param {string} peer */
   closePeer(peer) {
     for (const socket of this.sockets)
       if (socket.remotePeer === peer && socket.authenticated) socket.terminate();
@@ -351,7 +358,11 @@ async function observe(remote, socket, owner) {
     send: (value) => secure.send(value),
     close: () => socket.terminate(),
   };
-  socket.on("close", () => observers.release(connectionId));
+  remote.lastSeen?.set(peer, Date.now());
+  socket.on("close", () => {
+    remote.lastSeen?.set(peer, Date.now());
+    observers.release(connectionId);
+  });
   secure.send({
     event: "ready",
     apiVersion: "areal.remote.v2",

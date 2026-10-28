@@ -1,11 +1,11 @@
 export const remoteMessages = {
   "settings.mobileSettings.pushRegistered": {
-    "zh-CN": "已注册推送通知",
-    en: "Push notifications registered",
+    "zh-CN": "推送已开",
+    en: "Push on",
   },
   "settings.mobileSettings.pushUnregistered": {
-    "zh-CN": "尚未注册推送通知",
-    en: "Push notifications not registered",
+    "zh-CN": "推送未开",
+    en: "Push off",
   },
   "settings.mobileSettings.pushSupported": {
     "zh-CN": "此 Relay 已开启推送",
@@ -20,12 +20,12 @@ export const remoteMessages = {
     en: "Allow this iOS app to connect?",
   },
   "settings.mobileSettings.clientKindIOS": {
-    "zh-CN": "iOS App",
-    en: "iOS app",
+    "zh-CN": "iPhone",
+    en: "iPhone",
   },
   "settings.mobileSettings.clientKindWeb": {
-    "zh-CN": "Web 浏览器",
-    en: "Web browser",
+    "zh-CN": "浏览器",
+    en: "Browser",
   },
   "settings.mobileSettings.confirmDevice": {
     "zh-CN": "确认设备",
@@ -100,16 +100,16 @@ export const remoteMessages = {
     en: "Each operation still requires permission and session-state checks on the computer.",
   },
   "settings.mobileSettings.confirmPairing": {
-    "zh-CN": "确认配对",
-    en: "Confirm pairing",
+    "zh-CN": "允许连接",
+    en: "Allow",
   },
   "settings.mobileSettings.saveAccess": {
-    "zh-CN": "保存授权",
-    en: "Save access",
+    "zh-CN": "保存",
+    en: "Save",
   },
   "settings.mobileSettings.rejectPairing": {
-    "zh-CN": "拒绝配对",
-    en: "Reject pairing",
+    "zh-CN": "拒绝",
+    en: "Reject",
   },
   "settings.mobileSettings.revokeAccess": {
     "zh-CN": "撤销访问",
@@ -280,8 +280,8 @@ export const remoteMessages = {
     en: "Browser device",
   },
   "settings.mobileSettings.needsReview": {
-    "zh-CN": "需要复核",
-    en: "Needs review",
+    "zh-CN": "需重新确认",
+    en: "Needs reconfirmation",
   },
   "settings.mobileSettings.managePermissions": {
     "zh-CN": "管理权限",
@@ -1834,5 +1834,246 @@ export const remoteMessages = {
   "settings.usageDashboard.tokens": {
     "zh-CN": "Token",
     en: "Tokens",
+  },
+  "settings.mobileConnect.intro": {
+    "zh-CN": "用 iPhone 或其他浏览器继续电脑上的工作。",
+    en: "Continue your work from an iPhone or another browser.",
+  },
+  "settings.mobileConnect.notSetUp": {
+    "zh-CN": "还没有开启手机连接",
+    en: "Phone connection is off",
+  },
+  "settings.mobileConnect.notSetUpDescription": {
+    "zh-CN": "填入团队的中继地址后，就能扫码添加手机。",
+    en: "Enter your team's relay address, then scan a code to add your phone.",
+  },
+  "settings.mobileConnect.ready": {
+    "zh-CN": "手机可以连接",
+    en: "Phones can connect",
+  },
+  "settings.mobileConnect.readyViaRelay": {
+    "zh-CN": "通过中继 {host} · 已连接",
+    en: "Through relay {host} · Connected",
+  },
+  "settings.mobileConnect.readyViaDirect": {
+    "zh-CN": "通过 {host} 直接连接",
+    en: "Directly through {host}",
+  },
+  "settings.mobileConnect.relayOffline": {
+    "zh-CN": "中继未连接",
+    en: "Relay is not connected",
+  },
+  "settings.mobileConnect.relayOfflineDescription": {
+    "zh-CN": "正在重试连接 {host}。一直连不上时，检查中继服务或网络。",
+    en: "Retrying {host}. If it keeps failing, check the relay service or your network.",
+  },
+  "settings.mobileConnect.localOnlyDescription": {
+    "zh-CN": "手机需要中继。在下方填入中继地址即可。",
+    en: "Phones need a relay. Enter a relay address below.",
+  },
+  "settings.mobileConnect.addDevice": {
+    "zh-CN": "添加设备",
+    en: "Add device",
+  },
+  "settings.mobileConnect.relayOrigin": {
+    "zh-CN": "中继地址",
+    en: "Relay address",
+  },
+  "settings.mobileConnect.enrollmentCode": {
+    "zh-CN": "注册码（管理员提供，只用一次）",
+    en: "Enrollment code (from your admin, single use)",
+  },
+  "settings.mobileConnect.enrollmentCodePlaceholder": {
+    "zh-CN": "首次登记时粘贴",
+    en: "Paste for first enrollment",
+  },
+  "settings.mobileConnect.turnOn": {
+    "zh-CN": "开启手机连接",
+    en: "Turn on phone connection",
+  },
+  "settings.mobileConnect.requestTitle": {
+    "zh-CN": "“{device}”请求连接",
+    en: "“{device}” wants to connect",
+  },
+  "settings.mobileConnect.requestDescription": {
+    "zh-CN": "核对后才能访问你选择的项目。",
+    en: "It can access only the projects you choose after you review it.",
+  },
+  "settings.mobileConnect.reviewRequest": {
+    "zh-CN": "核对并授权",
+    en: "Review",
+  },
+  "settings.mobileConnect.devices": {
+    "zh-CN": "设备",
+    en: "Devices",
+  },
+  "settings.mobileConnect.activeCount": {
+    "zh-CN": "{count, number} 台可用",
+    en: "{count, plural, one {# active} other {# active}}",
+  },
+  "settings.mobileConnect.noDevices": {
+    "zh-CN": "还没有设备。开启手机连接后点“添加设备”。",
+    en: "No devices yet. Turn on phone connection, then choose Add device.",
+  },
+  "settings.mobileConnect.projectCount": {
+    "zh-CN": "{count, number} 个项目",
+    en: "{count, plural, one {# project} other {# projects}}",
+  },
+  "settings.mobileConnect.online": {
+    "zh-CN": "在线",
+    en: "Online",
+  },
+  "settings.mobileConnect.lastSeen": {
+    "zh-CN": "最近连接 {time}",
+    en: "Last connected {time}",
+  },
+  "settings.mobileConnect.pairedAt": {
+    "zh-CN": "{time} 配对",
+    en: "Paired {time}",
+  },
+  "settings.mobileConnect.revokedAt": {
+    "zh-CN": "{time} 撤销",
+    en: "Revoked {time}",
+  },
+  "settings.mobileConnect.deviceActions": {
+    "zh-CN": "{device} 的更多操作",
+    en: "More actions for {device}",
+  },
+  "settings.mobileConnect.editAccess": {
+    "zh-CN": "修改项目与权限",
+    en: "Edit projects and access",
+  },
+  "settings.mobileConnect.editAccessTitle": {
+    "zh-CN": "{device} 的项目与权限",
+    en: "Projects and access for {device}",
+  },
+  "settings.mobileConnect.editAccessDescription": {
+    "zh-CN": "保存后这台设备会重新连接。",
+    en: "The device reconnects after you save.",
+  },
+  "settings.mobileConnect.rename": {
+    "zh-CN": "重命名",
+    en: "Rename",
+  },
+  "settings.mobileConnect.renameDescription": {
+    "zh-CN": "名称只显示在这台电脑上。",
+    en: "The name appears only on this computer.",
+  },
+  "settings.mobileConnect.deviceName": {
+    "zh-CN": "设备名称",
+    en: "Device name",
+  },
+  "settings.mobileConnect.copyReconnectLink": {
+    "zh-CN": "复制重连链接",
+    en: "Copy reconnect link",
+  },
+  "settings.mobileConnect.revokeTitle": {
+    "zh-CN": "撤销 {device} 的访问？",
+    en: "Revoke access for {device}?",
+  },
+  "settings.mobileConnect.revokeDescription": {
+    "zh-CN": "这台设备会立即断开，需要重新配对才能再连接。它已经下载的内容无法追回。",
+    en: "The device disconnects now and must pair again to reconnect. Content it already downloaded cannot be recalled.",
+  },
+  "settings.mobileConnect.revokedDevices": {
+    "zh-CN": "已撤销的设备（{count, number}）",
+    en: "Revoked devices ({count, number})",
+  },
+  "settings.mobileConnect.forgetRevoked": {
+    "zh-CN": "清除记录",
+    en: "Clear records",
+  },
+  "settings.mobileConnect.cancel": {
+    "zh-CN": "取消",
+    en: "Cancel",
+  },
+  "settings.mobileConnect.save": {
+    "zh-CN": "保存",
+    en: "Save",
+  },
+  "settings.mobileConnect.advancedNetwork": {
+    "zh-CN": "高级网络设置",
+    en: "Advanced network settings",
+  },
+  "settings.mobileConnect.directEntry": {
+    "zh-CN": "本机入口",
+    en: "Local entry",
+  },
+  "settings.mobileConnect.directEntryDescription": {
+    "zh-CN":
+      "不用中继，直接从这台电脑提供连接。配合上方的 Tailscale 或组织 HTTPS 才能在手机上打开。",
+    en: "Serve connections directly from this computer without a relay. Phones need Tailscale or organization HTTPS above.",
+  },
+  "settings.mobileConnect.stepScan": {
+    "zh-CN": "扫码",
+    en: "Scan",
+  },
+  "settings.mobileConnect.stepReview": {
+    "zh-CN": "核对",
+    en: "Review",
+  },
+  "settings.mobileConnect.stepDone": {
+    "zh-CN": "完成",
+    en: "Done",
+  },
+  "settings.mobileConnect.scanTitle": {
+    "zh-CN": "用手机扫描二维码",
+    en: "Scan the code with your phone",
+  },
+  "settings.mobileConnect.scanDescription": {
+    "zh-CN": "用 AReaL App 或手机相机扫码，也可以复制下方链接。",
+    en: "Scan with the AReaL app or your phone camera, or copy the link below.",
+  },
+  "settings.mobileConnect.waiting": {
+    "zh-CN": "正在等待手机 · {time} 后失效",
+    en: "Waiting for your phone · Expires in {time}",
+  },
+  "settings.mobileConnect.generating": {
+    "zh-CN": "正在生成二维码…",
+    en: "Generating code…",
+  },
+  "settings.mobileConnect.regenerate": {
+    "zh-CN": "重新生成",
+    en: "Generate again",
+  },
+  "settings.mobileConnect.copied": {
+    "zh-CN": "已复制",
+    en: "Copied",
+  },
+  "settings.mobileConnect.reviewTitle": {
+    "zh-CN": "允许“{device}”连接？",
+    en: "Allow “{device}” to connect?",
+  },
+  "settings.mobileConnect.reviewDescription": {
+    "zh-CN": "这台设备能看到所选项目里的会话，并按所选权限操作。",
+    en: "This device can see conversations in the selected projects and act with the chosen access.",
+  },
+  "settings.mobileConnect.fingerprintHint": {
+    "zh-CN": "确认手机上显示的是同一串字符",
+    en: "Check that your phone shows the same characters",
+  },
+  "settings.mobileConnect.projects": {
+    "zh-CN": "可以访问的项目",
+    en: "Projects it can access",
+  },
+  "settings.mobileConnect.viewOnlyDescription": {
+    "zh-CN": "看会话和进度",
+    en: "See conversations and progress",
+  },
+  "settings.mobileConnect.canOperateDescription": {
+    "zh-CN": "还能发送、停止、回答",
+    en: "Also send, stop and answer",
+  },
+  "settings.mobileConnect.doneTitle": {
+    "zh-CN": "“{device}”已连接",
+    en: "“{device}” is connected",
+  },
+  "settings.mobileConnect.doneDescription": {
+    "zh-CN": "它已出现在设备列表里。",
+    en: "It now appears in your device list.",
+  },
+  "settings.mobileConnect.connected": {
+    "zh-CN": "已连接",
+    en: "Connected",
   },
 } as const;

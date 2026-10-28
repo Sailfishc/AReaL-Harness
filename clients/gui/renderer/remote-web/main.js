@@ -9,6 +9,7 @@ const sessionBodies = new SessionBodyReader();
 import { remoteLocator, publicLocator } from "@areal/remote/wire";
 import { ResultReviewView } from "./result-review.mjs";
 import { BrowserState } from "./browser-state.mjs";
+import { browserDeviceName } from "./device-name.mjs";
 import { createIdentity, identityId } from "@areal/remote";
 
 const status = document.getElementById("status");
@@ -485,7 +486,7 @@ async function connectHost(automatic = false) {
       host: target.host,
       room: target.room,
       hello: {
-        displayName: "Web browser",
+        displayName: browserDeviceName(navigator.userAgent, navigator.maxTouchPoints),
         ...(target.invite ? { inviteSecret: target.invite } : {}),
       },
       isCurrent: () => activeSocket === socket && current(),

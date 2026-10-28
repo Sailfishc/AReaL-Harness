@@ -8,7 +8,7 @@
 
 当前实现开发用的加密 Direct 与本地确认配对：默认关闭的独立 `127.0.0.1` 监听器、可选择记住的浏览器身份、Host pin 校验、v2 hello，以及 `host.describe` / `project.list` / `project.models` / `work.list` / `attention.list` / `session.open` / `session.history` / `subscription.close` / `session.create` / `session.send` / `turn.stop` / `attention.read` / `interaction.respond` / `task.question.read` / `task.question.reply` / `task.read` / `task.pause` / `review.read` / `artifact.read` / `command.read` / `device.push.register` / `device.push.unregister`。可信桌面已接入 Serve、可选 Funnel 范围切换和组织 HTTPS 来源配置（Funnel 公网能力未认证），具体见 C11；实际 Tailscale/组织代理、手机真机验收以及其余方法仍需后续证据；Relay 已接入同一 Host/PWA 协议，源码与本机严格 TLS 夹具覆盖见 C12。本页的完整 P0 契约不代表这些能力已经可用。
 
-桌面生成 120 秒一次性链接（开发模式为 loopback HTTP），fragment 携带 `host` 和 `invite`。浏览器立即移除邀请，仅保留校验后的公开 `host` pin 和可选 Relay `room`，在 Noise 验证 Host 后才发送 `inviteSecret`，收到 `pairing` 后等待本地确认。可信本地 `remoteControl` 支持 `pair/cancelPair/approve/reject/updateGrant/revoke`；确认与更新提供设备 `id`、显式已有项目 `projects` 及 `preset: Observer|Operator`。桌面展示完整 Noise peer 指纹与项目选择，复制/粘贴链接可代替扫码。本地确认必须在截止前作出，确认后的持久写入成功才返回 ready；写入失败不授予新权限。传输建立的 15 秒期限在收到 pairing 后结束；人工确认继续由 Host 的 120 秒邀请期限及取消/拒绝结果约束。
+桌面生成 120 秒一次性链接（开发模式为 loopback HTTP），fragment 携带 `host` 和 `invite`。浏览器立即移除邀请，仅保留校验后的公开 `host` pin 和可选 Relay `room`，在 Noise 验证 Host 后才发送 `inviteSecret`，收到 `pairing` 后等待本地确认。可信本地 `remoteControl` 支持 `pair/cancelPair/approve/reject/updateGrant/revoke/renameDevice/forgetRevoked`；确认与更新提供设备 `id`、显式已有项目 `projects` 及 `preset: Observer|Operator`。桌面展示完整 Noise peer 指纹与项目选择，复制/粘贴链接可代替扫码。本地确认必须在截止前作出，确认后的持久写入成功才返回 ready；写入失败不授予新权限。传输建立的 15 秒期限在收到 pairing 后结束；人工确认继续由 Host 的 120 秒邀请期限及取消/拒绝结果约束。
 
 加密 `remote.json` 保存 Host identity 与 `deviceGrants`，包含 `devicePeerId/displayName/projectIds/capabilities/revision/status`。范围更新或撤销先持久保存，再关闭该设备旧连接。当前实现的能力为 `observe`、`review`、`submit`、`interrupt`、`answer` 和 `pauseTask`，ready 与 host.describe 只返回和当前授权的交集；Operator 的既有 `pauseTask` 与 `review` 一样按当前授权交集公告；Observer 或不含该能力的旧授权不会得到它。旧 `devices` 保留身份和项目并进入 `reviewRequired`，旧写客户端只能得到升级要求；迁移保存失败保留原文件并关闭入口。安全存储不可用或使用 `basic_text` 时拒绝启用。浏览器默认仅本次使用；配对前明确选择“记住此设备”后，在已验证 Host 的 ready 后将身份、Host pin 与校验后的公开 Relay room 原子保存到该 origin 的同一 IndexedDB 记录。缺少 room 的旧记录保持 Direct 语义；根页面或 manifest 启动先恢复该 room，再选择传输。相同 Host 重新登记到新 room 时，仅在再次验证 pin 并收到 ready 后原子更新公开 room 与 revision；失败不会替换原绑定，清除此设备同时清除此路由元数据。保存失败不会宣称记住成功。
 
@@ -126,7 +126,7 @@ ready 返回 `hostId, gatewayGeneration, connectionId, apiVersion, grantRevision
 
 配对状态为 created → claimed → awaitingLocalApproval → approved，或 expired/rejected/cancelled。claim 原子消费邀请，攻击者抢先 claim 最多造成拒绝服务，不能自动获得授权。桌面确认设备名、指纹、已有项目与能力后，先持久保存授权再返回 ready。名称是用户可伪造的描述，指纹才用于身份核对。
 
-DeviceGrant 包含 `devicePeerId, displayName, projectIds, capabilities, revision, status` 和可选 `clientKind: "web" | "ios"`。projectIds 是当前已保存项目的显式集合，不默认包含未来项目。状态 active/reviewRequired/revoked。两个预设：
+DeviceGrant 包含 `devicePeerId, displayName, projectIds, capabilities, revision, status` 和可选 `clientKind: "web" | "ios"`、`pairedAt`、`revokedAt`（毫秒时间戳）。确认配对时，与其他未撤销设备同名的 displayName 会加序号（如 `Chrome · macOS (2)`）；浏览器默认上报“浏览器 · 系统”。`renameDevice` 只改桌面展示名，不增加 revision、不断开连接；`forgetRevoked` 删除全部已撤销设备记录及其推送命令。状态接口另给出运行时字段 `online` 与 `lastSeenAt`（本次运行内的最近连接时间，不持久化）。projectIds 是当前已保存项目的显式集合，不默认包含未来项目。状态 active/reviewRequired/revoked。两个预设：
 
 | 预设 | 能力 |
 |---|---|

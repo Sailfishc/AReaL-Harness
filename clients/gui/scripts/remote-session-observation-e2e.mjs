@@ -581,7 +581,7 @@ async function pairBrowser() {
   const approval = desktop.getByRole("group", { name: `确认设备 ${pending.id}` });
   await approval.getByLabel("workspace", { exact: true }).check();
   await approval.getByRole("radio", { name: "仅查看", exact: true }).check();
-  await approval.getByRole("button", { name: "确认配对", exact: true }).click();
+  await approval.getByRole("button", { name: "允许连接", exact: true }).click();
   await target
     .getByRole("status")
     .getByText(/已连接/)
@@ -1087,7 +1087,7 @@ try {
     const slowApproval = desktop.getByRole("group", { name: `确认设备 ${slowPeer}` });
     await slowApproval.getByLabel("workspace", { exact: true }).check();
     await slowApproval.getByRole("radio", { name: "仅查看", exact: true }).check();
-    await slowApproval.getByRole("button", { name: "确认配对", exact: true }).click();
+    await slowApproval.getByRole("button", { name: "允许连接", exact: true }).click();
     assert.equal((await slowMessages.next()).value.event, "ready");
     slowSecure.send({
       id: "slow-open",

@@ -4,7 +4,7 @@ const { checkedRecord } = require("./remote-network.cjs");
 
 /** @typedef {{platform:'apns',token:string,environment:'production'|'development'}} PushRegistration */
 /** @typedef {{devicePeerId:string,commandId:string,method:string,semanticDigest:string,registered:boolean}} PushCommand */
-/** @typedef {{push?:PushRegistration,devicePeerId:string,displayName:string,clientKind?:'web'|'ios',projectIds:string[],capabilities:string[],revision:number,status:'active'|'revoked'|'reviewRequired'}} DeviceGrant */
+/** @typedef {{push?:PushRegistration,devicePeerId:string,displayName:string,clientKind?:'web'|'ios',projectIds:string[],capabilities:string[],revision:number,status:'active'|'revoked'|'reviewRequired',pairedAt?:number,revokedAt?:number}} DeviceGrant */
 /** @typedef {{id:string,name:string,projects?:string[]}} LegacyDevice */
 /** @typedef {{kind:'tailscale',mapping?:import('./remote-network.cjs').NetworkMapping,visibility?:undefined,publicOrigin?:undefined}|{kind:'organization',publicOrigin:string,visibility:'private'|'public',mapping?:undefined}} RemoteNetwork */
 /** @typedef {{schemaVersion?:number,enabled?:boolean,directEnabled?:boolean,directPort?:number,identity?:string,relay?:string,relayProtocol?:string,room?:string,capability?:string,devices?:LegacyDevice[],deviceGrants?:DeviceGrant[],pushCommands?:PushCommand[],network?:RemoteNetwork|null,[key:string]:unknown}} RemoteConfig */
@@ -71,7 +71,11 @@ function deviceGrant(value) {
     typeof value.revision === "number" &&
     Number.isSafeInteger(value.revision) &&
     value.revision >= 1 &&
-    (value.status === "active" || value.status === "revoked" || value.status === "reviewRequired")
+    (value.status === "active" ||
+      value.status === "revoked" ||
+      value.status === "reviewRequired") &&
+    (value.pairedAt === undefined || Number.isSafeInteger(value.pairedAt)) &&
+    (value.revokedAt === undefined || Number.isSafeInteger(value.revokedAt))
   );
 }
 /** @param {unknown} value @returns {value is LegacyDevice} */
