@@ -365,24 +365,24 @@
     },
     {
       "id": "R-CHECK-001",
-      "title": "node scripts/gui-health.mjs 在 GUI 工作目录输出生产范围、计数口径、源码摘要与指标证据",
+      "title": "node scripts/gui-health.mjs 输出范围、源码摘要和指标口径",
       "owner": "clients/gui/design-system/automation.md#工程检查入口",
       "strength": "default",
-      "textSha256": "d9368aa2dc027e845f8c36b5cfc82a0a2b559d383ea4b3dc2e74fd0c6375505e"
+      "textSha256": "8d338b3897615c582241bda95d2e3dd301cf43b48601892b9ab5d2229706c0f6"
     },
     {
       "id": "R-CHECK-002",
-      "title": "测试元数据归 scripts/test-manifest.json ，命令仍归根 package.json ",
+      "title": "测试元数据归 scripts/test-manifest.json，命令归根 package.json",
       "owner": "clients/gui/design-system/automation.md#工程检查入口",
       "strength": "default",
-      "textSha256": "84b76b927f3e508906493529d78296f58698187776a3cef7c1ab3bc57ec58ca9"
+      "textSha256": "edeb91a7cd98b533769d31ef19e9a3a00f45a4944c492f4bf776d20774a53acb"
     },
     {
       "id": "R-CHECK-003",
-      "title": "减少页面单点设计依靠四个环节相接：唯一设计源、有限组件/组合、可执行约束、独立效果验证",
+      "title": "闭环：唯一来源、有限组件/组合、可执行约束、独立验证",
       "owner": "clients/gui/design-system/automation.md#核对结论",
       "strength": "must",
-      "textSha256": "2ef28a0bcf497cabf845d7547daca71cfff0848995b4ba14966ca7980103c567"
+      "textSha256": "efa6721595bda78ac100965c4e53cf19c45eee5f690f9970a6fb916b5e3b6236"
     },
     {
       "id": "R-CHECK-004",
@@ -393,17 +393,17 @@
     },
     {
       "id": "R-CHECK-005",
-      "title": "生成器只重写 catalog 和标记的文档表格，不改 CSS、组件、页面、用户设置、测试基线或截图",
+      "title": "生成器只改 catalog 和标记的文档表格",
       "owner": "clients/gui/design-system/automation.md#areal-v1-已接入的闭环",
       "strength": "default",
-      "textSha256": "1b180a6d14b6d6833b1e1c37701d1f1dc79a4b3dab92bbf74bf96bd89b1c522e"
+      "textSha256": "8a2d15586ac88d5ebfcba8935f10762f62aad38851dc38adf6530dbc1375c602"
     },
     {
       "id": "R-CHECK-006",
-      "title": "design-system-audit.mjs 在既有目录检查、已迁移文件完整审计之外，自动读取 Git 的生产 rendere",
+      "title": "design-system-audit.mjs 在目录检查和已迁移文件审计之外，检查 Git 中生产 renderer ",
       "owner": "clients/gui/design-system/automation.md#增量设计检查",
       "strength": "default",
-      "textSha256": "8da17004ab8116610400c2fb5cd04e41e9e711ffa29b5f089ad6415bb8e4bced"
+      "textSha256": "9d5d300b3ee5c9b52e3d865cd7757cd738328e8e2c708ea9dc0a802d3e174ee8"
     },
     {
       "id": "R-CHECK-007",
@@ -421,10 +421,10 @@
     },
     {
       "id": "R-CHECK-009",
-      "title": "逐文件比较原有与当前的违规类型、具体值和出现次数",
+      "title": "- 逐文件比较违规类型、值和次数",
       "owner": "clients/gui/design-system/automation.md#增量设计检查",
       "strength": "default",
-      "textSha256": "e7ada3699c4bcb1870194f533a03d474360341cf54492dd575d5998c8a284c97"
+      "textSha256": "09a5863b502c12b4bccdb9e8c4303425014f9c494d7cecf4ae57358ea1632d6d"
     },
     {
       "id": "R-CHECK-010",
@@ -435,38 +435,38 @@
     },
     {
       "id": "R-CHECK-011",
-      "title": "现有 verify 和 verify:design 都执行门禁",
+      "title": "verify、verify:design 均执行门禁，后者同时检查目录与临时 Git 仓库回归",
       "owner": "clients/gui/design-system/automation.md#增量设计检查",
       "strength": "must",
-      "textSha256": "423382aa7031081f5f2f49c15a3b3c2e1b44cf17cc2c8ae0548080d2cc28b1d4"
+      "textSha256": "d9fb04d1196954bf501383199ae8ee05dcf1f63be12a43e2231d3efce27b45c3"
     },
     {
       "id": "R-CHECK-012",
-      "title": "入口通过本机 agent 指令及版本化贡献/开发指南连接",
+      "title": "入口由本机 Agent 指令和版本化开发指南连接",
       "owner": "clients/gui/design-system/automation.md#尚未接入的自动化",
       "strength": "must",
-      "textSha256": "d81f0cc76c862b90bb3441692fac14cf1d0c4948dab972c1cfe4a3cea5df7bc7"
+      "textSha256": "77e7e1872d44e6f658f50d0cb958f6c835c980f4e68d1d1ebbddb12951570041"
     },
     {
       "id": "R-CHECK-013",
-      "title": "目录检查不能证明声明的组件被实际使用",
+      "title": "静态检查不证明组件采用、视觉/动效/状态可达性，也不覆盖动态 class/style、普通 .ts 样式与自定义组件重复",
       "owner": "clients/gui/design-system/automation.md#尚未接入的自动化",
       "strength": "must",
-      "textSha256": "9f16ca076c9ee167539105cbd4e7f56456049ee1e8eeae7cbdf30cbd7c6cc59e"
+      "textSha256": "21345b7653fa398e688668667fe07d6bfe11076588207cc0e4be9e040be8eb38"
     },
     {
       "id": "R-CHECK-014",
-      "title": "后续页面工作按结构化流程执行选定的B路线",
+      "title": "页面执行结构化 B 路线，准入归 governance",
       "owner": "clients/gui/design-system/automation.md#视频分析辅助核查的默认路线",
       "strength": "must",
-      "textSha256": "94bd13084fc7409b788f1e491bbe8eab05c7a61fd804225a22590011ae77f19f"
+      "textSha256": "79be4d49ab253fbd260c1a8a8ff254e3d023b7b5a880aeb8a0b3f4580ec06799"
     },
     {
       "id": "R-CHECK-016",
-      "title": "视频观察器与页面实现者分工：前者提名视觉事件/差异，后者结合合同、原件和日志裁决并实现",
+      "title": "观察器提名差异，实现者结合合同、原件及日志裁决",
       "owner": "clients/gui/design-system/automation.md#视频分析辅助核查的默认路线",
       "strength": "default",
-      "textSha256": "07ded0e13ea3a788ccd8edc8b434e6216e84e9beb2a874e127db5500a0b2680e"
+      "textSha256": "4dd4cea4649c23ea6fd09238006f9a30bac576c44e78d1327f997867f4cb337f"
     },
     {
       "id": "R-BASE-001",

@@ -8,6 +8,7 @@ const {
   migrateLegacyDevices,
   strings,
   failureCode,
+  enrollmentFailureMessage,
 } = require("./remote-config.cjs");
 const { RemotePush } = require("./remote-push.cjs");
 const { RelayTransport } = require("./remote-relay.cjs");
@@ -484,23 +485,7 @@ class RemoteControl {
         const deadline = setTimeout(() => req.destroy(), 15000);
         req.once("close", () => clearTimeout(deadline));
         req.once("error", (error) => {
-          const code = /** @type {NodeJS.ErrnoException} */ (error).code ?? "";
-          const certificateFailure = [
-            "CERT_HAS_EXPIRED",
-            "ERR_TLS_CERT_ALTNAME_INVALID",
-            "DEPTH_ZERO_SELF_SIGNED_CERT",
-            "SELF_SIGNED_CERT_IN_CHAIN",
-            "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
-            "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
-          ].includes(code);
-          reject(
-            pairingError(
-              "enrollment-failed",
-              certificateFailure
-                ? `Relay HTTPS 证书验证失败（${code}）。请检查证书域名、有效期和桌面进程信任的 CA。`
-                : "Relay 登记失败，请检查 HTTPS 和登记码",
-            ),
-          );
+          reject(pairingError("enrollment-failed", enrollmentFailureMessage(error)));
         });
         req.end(body);
       });

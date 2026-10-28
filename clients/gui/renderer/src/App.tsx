@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import React, { useEffect, useState, useSyncExternalStore } from "react";
 import { WorkSurface, WorkbenchShell } from "./app-shell/WorkbenchShell.js";
 import { BackendStatusNotice } from "./BackendStatusNotice.js";
 import { Button } from "./components/ui/button.js";
@@ -16,7 +16,6 @@ import { settingsNavigationGroups } from "./settings/settingsNavigation.js";
 import { SettingsNavigation } from "./settings/SettingsWorkspace.js";
 import { UnsavedChangesProvider, useGuardedNavigation } from "./settings/UnsavedChanges.js";
 import { useTrajectoryPolling } from "./settings/useTrajectoryPolling.js";
-import { conversationCatalog } from "./state/conversationCatalog.js";
 import { useNavigationWorkspace } from "./state/navigationWorkspace.js";
 import { projectExecutionBlocked } from "./state/projectExecution.js";
 import { useTaskWorkspace } from "./state/taskWorkspace.js";
@@ -82,6 +81,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     snapshot,
     library,
     projects,
+    summaries,
     project,
     thread,
     projectId,
@@ -373,7 +373,6 @@ function AppContent({ services }: { services: PlatformServices }) {
     terminalLocation,
     openBrowser,
   ]);
-  const summaries = useMemo(() => conversationCatalog(projects, library), [projects, library]);
   const conversationReferences = summaries
     .filter((row) => row.owner.id === project?.id && row.summary.id !== thread?.id && !row.archived)
     .sort((a, b) => b.updatedAt - a.updatedAt || a.summary.id.localeCompare(b.summary.id))

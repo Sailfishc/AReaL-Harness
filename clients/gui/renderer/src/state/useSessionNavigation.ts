@@ -6,6 +6,7 @@ import {
   type RecoveryOwner,
 } from "../recoveryPresentation.js";
 import { call, type Action, type PlatformServices, type Snapshot } from "../services.js";
+import { conversationCatalog } from "./conversationCatalog.js";
 type InitialLocation =
   | { kind: "automatic" | "projectless" }
   | { kind: "project"; projectId: string; threadId: string };
@@ -84,6 +85,7 @@ export function useSessionNavigation(
         }),
     [snapshot.projects, library],
   );
+  const summaries = useMemo(() => conversationCatalog(projects, library), [projects, library]);
   // Sidebar visibility must not change the owner of an explicitly opened resource.
   const logicalProject = noProject
     ? undefined
@@ -312,6 +314,7 @@ export function useSessionNavigation(
     snapshot,
     library,
     projects,
+    summaries,
     project,
     thread,
     projectId,

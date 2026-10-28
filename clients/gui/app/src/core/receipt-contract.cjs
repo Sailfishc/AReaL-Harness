@@ -1,5 +1,6 @@
 // @ts-check
 "use strict";
+const { nativeText } = require("./native-i18n.cjs");
 const { isDeepStrictEqual } = require("node:util");
 const { readReceipts } = require("@areal/workbench/desktop-contract/shared");
 const { modelRecord } = require("@areal/workbench/core-model-contract");
@@ -75,6 +76,42 @@ function matchingReceipt(entry, records, scopedThreadId) {
     return !receipt.threadId && !receipt.taskId;
   });
 }
+/** @param {Pending} entry @param {ReturnType<typeof readReceipts>} result @param {import('@areal/runtime-client/core').CoreClient['capabilities']} capabilities @param {string} [scopedThreadId] @returns {Receipt|undefined} */
+function reconcileReceipt(entry, result, capabilities, scopedThreadId) {
+  const receipt = matchingReceipt(entry, result.data, scopedThreadId);
+  // 普通回执只证明已受理；只有下面核验过的独立证明能生成 accepted:false。
+  if (receipt) return { ...receipt, accepted: true };
+  const proof = result.creationAdmission;
+  const original = entry.params.creationAdmission;
+  const coverage = capabilities?.features?.threadCreationJournal?.binding;
+  if (
+    entry.method === "areal/thread/start" &&
+    capabilities?.features?.threadCreationJournal &&
+    original &&
+    proof?.status === "notAdmitted" &&
+    coverage?.identity === original.identity &&
+    proof.identity === original.identity &&
+    coverage.journalEpoch === original.journalEpoch &&
+    coverage.coreInstanceId !== original.coreInstanceId &&
+    proof.requestId === entry.params.requestId &&
+    proof.journalEpoch === original.journalEpoch &&
+    proof.coreInstanceId === original.coreInstanceId &&
+    result.data.length === 0
+  ) {
+    return {
+      method: entry.method,
+      requestId: entry.params.requestId,
+      status: "failed",
+      accepted: false,
+      operation: entry.operation ?? operationOf(entry.method, entry.params),
+      error: {
+        message: nativeText("recovery.creationNotAdmitted"),
+        data: { reason: "NOT_ADMITTED" },
+      },
+    };
+  }
+  return undefined;
+}
 /** @param {Receipt} receipt */
 const receiptStatus = (receipt) =>
   receipt.status ??
@@ -144,6 +181,7 @@ module.exports = {
   explicitRejection,
   readReceipts,
   matchingReceipt,
+  reconcileReceipt,
   receiptStatus,
   receiptResult,
   readReceiptIdentity,
