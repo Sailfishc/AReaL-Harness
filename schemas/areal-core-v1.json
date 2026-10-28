@@ -38102,6 +38102,41 @@
                 "version"
               ],
               "type": "object"
+            },
+            "threadCreationJournal": {
+              "additionalProperties": true,
+              "properties": {
+                "binding": {
+                  "additionalProperties": false,
+                  "description": "新建会话绑定原 Core 代际；覆盖标识只证明本日志连续保留的受理范围。",
+                  "properties": {
+                    "coreInstanceId": {
+                      "type": "string"
+                    },
+                    "identity": {
+                      "type": "string"
+                    },
+                    "journalEpoch": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "identity",
+                    "journalEpoch",
+                    "coreInstanceId"
+                  ],
+                  "title": "CreationAdmission",
+                  "type": "object"
+                },
+                "version": {
+                  "const": 1
+                }
+              },
+              "required": [
+                "binding",
+                "version"
+              ],
+              "type": "object"
             }
           },
           "type": "object"
