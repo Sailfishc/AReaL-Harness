@@ -552,11 +552,14 @@ for (const method of ["areal/turn/start", "areal/turn/enqueue"]) {
     assert.deepEqual(await f.backend.submit(f.project, method, parameters, { requestId }), {
       turn: { id: "accepted-turn" },
     });
+    const createdAt = f.project.pending[0].createdAt;
+    assert.equal(new Date(createdAt).toISOString(), createdAt);
     assert.equal(f.project.refreshErrors[requestId].refreshPending, true);
     assert.equal(f.project.refreshErrors[requestId].operation.requestId, requestId);
     assert.deepEqual(JSON.parse(await readFile(join(f.home, "p-pending.json"), "utf8")), [
       {
         method,
+        createdAt,
         params: { ...parameters, requestId },
         operation: { method, requestId, target: { kind: "thread", threadId: "t" } },
       },
@@ -569,6 +572,7 @@ for (const method of ["areal/turn/start", "areal/turn/enqueue"]) {
     assert.deepEqual(JSON.parse(await readFile(join(f.home, "p-pending.json"), "utf8")), [
       {
         method,
+        createdAt,
         params: { ...parameters, requestId },
         operation: { method, requestId, target: { kind: "thread", threadId: "t" } },
       },
@@ -675,6 +679,8 @@ test("subscription refresh unknown retains only its dispatched provider request 
     false,
     "explicit refresh never dispatches a turn",
   );
+  providerRequest.createdAt = f.project.pending[0].createdAt;
+  assert.equal(new Date(providerRequest.createdAt).toISOString(), providerRequest.createdAt);
   assert.deepEqual(
     f.project.pending,
     [providerRequest],
