@@ -162,6 +162,8 @@ Composer IME setup clears the editor with native select-all and Backspace, then 
 
 Composer smoke closes a completed Side reading view with its tab's Delete key and waits for the main editor to become visible, covering full view in narrow windows and split view in wide windows. The narrow-window panel button switches views. Before applying configuration after a cold reopen, model-selection smoke reads the real `serviceStatus` and waits for tasks, operations, project startup, and configuration updates to settle, then submits once.
 
+Slash keyboard acceptance waits for the Core catalog refresh triggered by this opening, then requires the intended option selected by ArrowDown and the editor's `aria-activedescendant` to agree before pressing Enter. The previous option's selected state cannot prove that keyboard navigation has completed.
+
 Native tool smoke drains all HTTP fixture request threads before assertions. Solve requests require an equal number of completed audits. A single auxiliary naming attempt may be cancelled before HTTP arrival, in which case only an interrupted audit without an HTTP status is accepted. Missing audits for observed requests, duplicate naming, unobserved completion, and naming with tools fail acceptance.
 
 Plugin connection regressions freeze an old catalog scan with one-shot barriers and require newly published generations to survive it. A paired test disables a plugin while its handshake is held, requiring disable to complete and preventing publication. Failed native workgroup cases retain their temporary directory and print the specific case, model usage, and authoritative tool receipts, separating budget errors from earlier failures.

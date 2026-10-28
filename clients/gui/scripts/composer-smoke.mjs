@@ -835,13 +835,43 @@ try {
     await chooseFirst();
     assert.equal(await tags().count(), 2);
     assert.equal(project(await state()).summaries?.length ?? 0, 0);
+    const slashRefreshStart = skillCatalogEvents.length;
     await input().fill("正文保留 /fixture");
     const slashCatalog = page.getByRole("listbox", { name: "功能与 Skills" });
-    await slashCatalog.getByRole("option").first().waitFor();
+    // 打开 slash 会刷新目录；旧行可见不代表本轮 Core 读取已经结束。
+    await until(() => {
+      const refresh = skillCatalogEvents
+        .slice(slashRefreshStart)
+        .findLast((event) => event.stage === "core" && event.outcome === "begin");
+      return (
+        refresh &&
+        skillCatalogEvents.some(
+          (event) =>
+            event.requestId === refresh.requestId &&
+            event.stage === "core" &&
+            event.outcome === "ready",
+        )
+      );
+    }, "slash Core catalog refresh completed");
+    const nextSlashOption = slashCatalog.getByRole("option", { name: /Second source/ });
+    await nextSlashOption.waitFor();
+    await page.waitForFunction(
+      (id) =>
+        document.getElementById(id)?.getAttribute("aria-selected") === "true" &&
+        document
+          .querySelector('[data-testid="chat-input"]')
+          ?.getAttribute("aria-activedescendant") === id,
+      await slashCatalog.getByRole("option").first().getAttribute("id"),
+    );
     await input().press("ArrowDown");
-    await slashCatalog
-      .locator('[role="option"][aria-selected="true"]:not([aria-disabled="true"])')
-      .waitFor();
+    await page.waitForFunction(
+      (id) =>
+        document.getElementById(id)?.getAttribute("aria-selected") === "true" &&
+        document
+          .querySelector('[data-testid="chat-input"]')
+          ?.getAttribute("aria-activedescendant") === id,
+      await nextSlashOption.getAttribute("id"),
+    );
     await input().press("Enter");
     await page.waitForFunction(
       () => document.querySelector('[data-testid="chat-input"]')?.textContent === "正文保留 ",
