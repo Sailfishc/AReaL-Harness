@@ -311,7 +311,8 @@ body,
 }
 .mobile-efforts {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   padding: calc(var(--spacing-inline) / 2);
   gap: calc(var(--spacing-inline) / 2);
 }
@@ -343,4 +344,92 @@ body,
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.mobile-sheet-header h2 {
+  flex: 1;
+}
+.mobile-model-summary {
+  width: 100%;
+  height: auto;
+  min-height: var(--size-touch-target);
+  gap: var(--spacing-inline);
+}
+.mobile-model-summary > span {
+  min-width: 0;
+}
+.mobile-setting-row {
+  display: flex;
+  width: 100%;
+  height: auto;
+  min-height: var(--size-touch-target);
+  padding: var(--spacing-field);
+  gap: var(--spacing-inline);
+  justify-content: flex-start;
+}
+.mobile-setting-value {
+  margin-left: auto;
+  min-width: 0;
+}
+.mobile-setting-row svg {
+  flex-shrink: 0;
+  width: var(--spacing-field);
+  height: var(--spacing-field);
+}
+.mobile-effort-choice {
+  display: grid;
+  place-items: center;
+  padding-inline: 0;
+}
+.mobile-effort-dot {
+  width: var(--spacing-inline);
+  height: var(--spacing-inline);
+}
+.mobile-permission-question {
+  margin: 0;
+}
+.mobile-permission-choice {
+  gap: var(--spacing-field);
+}
+.mobile-permission-choice > svg {
+  flex-shrink: 0;
+  width: var(--spacing-section);
+  height: var(--spacing-section);
+}
+.mobile-permission-choice > .mobile-choice-copy {
+  flex: 1;
+  min-width: 0;
+}
+.mobile-composer .mobile-composer-chip {
+  min-width: 0;
+}
+
+.mobile-model-sheet[data-panel="model"][data-view="advanced"] {
+  min-height: 52dvh;
+}
+.mobile-model-sheet[data-panel="permissions"] {
+  min-height: 52dvh;
+}
+.mobile-sheet-back {
+  min-width: var(--size-touch-target);
+  min-height: var(--size-touch-target);
+}
+
+/* 模型名先收缩，给权限入口和发送按钮保留触控空间。 */
+.mobile-composer [data-composer-leading-actions] {
+  flex: 0 1 auto;
+  max-width: 45%;
+}
+.mobile-composer [data-composer-trailing-actions] {
+  flex: 1;
+  min-width: 0;
+}
+.mobile-composer [data-action="model-sheet"],
+.mobile-composer [data-action="permission-sheet"] {
+  flex-shrink: 1;
+}
+
+.mobile-effort-choice[data-checked] .mobile-effort-dot {
+  width: calc(var(--size-touch-target) - var(--spacing-inline));
+  height: calc(var(--size-touch-target) - var(--spacing-inline));
 }

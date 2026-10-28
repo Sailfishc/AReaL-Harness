@@ -117,9 +117,9 @@ node clients/gui/scripts/mobile-workspace-smoke.mjs
 
 ## 验证会话命令
 
-新会话通过 `project.models` 读取电脑目录，初始显示“电脑默认”。模型、推理强度与权限选择先保留为内存意图。首发依次创建会话、读取 `session.open` 基线、按实际配置 revision 应用选择，再发送消息。配置不可用或被拒绝时保留草稿与已创建会话。运行中发送使用 `enqueue` 和精确 Turn ID；停止针对当前 Turn，Task 会话需要专属控制入口。
+新会话通过 `project.models` 读取电脑目录，初始模型显示“电脑默认”，未指定权限时显示“电脑权限”并继承电脑配置。模型、推理强度与权限选择先保留为内存意图。首发依次创建会话、读取 `session.open` 基线、按实际配置 revision 应用选择，再发送消息。配置不可用或被拒绝时保留草稿与已创建会话。运行中发送使用 `enqueue` 和精确 Turn ID；停止针对当前 Turn，Task 会话需要专属控制入口。
 
-移动页面复用 `ConversationComposer`、`ComposerQueue` 和共享 Dialog。模型与权限在底部面板分组显示，顶部“完成”确认后应用选择；关闭面板丢弃面板内未确认的改动。推理强度优先展示目录支持的低、中、高，并保留当前已配置的其他档位。执行权限显示只读、可写工作区和完全访问，分别使用既有 `readOnly` 与权限 preset 契约，受电脑能力与固定只读 Profile 限制。运行中只能查看设置。草稿只保存在内存。每次写入前，同一设备身份必须成功保存到 Keychain，再保存共享 `ClientState` 定位信息。定位信息不含正文或模型选择。回包丢失、断线或重启后只通过 `command.read` 核对原 commandId；核对创建成功不会继续自动发送。未知停止保留原精确记录，但 Core 已确认空闲后可以发送新消息。
+移动页面复用 `ConversationComposer`、`ComposerQueue` 和共享 Dialog。输入器工具栏左侧显示权限，右侧显示模型与推理强度。两个入口分别打开独立底部面板，顶部“完成”确认后应用选择；关闭面板丢弃面板内未确认的改动。模型面板支持按目录档位快速选择推理强度，并通过高级设置分别选择模型和推理档位。权限面板复用 GUI 的请求审批、帮我审批和完全访问语义、图标与说明；已有只读或自定义等状态按实际配置显示，受电脑能力与固定只读 Profile 限制。运行中只能查看设置。草稿只保存在内存。每次写入前，同一设备身份必须成功保存到 Keychain，再保存共享 `ClientState` 定位信息。定位信息不含正文或模型选择。回包丢失、断线或重启后只通过 `command.read` 核对原 commandId；核对创建成功不会继续自动发送。未知停止保留原精确记录，但 Core 已确认空闲后可以发送新消息。
 
 ```sh
 node --test clients/gui/scripts/mobile-commands.test.mjs

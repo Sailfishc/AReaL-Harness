@@ -4,10 +4,16 @@ import { Dialog, DialogContent, DialogTitle } from "@areal/ui";
 import { ConversationComposer } from "../ConversationComposer.js";
 import { RadioGroup } from "@base-ui/react/radio-group";
 import { Radio } from "@base-ui/react/radio";
-import { Check, ChevronDown, Shield } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Shield, ShieldAlert } from "lucide-react";
+import { AskPermissionIcon, AutoPermissionIcon } from "../permissionIcons.js";
 import { ComposerQueue } from "../ComposerQueue.js";
 import { SendMessageIcon, StopIcon } from "../interfaceIcons.js";
-import { permissionMode, permissionOptions } from "../permissions.js";
+import {
+  permissionChoices,
+  permissionMode,
+  permissionOptions,
+  type PermissionMode,
+} from "../permissions.js";
 import { useI18n, type MessageId } from "../i18n/IntlProvider.js";
 import type { Data, Action } from "../services.js";
 import type { LexicalChatInputHandle } from "../LexicalChatInput.js";
@@ -48,6 +54,8 @@ export function MobileComposer({
   const connection = useSyncExternalStore(client.subscribe, client.snapshot);
   const input = useRef<LexicalChatInputHandle | null>(null);
   const [sheet, setSheet] = useState<Data | null>(null);
+  const [panel, setPanel] = useState<"model" | "permissions">("model");
+  const [modelView, setModelView] = useState<"quick" | "advanced" | "models" | "effort">("quick");
   const page = view.page;
   const projectId = page.kind === "projects" ? "" : page.projectId;
   const threadId = page.kind === "session" ? page.threadId : "";
@@ -98,7 +106,11 @@ export function MobileComposer({
   const queueAction = (async () => {
     throw new Error(t("mobile.queueDesktop"));
   }) as Action;
-  const choose = () => setSheet(structuredClone(intent ?? {}));
+  const choose = (next: "model" | "permissions") => {
+    setPanel(next);
+    setModelView("quick");
+    setSheet(structuredClone(intent ?? {}));
+  };
   const sheetModel = sheet && "model" in sheet ? sheet.model : config?.model;
   const selectedModel =
     models.find(
@@ -111,28 +123,17 @@ export function MobileComposer({
     sheet?.parameters?.reasoningEffort !== undefined
       ? sheet.parameters.reasoningEffort
       : (config?.resolvedParameters?.reasoningEffort ?? config?.parameters?.reasoningEffort);
-  const reasoningOptions: string[] = selectedModel?.reasoningEffortOptions ?? [];
-  const commonEfforts = reasoningOptions.filter(
-    (value) => ["low", "medium", "high"].includes(value) || value === selectedEffort,
-  );
-  const visibleEfforts = commonEfforts.length ? commonEfforts : reasoningOptions;
-  const selectedPermission = (options: Data | undefined) => {
+  const visibleEfforts: string[] = selectedModel?.reasoningEffortOptions ?? [];
+  const selectedPermission = (options: Data | undefined): PermissionMode => {
     if (
       config?.profile?.readOnly ||
       (options?.readOnly ?? config?.options?.readOnly ?? config?.readOnly)
     )
       return "readOnly";
-    const mode = options?.permissionPreset ?? permissionMode(config ?? {});
-    return mode === "fullAccess" ? "fullAccess" : "workspace";
+    return options?.permissionPreset ?? permissionMode(config ?? {});
   };
-  const permissionLabel = (value: string) =>
-    t(
-      value === "readOnly"
-        ? "mobile.permissionReadOnly"
-        : value === "fullAccess"
-          ? "mobile.permissionFullAccess"
-          : "mobile.permissionWorkspace",
-    );
+  const permissionLabel = (value: PermissionMode) =>
+    isNew && value === "auto" ? t("mobile.computerPermissions") : t(`chat.permissions.${value}`);
   const currentPermission = selectedPermission(intent?.options);
   const currentEffort =
     intent?.parameters?.reasoningEffort ??
@@ -197,36 +198,35 @@ export function MobileComposer({
           touchInput
           modelConfig={config}
           onConfigureModel={() => {}}
-          modelControl={<></>}
+          modelControl={
+            <Button
+              variant="ghost"
+              className="mobile-composer-chip text-fixed-caption text-foreground-subtle"
+              data-action="model-sheet"
+              disabled={disabled || command.busy || blocked}
+              onClick={() => choose("model")}
+            >
+              <span>
+                {modelName}
+                {currentEffort && effortLabels[currentEffort]
+                  ? ` · ${t(effortLabels[currentEffort])}`
+                  : ""}
+              </span>
+              <ChevronDown />
+            </Button>
+          }
           leadingActions={
-            <>
-              <Button
-                variant="ghost"
-                className="mobile-composer-chip [border-radius:var(--radius-pill)] bg-hover text-fixed-caption"
-                data-action="model-sheet"
-                disabled={disabled || command.busy || blocked}
-                onClick={choose}
-              >
-                <span>
-                  {modelName}
-                  {currentEffort && effortLabels[currentEffort]
-                    ? ` · ${t(effortLabels[currentEffort])}`
-                    : ""}
-                </span>
-                <ChevronDown />
-              </Button>
-              <Button
-                variant="ghost"
-                className="mobile-composer-chip [border-radius:var(--radius-pill)] bg-hover text-fixed-caption"
-                data-action="permission-sheet"
-                aria-label={t("mobile.permissions")}
-                disabled={disabled || command.busy || blocked}
-                onClick={choose}
-              >
-                <Shield />
-                <span>{permissionLabel(currentPermission)}</span>
-              </Button>
-            </>
+            <Button
+              variant="ghost"
+              className="mobile-composer-chip text-fixed-caption text-foreground-subtle"
+              data-action="permission-sheet"
+              aria-label={t("mobile.permissions")}
+              disabled={disabled || command.busy || blocked}
+              onClick={() => choose("permissions")}
+            >
+              {currentPermission === "ask" ? <AskPermissionIcon /> : <AutoPermissionIcon />}
+              <span>{permissionLabel(currentPermission)}</span>
+            </Button>
           }
           workspacePath=""
           taskId={threadId || null}
@@ -293,6 +293,8 @@ export function MobileComposer({
       >
         <DialogContent
           className="mobile-model-sheet [&_h2]:[line-height:1.3] [&_h2]:font-semibold [&_h3]:[line-height:1.3] [&_h3]:font-semibold border-0 [border-radius:var(--radius-overlay)_var(--radius-overlay)_0_0] shadow-none [transition:translate_var(--motion-normal)_var(--ease-standard)]"
+          data-panel={panel}
+          data-view={modelView}
           overlayClassName="mobile-sheet-overlay bg-dialog-backdrop supports-backdrop-filter:backdrop-blur-none"
           closeLabel={t("mobile.cancel")}
           showCloseButton={false}
@@ -301,8 +303,29 @@ export function MobileComposer({
             className="mobile-sheet-handle bg-border [border-radius:var(--radius-pill)]"
             aria-hidden="true"
           />
-          <div className="mobile-sheet-header [&_h2]:text-fixed-emphasis">
-            <DialogTitle>{t("mobile.modelSettings")}</DialogTitle>
+          <div className="mobile-sheet-header [&_h2]:text-fixed-emphasis [&_h2]:text-center">
+            {panel === "model" && modelView !== "quick" && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="mobile-sheet-back"
+                aria-label={t("mobile.back")}
+                onClick={() => setModelView(modelView === "advanced" ? "quick" : "advanced")}
+              >
+                <ChevronLeft />
+              </Button>
+            )}
+            <DialogTitle>
+              {panel === "permissions"
+                ? t("chat.permissions.choose")
+                : modelView === "models"
+                  ? t("mobile.models")
+                  : modelView === "effort"
+                    ? t("mobile.reasoning")
+                    : modelView === "quick"
+                      ? t("mobile.models")
+                      : t("mobile.modelAdvanced")}
+            </DialogTitle>
             <Button
               variant="ghost"
               className="mobile-sheet-done text-fixed-body font-semibold"
@@ -314,118 +337,211 @@ export function MobileComposer({
             </Button>
           </div>
           <div className="mobile-sheet-scroll">
-            {isNew && view.catalog?.unsupported && <p role="status">{t("mobile.modelsUpgrade")}</p>}
-            <section className="mobile-sheet-section [&_h3]:text-fixed-label [&_h3]:font-normal [&_h3]:text-foreground-subtle">
-              <h3>{t("mobile.models")}</h3>
-              <RadioGroup
-                className="mobile-choice-group [border-radius:var(--radius-card)] bg-hover"
-                aria-label={t("mobile.models")}
-                value={
-                  selectedModel ? `${selectedModel.providerId ?? ""}/${selectedModel.modelId}` : ""
-                }
-                onValueChange={(key) => {
-                  const value = models.find(
-                    (item) => `${item.providerId ?? ""}/${item.modelId}` === key,
-                  );
-                  if (value)
-                    setSheet({
-                      ...sheet,
-                      model: value.providerId
-                        ? { providerId: value.providerId, modelId: value.modelId }
-                        : null,
-                    });
-                }}
-              >
-                {models.map((value) => (
-                  <Radio.Root
-                    key={`${value.providerId}/${value.modelId}`}
-                    value={`${value.providerId ?? ""}/${value.modelId}`}
-                    className="mobile-model-choice mobile-choice-row border-0 [border-bottom:var(--border-width-default)_solid_var(--color-border)] bg-transparent text-foreground [font-family:inherit] text-fixed-body [line-height:1.4] cursor-pointer [&:last-child]:[border-bottom:0] [&_small]:text-fixed-caption [&_small]:text-foreground-subtle [&[data-disabled]]:opacity-50 [&[data-disabled]]:cursor-default [&:focus-visible]:[outline:var(--focus-width)_solid_var(--color-ring)] [&:focus-visible]:[outline-offset:calc(-1_*_var(--focus-width))]"
-                    data-model-id={value.modelId}
-                    disabled={running || command.busy || value.available === false}
+            {panel === "model" && (
+              <>
+                {isNew && view.catalog?.unsupported && (
+                  <p role="status">{t("mobile.modelsUpgrade")}</p>
+                )}
+                {modelView === "quick" && (
+                  <Button
+                    variant="ghost"
+                    className="mobile-model-summary text-fixed-section-title! justify-center"
+                    data-action="model-advanced"
+                    onClick={() => setModelView("advanced")}
                   >
-                    <span className="mobile-choice-copy [&_>_span]:font-semibold">
-                      <span>{value.displayName || value.modelId}</span>
-                      {(value.isDefault || !value.providerId) && (
-                        <small>{t("mobile.computerDefault")}</small>
-                      )}
-                      {value.available === false && <small>{t("mobile.modelUnavailable")}</small>}
+                    <span className="truncate">{selectedModel?.displayName || modelName}</span>
+                    <span className="text-foreground-subtle">
+                      {selectedEffort && effortLabels[selectedEffort]
+                        ? t(effortLabels[selectedEffort])
+                        : t("chat.composer.serviceDefault")}
                     </span>
-                    <Radio.Indicator className="mobile-choice-check text-brand">
-                      <Check />
-                    </Radio.Indicator>
-                  </Radio.Root>
-                ))}
-              </RadioGroup>
-            </section>
-            {selectedModel &&
-              selectedModel.capabilities?.reasoning !== false &&
-              visibleEfforts.length > 0 && (
-                <section className="mobile-sheet-section [&_h3]:text-fixed-label [&_h3]:font-normal [&_h3]:text-foreground-subtle">
-                  <h3>{t("mobile.reasoning")}</h3>
+                    <ChevronRight />
+                  </Button>
+                )}
+                {modelView === "advanced" && (
+                  <div className="mobile-choice-group rounded-[var(--radius-card)] bg-hover">
+                    <Button
+                      variant="ghost"
+                      className="mobile-setting-row text-fixed-emphasis! [&:not(:last-child)]:border-b [&:not(:last-child)]:border-border"
+                      data-action="model-list"
+                      onClick={() => setModelView("models")}
+                    >
+                      <span>{t("mobile.models")}</span>
+                      <span className="mobile-setting-value truncate">
+                        {selectedModel?.displayName || modelName}
+                      </span>
+                      <ChevronDown />
+                    </Button>
+                    {selectedModel?.capabilities?.reasoning !== false &&
+                      visibleEfforts.length > 0 && (
+                        <Button
+                          variant="ghost"
+                          className="mobile-setting-row text-fixed-emphasis! [&:not(:last-child)]:border-b [&:not(:last-child)]:border-border"
+                          data-action="effort-list"
+                          onClick={() => setModelView("effort")}
+                        >
+                          <span>{t("mobile.reasoning")}</span>
+                          <span className="mobile-setting-value">
+                            {selectedEffort && effortLabels[selectedEffort]
+                              ? t(effortLabels[selectedEffort])
+                              : t("chat.composer.serviceDefault")}
+                          </span>
+                          <ChevronDown />
+                        </Button>
+                      )}
+                  </div>
+                )}
+                {modelView === "models" && (
                   <RadioGroup
-                    className="mobile-efforts [border-radius:var(--radius-control)] bg-hover"
-                    aria-label={t("mobile.reasoning")}
-                    value={selectedEffort ?? "default"}
-                    onValueChange={(value) =>
-                      setSheet({ ...sheet, parameters: { reasoningEffort: value } })
+                    className="mobile-choice-group rounded-[var(--radius-card)] bg-hover"
+                    aria-label={t("mobile.models")}
+                    value={
+                      selectedModel
+                        ? `${selectedModel.providerId ?? ""}/${selectedModel.modelId}`
+                        : ""
                     }
+                    onValueChange={(key) => {
+                      const value = models.find(
+                        (item) => `${item.providerId ?? ""}/${item.modelId}` === key,
+                      );
+                      if (value) {
+                        setSheet({
+                          ...sheet,
+                          model: value.providerId
+                            ? { providerId: value.providerId, modelId: value.modelId }
+                            : null,
+                        });
+                        setModelView("advanced");
+                      }
+                    }}
                   >
-                    {visibleEfforts.map((value: string) => (
+                    {models.map((value) => (
                       <Radio.Root
-                        key={value}
-                        value={value}
-                        className="mobile-effort-choice border-0 [border-radius:var(--radius-inset)] bg-transparent text-foreground-subtle text-fixed-label [&[data-checked]]:bg-background [&[data-checked]]:text-foreground [&[data-checked]]:[box-shadow:var(--shadow-raised-control)] [&:focus-visible]:[outline:var(--focus-width)_solid_var(--color-ring)] [&:focus-visible]:[outline-offset:calc(-1_*_var(--focus-width))]"
-                        disabled={running || command.busy}
+                        key={`${value.providerId}/${value.modelId}`}
+                        value={`${value.providerId ?? ""}/${value.modelId}`}
+                        className="mobile-model-choice mobile-choice-row border-0 [border-bottom:var(--border-width-default)_solid_var(--color-border)] bg-transparent text-foreground [font-family:inherit] text-fixed-body [line-height:1.4] cursor-pointer [&:last-child]:[border-bottom:0] [&_small]:text-fixed-caption [&_small]:text-foreground-subtle [&[data-disabled]]:opacity-50 [&[data-disabled]]:cursor-default [&:focus-visible]:[outline:var(--focus-width)_solid_var(--color-ring)] [&:focus-visible]:[outline-offset:calc(-1_*_var(--focus-width))]"
+                        data-model-id={value.modelId}
+                        disabled={running || command.busy || value.available === false}
                       >
-                        {value === "default"
-                          ? t("chat.composer.serviceDefault")
-                          : effortLabels[value]
-                            ? t(effortLabels[value])
-                            : value}
+                        <span className="mobile-choice-copy [&_>_span]:font-semibold">
+                          <span>{value.displayName || value.modelId}</span>
+                          {(value.isDefault || !value.providerId) && (
+                            <small>{t("mobile.computerDefault")}</small>
+                          )}
+                          {value.available === false && (
+                            <small>{t("mobile.modelUnavailable")}</small>
+                          )}
+                        </span>
+                        <Radio.Indicator className="mobile-choice-check text-brand">
+                          <Check />
+                        </Radio.Indicator>
                       </Radio.Root>
                     ))}
                   </RadioGroup>
-                </section>
-              )}
-            <section className="mobile-sheet-section [&_h3]:text-fixed-label [&_h3]:font-normal [&_h3]:text-foreground-subtle">
-              <h3>{t("mobile.executionPermissions")}</h3>
-              <RadioGroup
-                className="mobile-choice-group [border-radius:var(--radius-card)] bg-hover"
-                aria-label={t("mobile.permissions")}
-                value={selectedPermission(sheet?.options)}
-                onValueChange={(mode) =>
-                  setSheet({
-                    ...sheet,
-                    options: {
-                      ...permissionOptions(mode === "fullAccess" ? "fullAccess" : "ask"),
-                      readOnly: mode === "readOnly",
-                    },
-                  })
-                }
-              >
-                {["readOnly", "workspace", "fullAccess"].map((mode) => (
-                  <Radio.Root
-                    key={mode}
-                    value={mode}
-                    className="mobile-choice-row border-0 [border-bottom:var(--border-width-default)_solid_var(--color-border)] bg-transparent text-foreground [font-family:inherit] text-fixed-body [line-height:1.4] cursor-pointer [&:last-child]:[border-bottom:0] [&_small]:text-fixed-caption [&_small]:text-foreground-subtle [&[data-disabled]]:opacity-50 [&[data-disabled]]:cursor-default [&:focus-visible]:[outline:var(--focus-width)_solid_var(--color-ring)] [&:focus-visible]:[outline-offset:calc(-1_*_var(--focus-width))]"
-                    data-permission-preset={mode === "workspace" ? "ask" : mode}
-                    disabled={
-                      running ||
-                      command.busy ||
-                      (!isNew && (!config?.permissions || config?.profile?.readOnly)) ||
-                      (mode === "fullAccess" && !isNew && !config?.permissions?.fullAccessAvailable)
-                    }
-                  >
-                    <span>{permissionLabel(mode)}</span>
-                    {mode === "fullAccess" && <small>{t("mobile.fullComputerAccess")}</small>}
-                    <Radio.Indicator className="mobile-choice-check text-brand">
-                      <Check />
-                    </Radio.Indicator>
-                  </Radio.Root>
-                ))}
-              </RadioGroup>
-            </section>
+                )}
+                {["quick", "effort"].includes(modelView) &&
+                  selectedModel?.capabilities?.reasoning !== false &&
+                  visibleEfforts.length > 0 && (
+                    <RadioGroup
+                      className="mobile-efforts rounded-[var(--radius-pill)] bg-hover"
+                      aria-label={t("mobile.reasoning")}
+                      value={selectedEffort ?? "default"}
+                      onValueChange={(value) =>
+                        setSheet({
+                          ...sheet,
+                          parameters: { ...sheet?.parameters, reasoningEffort: value },
+                        })
+                      }
+                    >
+                      {visibleEfforts.map((value: string) => (
+                        <Radio.Root
+                          key={value}
+                          value={value}
+                          aria-label={effortLabels[value] ? t(effortLabels[value]) : value}
+                          className="mobile-effort-choice rounded-[var(--radius-pill)] border-0 bg-transparent text-foreground-subtle text-fixed-caption [&[data-checked]]:bg-brand [&[data-checked]_.mobile-effort-dot]:bg-control-thumb [&:focus-visible]:ring-2 [&:focus-visible]:ring-ring"
+                          disabled={running || command.busy}
+                        >
+                          <span
+                            className="mobile-effort-dot rounded-[var(--radius-pill)] bg-current"
+                            aria-hidden="true"
+                          />
+                          <span className="sr-only">
+                            {effortLabels[value] ? t(effortLabels[value]) : value}
+                          </span>
+                        </Radio.Root>
+                      ))}
+                    </RadioGroup>
+                  )}
+              </>
+            )}
+            {panel === "permissions" && (
+              <>
+                <p className="mobile-permission-question text-fixed-emphasis text-center">
+                  {t("mobile.permissionQuestion")}
+                </p>
+                <RadioGroup
+                  className="mobile-choice-group rounded-[var(--radius-overlay)] bg-hover"
+                  aria-label={t("mobile.permissions")}
+                  value={selectedPermission(sheet?.options)}
+                  onValueChange={(mode) =>
+                    setSheet({
+                      ...sheet,
+                      options: permissionOptions(
+                        mode as "ask" | "autoReview" | "fullAccess",
+                        sheet?.options ?? intent?.options ?? config?.options,
+                      ),
+                    })
+                  }
+                >
+                  {permissionChoices.map((option) => (
+                    <Radio.Root
+                      key={option.id}
+                      value={option.id}
+                      className={`mobile-permission-choice mobile-choice-row border-0 [border-bottom:var(--border-width-default)_solid_var(--color-border)] bg-transparent text-foreground [font-family:inherit] text-fixed-body [line-height:1.4] cursor-pointer [&:last-child]:[border-bottom:0] [&_small]:text-fixed-caption [&_small]:text-foreground-subtle [&[data-disabled]]:opacity-50 [&[data-disabled]]:cursor-default [&:focus-visible]:[outline:var(--focus-width)_solid_var(--color-ring)] [&:focus-visible]:[outline-offset:calc(-1_*_var(--focus-width))] ${option.id === "fullAccess" ? "text-status-attention! [&_small]:text-status-attention!" : ""}`}
+                      data-permission-preset={option.id}
+                      disabled={
+                        running ||
+                        command.busy ||
+                        (!isNew && (!config?.permissions || config?.profile?.readOnly)) ||
+                        (option.id === "fullAccess" &&
+                          !isNew &&
+                          !config?.permissions?.fullAccessAvailable)
+                      }
+                    >
+                      {option.id === "ask" ? (
+                        <AskPermissionIcon />
+                      ) : option.id === "fullAccess" ? (
+                        <ShieldAlert />
+                      ) : (
+                        <AutoPermissionIcon />
+                      )}
+                      <span className="mobile-choice-copy">
+                        <span className="text-fixed-emphasis">{t(option.labelId)}</span>
+                        <small>{t(option.descriptionId)}</small>
+                      </span>
+                      <Radio.Indicator className="mobile-choice-check text-foreground">
+                        <Check />
+                      </Radio.Indicator>
+                    </Radio.Root>
+                  ))}
+                  {!permissionChoices.some(
+                    (option) => option.id === selectedPermission(sheet?.options),
+                  ) && (
+                    <Radio.Root
+                      value={selectedPermission(sheet?.options)}
+                      className="mobile-permission-choice mobile-choice-row border-0 [border-bottom:var(--border-width-default)_solid_var(--color-border)] bg-transparent text-foreground [font-family:inherit] text-fixed-body [line-height:1.4] cursor-pointer [&:last-child]:[border-bottom:0] [&_small]:text-fixed-caption [&_small]:text-foreground-subtle [&[data-disabled]]:opacity-50 [&[data-disabled]]:cursor-default [&:focus-visible]:[outline:var(--focus-width)_solid_var(--color-ring)] [&:focus-visible]:[outline-offset:calc(-1_*_var(--focus-width))]"
+                      disabled
+                    >
+                      <Shield />
+                      <span>{permissionLabel(selectedPermission(sheet?.options))}</span>
+                      <Radio.Indicator className="mobile-choice-check">
+                        <Check />
+                      </Radio.Indicator>
+                    </Radio.Root>
+                  )}
+                </RadioGroup>
+              </>
+            )}
             <p className="mobile-sheet-note text-fixed-caption leading-normal text-foreground-subtle">
               {t("mobile.configureAfterTurn")} {t("mobile.applyOnSend")}
             </p>

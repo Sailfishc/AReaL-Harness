@@ -146,11 +146,14 @@ export async function runProduct(
         await wait(() => document.querySelector('[data-action="model-sheet"]:not(:disabled)'));
         if (config.mode !== "new") {
           await click("model-sheet");
+          await click("model-advanced");
+          await click("model-list");
           const alternative = await wait(() =>
-            document.querySelector<HTMLButtonElement>('[data-model-id="fixture-alt"]'),
+            document.querySelector<HTMLElement>('[data-model-id="fixture-alt"]'),
           );
           if (config.mode === "send") {
             alternative.click();
+            await click("effort-list");
             const effort = await wait(() =>
               [...document.querySelectorAll<HTMLElement>('.mobile-efforts [role="radio"]')].find(
                 (button) => button.textContent === "High" || button.textContent === "高",
@@ -192,7 +195,7 @@ export async function runProduct(
         );
       }
       if (config.mode === "permissions") {
-        await click("model-sheet");
+        await click("permission-sheet");
         const full = await wait(() =>
           document.querySelector<HTMLElement>(
             '[data-permission-preset="fullAccess"]:not([data-disabled])',

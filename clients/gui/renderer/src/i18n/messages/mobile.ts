@@ -1,4 +1,10 @@
 export const mobileMessages = {
+  "mobile.computerPermissions": { "zh-CN": "电脑权限", en: "Computer permissions" },
+  "mobile.modelAdvanced": { "zh-CN": "高级设置", en: "Advanced" },
+  "mobile.permissionQuestion": {
+    "zh-CN": "如何审批 Agent 的操作？",
+    en: "How should Agent actions be approved?",
+  },
   "mobile.projectIdle": { "zh-CN": "空闲", en: "Idle" },
   "mobile.executionPermissions": { "zh-CN": "执行权限", en: "Execution permissions" },
   "mobile.authorizedProjects": {
