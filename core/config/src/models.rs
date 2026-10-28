@@ -222,22 +222,6 @@ fn validate(data: &[ProviderConfig], default: Option<&ModelRef>, at: &ConfigSour
             {
                 return Err(invalid(at, "invalid model reasoning effort options"));
             }
-            if let Some(capabilities) = &model.capabilities
-                && capabilities.reasoning
-                && let Some(options) = &capabilities.reasoning_effort_options
-                && !options.is_empty()
-                && model
-                    .parameters
-                    .reasoning_effort
-                    .as_ref()
-                    .or(provider.parameters.reasoning_effort.as_ref())
-                    .is_some_and(|effort| !options.contains(effort))
-            {
-                return Err(invalid(
-                    at,
-                    "configured reasoning effort is not supported by the model",
-                ));
-            }
         }
     }
     if let Some(default) = default {

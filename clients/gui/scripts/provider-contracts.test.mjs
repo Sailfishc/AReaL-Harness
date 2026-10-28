@@ -69,6 +69,12 @@ test("account catalog shares fetch, retains order, filters hidden models and tra
             display_name: "B",
             context_window: 500000,
             max_context_window: 872000,
+            supported_reasoning_levels: [
+              { effort: "low" },
+              { effort: "max" },
+              { effort: "max" },
+              { effort: "private-unknown" },
+            ],
           },
           { slug: "hidden", visibility: "hide" },
           { slug: "a", visibility: "list", context_window: -1 },
@@ -85,6 +91,8 @@ test("account catalog shares fetch, retains order, filters hidden models and tra
     ["b", "a"],
   );
   assert.deepEqual(results[0][0].parameters, { contextWindowTokens: 500000 });
+  assert.deepEqual(results[0][0].reasoningEffortOptions, ["low", "max"]);
+  assert.equal(results[0][1].reasoningEffortOptions, undefined);
   assert.equal(results[0][1].parameters?.contextWindowTokens, undefined);
   assert.equal(catalog.metadata().source, "account");
   assert.equal(catalog.metadata().fresh, true);
@@ -480,4 +488,136 @@ test("remembered model and effort survive checking or unavailable catalog entrie
   const confirmed = resolveNewConversationModel([fallback], last);
   assert.equal(confirmed.candidate.modelId, "default");
   assert.equal(confirmed.notice, "model-unavailable");
+});
+
+test("known official effort rules do not apply to a custom gateway with the same model name", async () => {
+  const { resolvedModelCapabilities } = await import("../packages/provider-config/connections.cjs");
+  const model = { id: "gpt-6.1-sol" };
+  assert.deepEqual(
+    resolvedModelCapabilities({ endpoint: "https://api.openai.com/v1/responses" }, model)
+      .reasoningEffortOptions,
+    ["low", "medium", "high", "xhigh", "max"],
+  );
+  for (const endpoint of [
+    "http://api.openai.com/v1/responses",
+    "https://api.openai.com:8443/v1/responses",
+    "https://gateway.invalid/v1/responses",
+  ])
+    assert.equal(resolvedModelCapabilities({ endpoint }, model), undefined);
+  const custom = {
+    ...model,
+    capabilities: {
+      tools: true,
+      vision: false,
+      reasoning: true,
+      reasoningEffortOptions: ["minimal"],
+    },
+  };
+  assert.deepEqual(
+    resolvedModelCapabilities({ endpoint: "https://gateway.invalid/v1/responses" }, custom)
+      .reasoningEffortOptions,
+    ["minimal"],
+  );
+  assert.deepEqual(
+    resolvedModelCapabilities({ endpoint: "https://api.openai.com/v1/responses" }, custom)
+      .reasoningEffortOptions,
+    [],
+  );
+});
+
+test("effort selection preserves service default and distinguishes unknown from explicitly empty capabilities", async () => {
+  const { resolveNewConversationModel, resolveModelEffort } =
+    await import("../packages/workbench/client/model-selection.js");
+  const base = {
+    providerId: "custom",
+    modelId: "opaque",
+    isDefault: true,
+    reasoningEffortOptions: [],
+  };
+  const explicit = {
+    ...base,
+    capabilities: { reasoning: true, reasoningEffortOptions: [] },
+    parameters: { reasoningEffort: "minimal" },
+  };
+  assert.equal(
+    resolveModelEffort({ ...base, reasoningEffortOptions: ["low", "medium"] }),
+    undefined,
+  );
+  assert.equal(resolveModelEffort(base, "minimal"), "minimal");
+  assert.equal(resolveModelEffort(explicit, "minimal"), "default");
+  assert.equal(resolveModelEffort(explicit, "default"), "default");
+  assert.equal(
+    resolveModelEffort({ ...base, reasoningEffortOptions: ["low", "medium"] }, "minimal"),
+    "medium",
+  );
+  assert.equal(resolveModelEffort({ ...base, reasoningEffortOptions: ["low"] }, "minimal"), "low");
+  const last = { model: base, modelId: "opaque", reasoningEffort: "minimal" };
+  assert.equal(resolveNewConversationModel([explicit], last).notice, "effort-unsupported");
+  const historical = resolveNewConversationModel(
+    [{ ...base, reasoningEffortOptions: ["low", "medium"] }],
+    last,
+  );
+  assert.equal(historical.notice, "effort-unsupported");
+  assert.equal(resolveModelEffort(historical.candidate, historical.rememberedEffort), "medium");
+  assert.equal(resolveNewConversationModel([explicit], last).rememberedEffort, "default");
+  assert.equal(
+    resolveNewConversationModel([explicit], { ...last, reasoningEffort: "default" })
+      .rememberedEffort,
+    "default",
+  );
+});
+
+test("projectless catalog uses declared API and fresh account efforts without a protocol-wide fallback", async () => {
+  const { ProjectlessWorkspaces } = await import("../app/src/core/projectless.cjs");
+  const caps = { tools: true, vision: true, reasoning: true, reasoningEffortOptions: [] };
+  const providers = {
+    config: {
+      current: async () => ({
+        effective: { model: {} },
+        credentialStates: {},
+        data: [
+          {
+            id: "official",
+            enabled: true,
+            endpoint: "https://api.openai.com/v1/responses",
+            parameters: {},
+            models: [{ id: "gpt-6.1-sol", enabled: true, parameters: {} }],
+          },
+          {
+            id: "custom",
+            enabled: true,
+            endpoint: "http://127.0.0.1/v1/responses",
+            parameters: {},
+            models: [
+              { id: "gpt-6.1-sol", enabled: true, parameters: {} },
+              {
+                id: "empty",
+                enabled: true,
+                parameters: { reasoningEffort: "minimal" },
+                capabilities: caps,
+              },
+            ],
+          },
+        ],
+      }),
+    },
+    openaiService: {
+      catalog: { metadata: () => ({ fresh: true }) },
+      models: [
+        { id: "account-model", reasoningEffortOptions: ["high", "max"] },
+        { id: "unknown-account-model" },
+      ],
+    },
+  };
+  const result = await new ProjectlessWorkspaces({ providers }).command({ operation: "catalog" });
+  assert.deepEqual(
+    result.models.map((model) => model.reasoningEffortOptions),
+    [["low", "medium", "high", "xhigh", "max"], [], [], ["high", "max"], []],
+  );
+  assert.equal(
+    result.models[2].parameters.reasoningEffort,
+    "minimal",
+    "historical intent remains available for correction",
+  );
+  assert.equal(result.models[2].available, true);
 });

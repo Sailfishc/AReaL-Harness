@@ -326,8 +326,6 @@ impl Engine {
         let last_accepted_model = self.last_accepted_model().await;
         let _configuration = self.desktop.model_configuration.read().unwrap();
         let mut data = Vec::new();
-        // 这是现有 HTTP 适配器的允许值，不代表远端供应商已验证这些选项。
-        let efforts = ["none", "minimal", "low", "medium", "high", "xhigh"];
         let model = self.default_model();
         let default_model = self
             .desktop
@@ -343,25 +341,19 @@ impl Engine {
         if !model.name().is_empty() {
             let model_capabilities = model.capabilities();
             let declared = model_capabilities.declared.as_ref();
-            let reasoning_efforts: Vec<String> =
-                if declared.is_some_and(|declared| !declared.reasoning) {
-                    Vec::new()
-                } else {
-                    declared
-                        .and_then(|declared| declared.reasoning_effort_options.clone())
-                        .filter(|options| !options.is_empty())
-                        .unwrap_or_else(|| {
-                            if matches!(
-                                model.provider(),
-                                "openai.responses" | "openai.chat_completions"
-                            ) {
-                                efforts.iter().map(|effort| (*effort).into()).collect()
-                            } else {
-                                Vec::new()
-                            }
-                        })
-                };
-            data.push(json!({"providerId":null,"providerRevision":null,"modelId":model.name(),"parameters":parameters,"isDefault":default_model.is_none(),"available":model.check_work().is_ok(),"transport":model.provider(),"capabilities":declared,"reasoningEffortOptions":reasoning_efforts,"input":model.capabilities().input,"output":model.capabilities().output,"contextWindowTokens":model.capabilities().context_window_tokens,"effectiveContextWindowTokens":model.capabilities().context_window_tokens.unwrap_or(self.limits.context_window_tokens)}));
+            let reasoning_efforts = declared
+                .filter(|value| value.reasoning)
+                .and_then(|value| value.reasoning_effort_options.clone())
+                .unwrap_or_default();
+            let available = model.check_work().map_or_else(
+                |error| {
+                    error
+                        .downcast_ref::<model::ModelConfigurationError>()
+                        .is_some()
+                },
+                |_| true,
+            );
+            data.push(json!({"providerId":null,"providerRevision":null,"modelId":model.name(),"parameters":parameters,"isDefault":default_model.is_none(),"available":available,"transport":model.provider(),"capabilities":declared,"reasoningEffortOptions":reasoning_efforts,"input":model.capabilities().input,"output":model.capabilities().output,"contextWindowTokens":model.capabilities().context_window_tokens,"effectiveContextWindowTokens":model.capabilities().context_window_tokens.unwrap_or(self.limits.context_window_tokens)}));
         }
         let mut factory = model::HttpModelFactory::default();
         for p in self.desktop.catalog.read().unwrap().providers.values() {
@@ -377,7 +369,9 @@ impl Engine {
                     "responses" => model::ModelProtocol::Responses.capabilities(),
                     _ => model::ModelProtocol::ChatCompletions.capabilities(),
                 };
-                let declared = p.model_capabilities.get(name);
+                let resolved =
+                    model::resolved_capabilities(&p.endpoint, name, p.model_capabilities.get(name));
+                let declared = resolved.as_ref();
                 if declared.is_some_and(|declared| !declared.vision) {
                     capabilities
                         .input
@@ -387,8 +381,7 @@ impl Engine {
                 let reasoning_efforts: Vec<String> = if reasoning {
                     declared
                         .and_then(|declared| declared.reasoning_effort_options.clone())
-                        .filter(|options| !options.is_empty())
-                        .unwrap_or_else(|| efforts.iter().map(|effort| (*effort).into()).collect())
+                        .unwrap_or_default()
                 } else {
                     Vec::new()
                 };

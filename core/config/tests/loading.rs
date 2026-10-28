@@ -1427,10 +1427,15 @@ fn model_capabilities_preserve_explicit_false_and_reasoning_options() {
     let catalog = serde_json::to_value(&config.model_catalog).unwrap();
     assert_eq!(catalog[0]["models"][0]["capabilities"]["tools"], false);
     let text = std::fs::read_to_string(i.config_file.as_ref().unwrap()).unwrap();
-    for invalid in ["['low','low']", "['unknown']", "['low']"] {
+    for invalid in ["['low','low']", "['unknown']"] {
         write(&mut i, &text.replace("['low','max']", invalid));
         assert!(load_config(&i).is_err());
     }
+    write(&mut i, &text.replace("['low','max']", "['low']"));
+    assert_eq!(
+        load_config(&i).unwrap().model.reasoning_effort.as_deref(),
+        Some("max")
+    );
     write(&mut i, &text.replace("['low','max']", "[]"));
     assert_eq!(
         load_config(&i).unwrap().model.reasoning_effort.as_deref(),

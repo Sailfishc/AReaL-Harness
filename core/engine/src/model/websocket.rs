@@ -229,6 +229,8 @@ impl HttpModel {
                         reqwest::StatusCode::TOO_MANY_REQUESTS => ModelFailure::RateLimited.into(),
                         s if s.is_server_error() => ModelFailure::Unavailable.into(),
                         _ => HttpFailure {
+                            request_id: None,
+                            guidance: "",
                             status,
                             detail: None,
                         }

@@ -310,7 +310,7 @@ export function MobileComposer({
                 </Button>
               ))}
             </div>
-            {!!selectedModel?.reasoningEffortOptions?.length && (
+            {selectedModel && selectedModel.capabilities?.reasoning !== false && (
               <div className="mobile-stack flex flex-col gap-field">
                 <h3 className="text-fixed-label">{t("mobile.reasoning")}</h3>
                 <div
@@ -318,18 +318,26 @@ export function MobileComposer({
                   role="group"
                   aria-label={t("mobile.reasoning")}
                 >
-                  {selectedModel.reasoningEffortOptions.map((value: string) => (
-                    <Button
-                      className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
-                      key={value}
-                      variant={selectedEffort === value ? "secondary" : "ghost"}
-                      aria-pressed={selectedEffort === value}
-                      disabled={running || command.busy}
-                      onClick={() => setSheet({ ...sheet, parameters: { reasoningEffort: value } })}
-                    >
-                      {effortLabels[value] ? t(effortLabels[value]) : value}
-                    </Button>
-                  ))}
+                  {["default", ...(selectedModel.reasoningEffortOptions ?? [])].map(
+                    (value: string) => (
+                      <Button
+                        className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
+                        key={value}
+                        variant={selectedEffort === value ? "secondary" : "ghost"}
+                        aria-pressed={selectedEffort === value}
+                        disabled={running || command.busy}
+                        onClick={() =>
+                          setSheet({ ...sheet, parameters: { reasoningEffort: value } })
+                        }
+                      >
+                        {value === "default"
+                          ? t("chat.composer.serviceDefault")
+                          : effortLabels[value]
+                            ? t(effortLabels[value])
+                            : value}
+                      </Button>
+                    ),
+                  )}
                 </div>
               </div>
             )}

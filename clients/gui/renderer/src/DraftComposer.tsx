@@ -449,7 +449,9 @@ export function DraftComposer({
       }
       if (
         effort &&
-        chosenModel.reasoningEffortOptions &&
+        effort !== "default" &&
+        (chosenModel.capabilities?.reasoningEffortOptions !== undefined ||
+          chosenModel.reasoningEffortOptions?.length) &&
         !chosenModel.reasoningEffortOptions.includes(effort)
       )
         throw new Error("所选推理强度已不可用，输入与选择已保留，请重新选择强度。");

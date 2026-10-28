@@ -116,6 +116,8 @@ target/debug/areal service bind --workspace /absolute/workspace \
 
 共享服务使用管理模式启动：默认模型凭据缺失、为空或不满足 HTTP header 格式时，Core 仍可连接，模型目录将其标记为不可用。该模型的执行返回 `MODEL_CREDENTIAL_UNAVAILABLE`，不发送匿名请求、不切换模型。GUI 可进入设置补填密钥并保存应用；支持热应用的 Core 通过[受保护的模型配置接口](desktop.md#模型配置热应用)追加安全存储引用并确认文件版本，不重启 Core 或 Runtime。启动环境中的普通凭据和非模型部署变化继续遵循原重启规则。配置语法、模型地址和协议等其他校验仍然保留。
 
+模型目录 `reasoningEffortOptions` 只列已声明或已核实的档位；未知时返回空列表。`capabilities.reasoningEffortOptions` 省略表示未知，显式空列表表示无可选强度。Core 在最终参数合并后阻止已知非法值，供应商目录仍可用于修正。配置 `reasoningEffort: "default"` 明确覆盖继承默认，HTTP 请求省略强度；null／省略仍继承。识别出的参数拒绝使用 `MODEL_PARAMETER_UNSUPPORTED`，只公开白名单参数和关联 `requestId`；原始供应商错误保存在私有本机诊断，不自动改参重发。
+
 ### 派生会话与数据兼容性
 
 `areal/capabilities.features.conversationDerivationV1` 默认返回 `preview:false`、实际方法集合、Fork 边界、`sharedCurrent`、可用的 Side `workspaceAccess` 和有效限额，无需开发环境开关。客户端按当前连接的公开能力启用创建入口。

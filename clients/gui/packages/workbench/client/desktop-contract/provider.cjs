@@ -283,7 +283,9 @@ function modelParameters(raw = {}) {
     (contextWindowTokens != null && !validContextWindow(contextWindowTokens)) ||
     (reasoningEffort != null &&
       (typeof reasoningEffort !== "string" ||
-        !["none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(reasoningEffort)))
+        !["default", "none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(
+          reasoningEffort,
+        )))
   )
     throw new Error("模型参数无效");
   return {
@@ -320,7 +322,7 @@ function modelCapabilities(raw) {
 }
 
 /** @typedef {'none'|'minimal'|'low'|'medium'|'high'|'xhigh'|'max'} ReasoningEffort */
-/** @typedef {Pick<ModelParameters,'temperature'|'maxOutputTokens'|'contextWindowTokens'> & {reasoningEffort?:ReasoningEffort|null}} ModelInputParameters */
+/** @typedef {Pick<ModelParameters,'temperature'|'maxOutputTokens'|'contextWindowTokens'> & {reasoningEffort?:ReasoningEffort|'default'|null}} ModelInputParameters */
 /** @typedef {Pick<ModelCapabilities,'tools'|'vision'|'reasoning'> & {reasoningEffortOptions?:ReasoningEffort[]}} ModelInputCapabilities */
 /** @typedef {{id?:string,name:string,baseUrl:string,protocol:'chatCompletions'|'responses',enabled?:boolean,models:Array<{id:string,displayName?:string,enabled?:boolean,parameters?:ModelInputParameters,capabilities?:ModelInputCapabilities}>,parameters?:ModelInputParameters}} ProviderDraft */
 /** @typedef {{baseUrl:string,protocol:'chatCompletions'|'responses',credential:{kind:'none'}|{kind:'draft',value:string}|{kind:'saved',providerId:string,expectedRevision:string}}} DiscoveryConnection */

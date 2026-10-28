@@ -661,26 +661,6 @@ class AppProviders {
       });
     else if (provider === null) this.subscriptionApplications.delete(target.project);
     target.project.models = models;
-    const metadata = this.subscription.models.map((model) => {
-      const entry = models.find(
-        (item) => item.providerId === "areal_openai" && item.modelId === model.id,
-      );
-      return {
-        ...model,
-        ...(providerContract.strings(entry?.reasoningEffortOptions)
-          ? { reasoningEffortOptions: entry.reasoningEffortOptions }
-          : {}),
-      };
-    });
-    if (!isDeepStrictEqual(metadata, this.subscription.models)) {
-      this.subscription = { ...this.subscription, models: metadata };
-      if (this.subscriptionIdentity)
-        await this.backend.save("subscription-catalog.json", {
-          version: 1,
-          identity: this.subscriptionIdentity,
-          models: publicSubscriptionModels(metadata),
-        });
-    }
     this.backend.onChange();
   }
   /** @param {CoreProject} project @param {import('@areal/chatgpt-provider/core').CoreSubscription|null} service @param {Record<string,unknown>} [correlation] @param {SubscriptionScope} [scope] */
@@ -785,6 +765,19 @@ class AppProviders {
       }
       const models = status.models ?? service.models;
       const contexts = subscriptionContexts(models);
+      const capabilities = Object.fromEntries(
+        models
+          .filter((model) => model.reasoningEffortOptions !== undefined)
+          .map((model) => [
+            model.id,
+            {
+              tools: true,
+              vision: true,
+              reasoning: true,
+              reasoningEffortOptions: model.reasoningEffortOptions,
+            },
+          ]),
+      );
       const desired = {
         id: service.id ?? "areal_openai",
         contextSource: "account",
@@ -793,6 +786,7 @@ class AppProviders {
         credentialRef: service.id ?? "areal_openai",
         models: models.map((m) => m.id),
         ...(Object.keys(contexts).length ? { modelParameters: contexts } : {}),
+        ...(Object.keys(capabilities).length ? { modelCapabilities: capabilities } : {}),
         parameters: {},
       };
       trace.advance(scope.observeOnly ? "provider_confirm" : "provider_upsert");
@@ -800,6 +794,7 @@ class AppProviders {
       if (
         !existing ||
         !isDeepStrictEqual(existing.modelParameters ?? {}, contexts) ||
+        !isDeepStrictEqual(existing.modelCapabilities ?? {}, capabilities) ||
         Object.entries(desired).some(
           ([k, v]) => k !== "modelParameters" && JSON.stringify(existing[k]) !== JSON.stringify(v),
         )

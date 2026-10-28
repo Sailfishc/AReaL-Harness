@@ -4,6 +4,7 @@ const { readFile, mkdir, realpath, stat } = require("node:fs/promises");
 const { join, isAbsolute } = require("node:path");
 const { modelRecord } = require("@areal/workbench/core-model-contract");
 const catalogContract = require("@areal/workbench/desktop-contract/catalog");
+const { resolvedModelCapabilities } = require("@areal/provider-config");
 const { homedir } = require("node:os");
 
 // Desktop reserves workspace roots; Core remains the sole owner of threads and
@@ -43,8 +44,6 @@ class ProjectlessWorkspaces {
       const providers = this.backend.providers;
       const config = await providers.config.current();
       const selected = readEffectiveModel(config.effective);
-      // 与 Core model_catalog 的 HTTP 适配器缺省允许值一致；发送时再核对目标 Core。
-      const efforts = ["none", "minimal", "low", "medium", "high", "xhigh"];
       /** @type {Array<{providerId:string|null,modelId:string,displayName:string,available:boolean,credentialState?:string,isDefault:boolean,parameters:import("./provider-contract.cjs").ModelParameters,capabilities?:import("./provider-contract.cjs").ModelCapabilities,reasoningEffortOptions:string[]}>} */
       const data = config.data
         .filter((provider) => provider.enabled)
@@ -56,30 +55,31 @@ class ProjectlessWorkspaces {
             !models.some((model) => model.id === selected.name)
           )
             models.push({ id: selected.name, parameters: {}, enabled: true });
-          return models.map((model) => ({
-            providerId: provider.id,
-            modelId: model.id,
-            displayName: model.displayName ?? model.id,
-            available: config.credentialStates[provider.id] !== "unavailable",
-            credentialState: config.credentialStates[provider.id],
-            isDefault: provider.id === selected.provider && model.id === selected.name,
-            parameters: {
-              ...provider.parameters,
-              ...model.parameters,
-              ...(provider.id === selected.provider &&
-              model.id === selected.name &&
-              selected.reasoning_effort
-                ? { reasoningEffort: selected.reasoning_effort }
-                : {}),
-            },
-            capabilities: model.capabilities,
-            reasoningEffortOptions:
-              model.capabilities?.reasoning === false
-                ? []
-                : model.capabilities?.reasoningEffortOptions?.length
-                  ? model.capabilities.reasoningEffortOptions
-                  : efforts,
-          }));
+          return models.map((model) => {
+            const capabilities = resolvedModelCapabilities(provider, model);
+            return {
+              providerId: provider.id,
+              modelId: model.id,
+              displayName: model.displayName ?? model.id,
+              available: config.credentialStates[provider.id] !== "unavailable",
+              credentialState: config.credentialStates[provider.id],
+              isDefault: provider.id === selected.provider && model.id === selected.name,
+              parameters: {
+                ...provider.parameters,
+                ...model.parameters,
+                ...(provider.id === selected.provider &&
+                model.id === selected.name &&
+                selected.reasoning_effort
+                  ? { reasoningEffort: selected.reasoning_effort }
+                  : {}),
+              },
+              capabilities,
+              reasoningEffortOptions:
+                capabilities?.reasoning === false
+                  ? []
+                  : (capabilities?.reasoningEffortOptions ?? []),
+            };
+          });
         });
       if (selected.name) {
         const configured = data.find(
@@ -103,7 +103,11 @@ class ProjectlessWorkspaces {
             reasoningSummary: selected.reasoning_summary,
           },
           capabilities: configured?.capabilities,
-          reasoningEffortOptions: configured?.reasoningEffortOptions ?? efforts,
+          reasoningEffortOptions:
+            configured?.reasoningEffortOptions ??
+            resolvedModelCapabilities({ endpoint: selected.endpoint }, { id: selected.name })
+              ?.reasoningEffortOptions ??
+            [],
         });
       }
       const service = providers.openaiService;
@@ -118,7 +122,16 @@ class ProjectlessWorkspaces {
               config.defaultModel?.providerId === "areal_openai" &&
               config.defaultModel.modelId === model.id,
             parameters: model.parameters ?? {},
-            reasoningEffortOptions: efforts,
+            capabilities:
+              model.reasoningEffortOptions === undefined
+                ? undefined
+                : {
+                    tools: true,
+                    vision: true,
+                    reasoning: true,
+                    reasoningEffortOptions: model.reasoningEffortOptions,
+                  },
+            reasoningEffortOptions: model.reasoningEffortOptions ?? [],
           })),
         );
       return { models: data, lastAcceptedModel: providers.lastAcceptedModel ?? null };

@@ -412,6 +412,16 @@ export const commonMessages = {
     "zh-CN": "上次使用的思考强度当前不受支持，请确认当前选择。",
     en: "The previous reasoning effort is unsupported. Check the current selection.",
   },
+  "chat.composer.effortUnverified": {
+    "zh-CN": "此强度来自显式配置，服务尚未声明支持情况。",
+    en: "This effort is explicitly configured; the service has not declared support.",
+  },
+  "chat.composer.serviceDefault": { "zh-CN": "服务默认", en: "Service default" },
+  "chat.composer.unsupportedEffort": {
+    "zh-CN":
+      "{model} 不支持思考强度 {effort}。请在模型菜单重新选择强度或服务默认；也可在模型设置修改供应商默认。",
+    en: "{model} does not support reasoning effort {effort}. Choose another effort or Service default in the model menu, or edit the provider default in model settings.",
+  },
   "chat.composer.effortUnspecified": { "zh-CN": "未指定", en: "Unspecified" },
   "chat.composer.noModels": { "zh-CN": "暂无可用模型", en: "No models available" },
   "chat.composer.noModelsGuidance": {

@@ -492,3 +492,26 @@ test("refresh stays pending until project synchronization settles so the next ex
   await f.providers.refreshSubscriptionStatus(f.service, { synchronize: false, force: true });
   assert.equal(f.state.calls, 2);
 });
+
+test("subscription publication supplies account effort constraints to Core without overwriting account metadata", async () => {
+  const f = fixture();
+  f.providers.backend.onChange = () => {};
+  f.service.models = [{ id: "model-v1", reasoningEffortOptions: ["low", "max"] }];
+  await f.providers.syncSubscription(f.first, f.service);
+  assert.deepEqual(f.applications[0].params.provider.modelCapabilities, {
+    "model-v1": {
+      tools: true,
+      vision: true,
+      reasoning: true,
+      reasoningEffortOptions: ["low", "max"],
+    },
+  });
+  f.providers.subscription = { ...f.providers.subscription, models: f.service.models };
+  f.first.client.request = async () => ({
+    data: [
+      { providerId: "areal_openai", modelId: "model-v1", reasoningEffortOptions: ["minimal"] },
+    ],
+  });
+  await f.providers.publishSubscription(f.providers.subscriptionScope(f.first, f.service));
+  assert.deepEqual(f.providers.subscription.models[0].reasoningEffortOptions, ["low", "max"]);
+});

@@ -226,3 +226,19 @@ for (const delayed of ["session.create", "session.control"])
     );
     assert.equal(f.commands.draft("project", "thread"), "new draft typed while waiting");
   });
+
+test("explicit service default is accepted independently of supported efforts and retained in the command", async () => {
+  const f = await fixture();
+  f.commands.setDraft("project", "", "service default");
+  f.commands.setIntent("project", "", {
+    model: { providerId: "provider", modelId: "other" },
+    parameters: { reasoningEffort: "default" },
+  });
+  await f.commands.send();
+  assert.equal(
+    f.requests.find((request) => request.method === "session.control").params.values.parameters
+      .reasoningEffort,
+    "default",
+  );
+  assert.equal(f.requests.at(-1).method, "session.send");
+});

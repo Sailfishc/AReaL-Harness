@@ -260,6 +260,9 @@ export class MobileCommands {
         !model ||
         model.available === false ||
         (intent.parameters?.reasoningEffort &&
+          intent.parameters.reasoningEffort !== "default" &&
+          (model.capabilities?.reasoningEffortOptions !== undefined ||
+            model.reasoningEffortOptions?.length) &&
           !model.reasoningEffortOptions?.includes(intent.parameters.reasoningEffort))
       )
         throw failure("CONFIGURATION_UNAVAILABLE");

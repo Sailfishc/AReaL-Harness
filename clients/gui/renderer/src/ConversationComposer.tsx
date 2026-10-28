@@ -2,6 +2,8 @@ import type { ComponentProps, ReactNode } from "react";
 import { ChatPromptEditor } from "./prompt-editor/ChatPromptEditor.js";
 import { ComposerModelMenu, composerModelOption } from "./ComposerModelMenu.js";
 import { resolveModelEffort } from "@areal/workbench/model-selection";
+import { toast } from "./components/ui/toast.js";
+import { useI18n } from "./i18n/IntlProvider.js";
 import type { Data } from "./services.js";
 
 type ConversationComposerProps = Omit<
@@ -30,6 +32,7 @@ export function ConversationComposer({
   modelControl,
   ...editor
 }: ConversationComposerProps) {
+  const { t } = useI18n();
   // 展示回退不改变草稿意图；显式点选当前展示模型仍可覆盖历史锚点模型。
   const config =
     modelConfig?.model === undefined && fallbackModelConfig
@@ -72,9 +75,37 @@ export function ConversationComposer({
     if (implicit) options.splice(options.indexOf(implicit), 1, historical);
     else options.unshift(historical);
   }
+  const currentModel = project.models.find((item: Data) =>
+    config?.model
+      ? item.providerId === config.model.providerId && item.modelId === config.model.modelId
+      : !item.providerId,
+  );
+  const effort = config?.resolvedParameters?.reasoningEffort ?? config?.parameters?.reasoningEffort;
+  const supported =
+    currentModel?.capabilities?.reasoningEffortOptions ??
+    (currentModel?.reasoningEffortOptions?.length
+      ? currentModel.reasoningEffortOptions
+      : undefined);
+  const unsupported =
+    effort != null &&
+    effort !== "default" &&
+    currentModel?.capabilities?.reasoning !== false &&
+    supported !== undefined &&
+    !supported.includes(effort);
+  const effortError = unsupported
+    ? t("chat.composer.unsupportedEffort", {
+        model: currentModel.modelId,
+        effort,
+      })
+    : undefined;
   return (
     <ChatPromptEditor
       {...editor}
+      onSubmit={(value) => {
+        if (!effortError) return editor.onSubmit(value);
+        toast(effortError, "error");
+        return false;
+      }}
       betweenCancelAndSubmitAction={
         <>
           {contextControl}
@@ -82,9 +113,7 @@ export function ConversationComposer({
             <ComposerModelMenu
               disabled={modelDisabled}
               pending={modelPending}
-              effort={
-                config?.resolvedParameters?.reasoningEffort ?? config?.parameters?.reasoningEffort
-              }
+              effort={effort}
               value={value}
               options={options}
               onEffortChange={(value) =>

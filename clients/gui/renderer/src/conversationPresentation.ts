@@ -564,6 +564,7 @@ const turnOutcomeLabels: Readonly<Record<string, string>> = {
   AGENT_MAX_TURNS_EXCEEDED: "已达到模型执行轮数上限",
   AGENT_RUN_TIMEOUT: "已达到任务活动时间上限",
   LLM_RESPONSE_FAILED: "模型响应失败",
+  MODEL_PARAMETER_UNSUPPORTED: "模型不支持所选思考强度，请在模型菜单重新选择强度或服务默认",
   HARNESS_INTERNAL_ERROR: "Harness 内部错误",
 };
 

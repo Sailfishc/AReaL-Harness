@@ -1311,7 +1311,7 @@ async fn explicit_model_capabilities_control_catalog_admission_and_wire() {
         .unwrap();
     assert_eq!(item["reasoningEffortOptions"], json!(["low", "max"]));
     assert!(item["input"].as_array().unwrap().contains(&json!("image")));
-    let fallback = json!(["none", "minimal", "low", "medium", "high", "xhigh"]);
+    let fallback = json!([]);
     assert_eq!(catalog["data"][0]["reasoningEffortOptions"], fallback);
     for (revision, options) in [(2, None), (3, Some(json!([])))] {
         let capabilities = provider["modelCapabilities"]["opaque"]
@@ -1335,15 +1335,47 @@ async fn explicit_model_capabilities_control_catalog_admission_and_wire() {
         assert_eq!(item["reasoningEffortOptions"], fallback);
         assert_eq!(item["available"], true);
         let prompt = format!("default efforts {revision}");
-        engine
-            .start(&thread.id, vec![Input::text(&prompt)])
-            .await
-            .unwrap();
-        engine.wait(&thread.id).await.unwrap();
-        assert_eq!(
-            request_for(&mut rx, &prompt).await["reasoning_effort"],
-            "max"
-        );
+        if revision == 2 {
+            engine
+                .start(&thread.id, vec![Input::text(&prompt)])
+                .await
+                .unwrap();
+            engine.wait(&thread.id).await.unwrap();
+            assert_eq!(
+                request_for(&mut rx, &prompt).await["reasoning_effort"],
+                "max"
+            );
+        } else {
+            let error = engine
+                .start(&thread.id, vec![Input::text(&prompt)])
+                .await
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("MODEL_REASONING_EFFORT_UNSUPPORTED")
+            );
+            let configuration = engine
+                .read(&thread.id, false)
+                .await
+                .unwrap()
+                .desktop
+                .unwrap()
+                .configuration;
+            engine.configure_thread(serde_json::from_value(json!({"threadId":thread.id,"expectedRevision":configuration.revision,"parameters":{"reasoningEffort":"default"}})).unwrap()).await.unwrap();
+            engine.start_durable("fixture".into(), serde_json::from_value(json!({"threadId":thread.id,"requestId":"service-default","input":[{"type":"text","text":prompt}]})).unwrap(), false).await.unwrap();
+            engine.wait(&thread.id).await.unwrap();
+            assert!(
+                request_for(&mut rx, &prompt)
+                    .await
+                    .get("reasoning_effort")
+                    .is_none()
+            );
+            assert_eq!(
+                engine.model_catalog().await["lastAcceptedModel"]["reasoningEffort"],
+                "default"
+            );
+        }
     }
     provider["parameters"]["reasoningEffort"] = json!("high");
     provider["modelParameters"] = json!({"opaque":{"reasoningEffort":"low"}});
@@ -1399,4 +1431,155 @@ async fn explicit_model_capabilities_control_catalog_admission_and_wire() {
     }
     engine.shutdown().await;
     server.abort();
+}
+
+#[test]
+fn official_reasoning_constraints_are_scoped_to_the_connection_and_final_options() {
+    use areal_engine::model::{Model, ModelOptions};
+    for (endpoint, protocol, effort, accepted) in [
+        (
+            "https://api.openai.com/v1/responses",
+            ModelProtocol::Responses,
+            "minimal",
+            false,
+        ),
+        (
+            "https://api.openai.com/v1/responses",
+            ModelProtocol::Responses,
+            "none",
+            false,
+        ),
+        (
+            "https://api.openai.com/v1/responses",
+            ModelProtocol::Responses,
+            "max",
+            true,
+        ),
+        (
+            "https://api.openai.com/v1/responses",
+            ModelProtocol::Responses,
+            "default",
+            true,
+        ),
+        (
+            "https://api.openai.com/v1/chat/completions",
+            ModelProtocol::ChatCompletions,
+            "low",
+            false,
+        ),
+        (
+            "https://custom.invalid/v1/chat/completions",
+            ModelProtocol::ChatCompletions,
+            "minimal",
+            true,
+        ),
+        (
+            "http://api.openai.com/v1/responses",
+            ModelProtocol::Responses,
+            "minimal",
+            true,
+        ),
+        (
+            "https://api.openai.com:8443/v1/responses",
+            ModelProtocol::Responses,
+            "minimal",
+            true,
+        ),
+    ] {
+        let model = HttpModel::with_protocol(endpoint.into(), "gpt-6.1-sol".into(), None, protocol)
+            .unwrap()
+            .with_options(ModelOptions {
+                reasoning_effort: Some(effort.into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(model.check_work().is_ok(), accepted, "{endpoint} {effort}");
+    }
+    let model = HttpModel::with_protocol(
+        "https://api.openai.com/v1/responses".into(),
+        "gpt-6.1-sol".into(),
+        None,
+        ModelProtocol::Responses,
+    )
+    .unwrap();
+    assert_eq!(
+        model
+            .capabilities()
+            .declared
+            .unwrap()
+            .reasoning_effort_options
+            .unwrap(),
+        ["low", "medium", "high", "xhigh", "max"]
+    );
+    let invalid = model
+        .with_options(ModelOptions {
+            summary_reasoning_effort: Some("minimal".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(
+        invalid
+            .check_work()
+            .unwrap_err()
+            .to_string()
+            .contains("minimal")
+    );
+}
+
+#[tokio::test]
+async fn service_default_is_omitted_for_every_http_protocol_and_request_purpose() {
+    use areal_engine::model::{Message, Model, ModelOptions, RequestPurpose};
+    use futures_util::StreamExt;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let app = Router::new().route("/", post(move |Json(body): Json<Value>| {
+        let tx = tx.clone();
+        async move {
+            let responses = body.get("input").is_some();
+            tx.send(body).unwrap();
+            ([("content-type", "text/event-stream")], if responses {
+                "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"message\",\"output_index\":0,\"content_index\":0,\"delta\":\"ok\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"
+            } else { "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n" })
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}/", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    for protocol in [ModelProtocol::ChatCompletions, ModelProtocol::Responses] {
+        for effort in [None, Some("default"), Some("none"), Some("minimal")] {
+            let model = HttpModel::with_protocol(endpoint.clone(), "custom".into(), None, protocol)
+                .unwrap()
+                .with_options(ModelOptions {
+                    reasoning_effort: effort.map(String::from),
+                    ..Default::default()
+                })
+                .unwrap();
+            for purpose in [
+                RequestPurpose::Solve,
+                RequestPurpose::Summary,
+                RequestPurpose::PromptPrediction,
+                RequestPurpose::PermissionReview,
+            ] {
+                let events = model
+                    .chat_for(vec![Message::text("user", "hello")], vec![], purpose)
+                    .await
+                    .unwrap()
+                    .collect::<Vec<_>>()
+                    .await;
+                assert!(events.iter().all(Result::is_ok));
+                let body = rx.recv().await.unwrap();
+                let actual = match protocol {
+                    ModelProtocol::ChatCompletions => &body["reasoning_effort"],
+                    ModelProtocol::Responses => &body["reasoning"]["effort"],
+                };
+                assert_eq!(
+                    *actual,
+                    effort
+                        .filter(|value| *value != "default")
+                        .map_or(Value::Null, |value| json!(value))
+                );
+            }
+        }
+    }
+    server.abort();
+    let _ = server.await;
 }

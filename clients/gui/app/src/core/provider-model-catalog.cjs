@@ -46,7 +46,17 @@ function catalog(providers, models, project) {
           displayName: m.name ?? m.id,
           parameters: m.parameters ?? {},
           ...(m.parameters ? { contextWindowTokens: m.parameters.contextWindowTokens } : {}),
-          ...(m.reasoningEffortOptions ? { reasoningEffortOptions: m.reasoningEffortOptions } : {}),
+          reasoningEffortOptions: m.reasoningEffortOptions ?? [],
+          ...(m.reasoningEffortOptions === undefined
+            ? {}
+            : {
+                capabilities: {
+                  tools: true,
+                  vision: true,
+                  reasoning: true,
+                  reasoningEffortOptions: m.reasoningEffortOptions,
+                },
+              }),
         }))
     : [];
   const result = [...models, ...cached].map(
