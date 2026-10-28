@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { Button } from "../components/ui/button.js";
 import { useI18n } from "../i18n/IntlProvider.js";
 import type { Action, PlatformServices } from "../services.js";
@@ -14,7 +14,6 @@ import { SessionSettings } from "../settings/ResourceSettings.js";
 import { ServiceStatusSettings } from "../settings/ServiceStatusSettings.js";
 import { SettingsPage } from "../settings/SettingsWorkspace.js";
 import { TrajectorySettings } from "../settings/TrajectorySettings.js";
-import { UsageDashboard } from "../settings/UsageDashboard.js";
 import { WorktreesSettings } from "../settings/WorktreesSettings.js";
 import { settingsLabel } from "../settings/settingsNavigation.js";
 import type { useTaskWorkspace } from "../state/taskWorkspace.js";
@@ -24,6 +23,10 @@ import type { useWorkbenchAppearance } from "../state/useWorkbenchAppearance.js"
 import type { useWorkbenchNavigation } from "../state/useWorkbenchNavigation.js";
 import type { useWorkbenchSurfaces } from "../state/useWorkbenchSurfaces.js";
 import type { useWorkspacePanels } from "../state/useWorkspacePanels.js";
+
+const UsageDashboard = lazy(() =>
+  import("../settings/UsageDashboard.js").then((module) => ({ default: module.UsageDashboard })),
+);
 
 type Props = {
   session: ReturnType<typeof useSessionNavigation>;
@@ -188,7 +191,9 @@ export function WorkbenchSettings({
           />
         </>
       ) : settingsTab === "用量" ? (
-        <UsageDashboard action={resourceAction} />
+        <Suspense fallback={<div className="settings-empty">{t("common.loading")}</div>}>
+          <UsageDashboard action={resourceAction} />
+        </Suspense>
       ) : !project ? (
         <div className="settings-empty">
           <p>{t("settings.chooseProject")}</p>
