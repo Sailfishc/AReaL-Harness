@@ -160,6 +160,8 @@ list 每页最多 256 项/约 32 KiB，扫描最多 4096 UTF-8 名称；目录�
 
 默认 helper 按文件、命令按写根协调冲突（writeSerialization=conflictingPaths）；显式绕过命令协调为 filePaths。外部进程不参与，不保证外部 CAS/跨文件事务。helper 结果丢失或提交后清理失败为 UNKNOWN，不能重放。
 
+只读文件助手确定因输出额度截断、进程已退出且清理已确认时，返回 `RESOURCE_EXHAUSTED`，details.reason 为 `FILE_OUTPUT_LIMIT_EXCEEDED`，操作记为 Failed。它不表示写入未知，也不自动重放读取。写入可能发生而确认丢失、后端失联或清理未确认时仍保留 UNKNOWN；不改变累计输出硬上限。
+
 错误包括 INVALID_REQUEST、INVALID_ARGUMENT、UNAUTHENTICATED、PERMISSION_DENIED、SCOPE_CLOSED、STALE_HANDLE、NOT_FOUND、CONFLICT、RESOURCE_EXHAUSTED、UNSUPPORTED、UNAVAILABLE、CLEANUP_FAILED。signal 为 POSIX 数字字符串；sandboxDenied=false 不能证明无沙箱拒绝。
 
 内置工具相对 Runtime 可执行文件定位：开发构建在 `target/<profile>/tools/`，发行包在 `libexec/areal/tools/`；与公开的 `bin/areal` 分开。

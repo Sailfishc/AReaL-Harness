@@ -160,6 +160,8 @@ When opening an existing root directory, intermediate directory or read-only fil
 
 By default helpers coordinate by file and commands by write root (writeSerialization=conflictingPaths). Explicit command bypass uses filePaths. External processes do not participate; external CAS/cross-file transactions are not guaranteed. Lost helper results or cleanup failure after commit become UNKNOWN without replay.
 
+When a read-only file helper is known to have hit the output quota, its process has exited and cleanup is confirmed, return `RESOURCE_EXHAUSTED` with `details.reason=FILE_OUTPUT_LIMIT_EXCEEDED` and mark the operation Failed. This is not an unknown mutation and does not replay the read automatically. A possibly applied write with lost acknowledgement, a lost backend or unconfirmed cleanup remains UNKNOWN. Cumulative output hard limits are unchanged.
+
 Errors include INVALID_REQUEST, INVALID_ARGUMENT, UNAUTHENTICATED, PERMISSION_DENIED, SCOPE_CLOSED, STALE_HANDLE, NOT_FOUND, CONFLICT, RESOURCE_EXHAUSTED, UNSUPPORTED, UNAVAILABLE and CLEANUP_FAILED. signal is a POSIX number string. sandboxDenied=false does not prove no sandbox denial occurred.
 
 Built-in tools are resolved beside the Runtime executable: `target/<profile>/tools/` in development and `libexec/areal/tools/` in installed bundles, separate from public `bin/areal`.

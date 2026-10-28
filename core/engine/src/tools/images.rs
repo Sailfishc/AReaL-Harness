@@ -14,6 +14,56 @@ fn invalid(error: impl std::fmt::Display) -> rt::Error {
     error
 }
 
+fn transfer_bound(source_bytes: u64) -> u64 {
+    // 每块独立 base64 对齐；预留固定 JSON 元数据，避免把原文件大小误当成进程输出大小。
+    let chunks = source_bytes.div_ceil(rt::MAX_FILE_CHUNK as u64).max(1);
+    source_bytes
+        .div_ceil(3)
+        .saturating_mul(4)
+        .saturating_add(chunks.saturating_mul(1024))
+}
+
+async fn check_transfer_budget(
+    runtime: &RuntimeConfig,
+    scope: &str,
+    source_bytes: u64,
+) -> rt::Result<()> {
+    let required = transfer_bound(source_bytes);
+    let mut current = Some(scope.to_owned());
+    let mut visited = std::collections::HashSet::new();
+    while let Some(id) = current {
+        if visited.len() >= 64 || !visited.insert(id.clone()) {
+            return Err(rt::Error::new(
+                rt::ErrorCode::Unavailable,
+                "invalid Runtime scope ancestry during media budget check",
+            ));
+        }
+        let info: rt::ScopeInfo = runtime
+            .client
+            .call("scope.get", json!({"scopeId":id}))
+            .await?;
+        if info.scope_id != id {
+            return Err(rt::Error::new(
+                rt::ErrorCode::Unavailable,
+                "Runtime scope identity changed during media budget check",
+            ));
+        }
+        let remaining = info.limits.output_bytes.saturating_sub(info.output_bytes);
+        if required > remaining {
+            let mut error = rt::Error::new(
+                rt::ErrorCode::ResourceExhausted,
+                "image source transfer exceeds the remaining Runtime output budget; use a local command to create a smaller image file, then read that view",
+            );
+            error.details = Some(json!({"reason":"TOOL_MEDIA_TRANSFER_LIMIT_EXCEEDED",
+                "sourceBytes":source_bytes,"requiredOutputBytesUpperBound":required,
+                "remainingOutputBytes":remaining,"limitingScopeId":id,"sourceReadStarted":false}));
+            return Err(error);
+        }
+        current = info.parent_scope_id;
+    }
+    Ok(())
+}
+
 pub(super) async fn read(
     engine: &Engine,
     runtime: &RuntimeConfig,
@@ -48,6 +98,11 @@ pub(super) async fn read(
         );
         return Err(error);
     }
+    let source_size = facts["size"]
+        .as_u64()
+        .ok_or_else(|| invalid("missing image source size"))?;
+    // 在读取大文件前检查全部祖先额度，给缩小视图留出原有余量；不豁免内部传输或扩大预算。
+    check_transfer_budget(runtime, scope, source_size).await?;
     let mut bytes = Vec::new();
     let mut original_hash = Value::Null;
     loop {
