@@ -156,6 +156,8 @@ Composer and queue smoke share navigation and narrow-window steps in `clients/gu
 
 Composer IME setup clears the editor with native select-all and Backspace, then requires the DOM, Lexical state, and stored draft to be empty. Playwright `fill("")` can select DOM content without synchronizing the editor's internal selection, so it is unsuitable for this setup. Candidate input, commit, and cancellation remain covered through native Chromium IME events.
 
+Native tool smoke drains all HTTP fixture request threads before assertions. Solve requests require an equal number of completed audits. A single auxiliary naming attempt may be cancelled before HTTP arrival, in which case only an interrupted audit without an HTTP status is accepted. Missing audits for observed requests, duplicate naming, unobserved completion, and naming with tools fail acceptance.
+
 In the model-selection smoke, only settings-operation settlement after applying model configuration uses a 180-second deadline, covering the existing 150-second apply IPC, subsequent configuration reads and UI settlement. Other page actions retain the default 15 seconds. The test submits apply once, waits for navigation to become available, then checks the actual Core model catalog and requests; it does not hide failures with fixed sleeps or replayed applications.
 
 Independent CLI configuration reads, service stop and status queries in the desktop connection smoke use the product `executeCore` launch bridge. On macOS the system Python remains the actual parent of native Core; tests do not substitute direct Node launches for the product entry point. Disconnect recovery still checks the original Turn, subscriptions and request count without replaying submissions.
