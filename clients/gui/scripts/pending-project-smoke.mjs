@@ -472,13 +472,21 @@ try {
   manifest.skillEnabled = await skillSwitch.isEnabled();
   await capture("02-plugin-management");
   assert.equal(
-    await button("核对项目操作").isVisible(),
-    false,
-    "Unrelated historical creation recovery is collapsed in plugin management",
+    await page.getByText("历史会话创建记录（待核对）", { exact: true }).count(),
+    0,
+    "Unrelated creation records are absent from plugin management",
   );
-  await page.getByText("历史会话创建记录（待核对）", { exact: true }).click();
+  assert.equal(
+    await button("核对项目操作").count(),
+    0,
+    "Plugin management has no unrelated project recovery action",
+  );
+  await button("设置").click();
+  await button("后台服务").click();
+  await page.getByRole("heading", { name: "待核对的会话创建", exact: true }).waitFor();
+  await page.getByText(requestId, { exact: false }).waitFor();
   const beforeCheck = (await trace()).length;
-  await button("核对项目操作").click();
+  await button("检查操作状态").click();
   await until(
     async () =>
       (await trace())
@@ -487,6 +495,7 @@ try {
     "explicit GUI reconciliation complete",
   );
   await until(async () => !(await button("正在核对项目操作…").count()), "project check complete");
+  await button("检查操作状态").scrollIntoViewIfNeeded();
   await capture("03-checked-unknown");
   const checkCalls = (await trace()).slice(beforeCheck);
   await json(join(evidence, "project-check-calls.json"), checkCalls);
@@ -535,6 +544,16 @@ try {
       !manifest.checkOwners.includes(projectId),
       "Original receipt is never read from logical owner",
     );
+    await page
+      .getByRole("navigation", { name: "应用导航", exact: true })
+      .getByRole("button", { name: "插件", exact: true })
+      .click();
+    await page
+      .getByRole("tablist", { name: "市场范围", exact: true })
+      .getByRole("tab", { name: "个人", exact: true })
+      .click();
+    await button(`查看插件 ${pluginId}`).click();
+    await button("管理").click();
     await skillSwitch.click();
     await until(async () => !(await skillSwitch.isChecked()), "Skill disabled through GUI");
     let detail = await call("manage", { projectId, operation: "plugin", id: pluginId });

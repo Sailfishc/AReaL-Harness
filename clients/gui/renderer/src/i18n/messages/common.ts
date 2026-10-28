@@ -330,6 +330,21 @@ export const commonMessages = {
   "startup.recover": { "zh-CN": "恢复后台…", en: "Recover backend…" },
   "startup.quit": { "zh-CN": "退出界面", en: "Quit interface" },
   "startup.back": { "zh-CN": "返回加载界面", en: "Back to loading" },
+  "startup.connectingProject": { "zh-CN": "正在连接项目…", en: "Connecting to project…" },
+  "startup.readingConversation": { "zh-CN": "正在读取对话…", en: "Reading conversation…" },
+  "common.conversation.newInProject": {
+    "zh-CN": "在 {project} 中开始新聊天",
+    en: "Start a new chat in {project}",
+  },
+  "recovery.creationRecords": {
+    "zh-CN": "待核对的会话创建",
+    en: "Unconfirmed conversation creation",
+  },
+  "recovery.creationRecordDescription": {
+    "zh-CN":
+      "原请求已保留。核对只查询受理结果；查不到回执时仍保留为未知，不会重新创建会话。核对可能需要连接项目。",
+    en: "The original request is retained. Checking only queries its outcome; a missing receipt remains unknown and does not create another conversation. Checking may connect to the project.",
+  },
   "startup.loadingConversation": { "zh-CN": "正在加载对话…", en: "Loading conversation…" },
   "recovery.loadingView": {
     "zh-CN": "正在重新加载对话，历史和草稿已保留…",

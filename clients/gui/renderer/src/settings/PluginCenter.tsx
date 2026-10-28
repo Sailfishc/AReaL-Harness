@@ -812,7 +812,7 @@ export function PluginCenter({
             : {}),
         }
       : null);
-  const projectPendingEntries = pendingEntries.filter(
+  const projectPendingEntries = blockingPending.filter(
     (entry) => !pluginMethods[entry.method] || typeof entry.params?.requestId !== "string",
   );
   const projectCheckOwner = useRef({ projectId, selectedProjectId: selectedProject?.id });
@@ -872,9 +872,6 @@ export function PluginCenter({
   };
   const projectRecoveryDetails = (
     <div className="grid gap-2">
-      {pendingEntries.some((entry) =>
-        isIndependentCreation(entry, [submission?.requestId, error?.requestId]),
-      ) && <Feedback message={t("settings.pluginCenter.unrelatedCreationUnconfirmed")} />}
       {projectPendingEntries.map((entry, index) => {
         const threadId = entry.params?.threadId ?? entry.operation?.threadId;
         return (
@@ -907,20 +904,7 @@ export function PluginCenter({
       </Button>
     </div>
   );
-  const projectRecovery =
-    projectPendingEntries.length > 0 &&
-    (projectPendingEntries.every((entry) =>
-      isIndependentCreation(entry, [submission?.requestId, error?.requestId]),
-    ) ? (
-      <details>
-        <summary className="cursor-pointer text-ui-sm text-muted-foreground">
-          {t("settings.pluginCenter.previousCreationRecords")}
-        </summary>
-        <div className="mt-2">{projectRecoveryDetails}</div>
-      </details>
-    ) : (
-      projectRecoveryDetails
-    ));
+  const projectRecovery = projectPendingEntries.length > 0 && projectRecoveryDetails;
   const recoverSubmission = async () => {
     if (!recoverable || recoverable.mutation === "pluginAuth" || active.current || !connected)
       return;

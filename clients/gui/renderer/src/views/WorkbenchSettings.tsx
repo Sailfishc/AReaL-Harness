@@ -4,6 +4,7 @@ import { useI18n } from "../i18n/IntlProvider.js";
 import type { Action, PlatformServices } from "../services.js";
 import { BrowserSettings } from "../settings/BrowserSettings.js";
 import { ComputerSettings } from "../settings/ComputerSettings.js";
+import { CreationRecoverySettings } from "../settings/CreationRecoverySettings.js";
 import { CoreCapabilitiesSettings } from "../settings/CoreCapabilitiesSettings.js";
 import { AppearanceSettings, GeneralSettings } from "../settings/DisplaySettings.js";
 import { HooksSettings } from "../settings/HooksSettings.js";
@@ -175,6 +176,11 @@ export function WorkbenchSettings({
             onConnect={reconnectService}
             onTask={initialReleased ? onTask : undefined}
             onOpen={initialReleased ? onOpen : undefined}
+          />
+          <CreationRecoverySettings
+            projects={snapshot.projects}
+            connected={snapshot.connection?.state === "ready"}
+            action={resourceAction}
           />
           <CoreCapabilitiesSettings
             projects={snapshot.projects}

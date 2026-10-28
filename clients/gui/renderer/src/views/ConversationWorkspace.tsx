@@ -120,7 +120,11 @@ function ConversationContent() {
                 <p>
                   {restorationFailed
                     ? t("common.conversation.unavailable")
-                    : t("startup.loadingConversation")}
+                    : t(
+                        project?.state?.connected
+                          ? "startup.readingConversation"
+                          : "startup.connectingProject",
+                      )}
                 </p>
                 {restorationFailed && (
                   <Button
@@ -395,7 +399,13 @@ function DraftConversation() {
                     className="composer-project"
                     aria-label={
                       project
-                        ? `在 ${library.projects?.[project.id]?.title || (project.projectless ? thread?.title || t("operations.schedules.newTitle") : project.root.split("/").pop())} 中开始新聊天`
+                        ? t("common.conversation.newInProject", {
+                            project:
+                              library.projects?.[project.id]?.title ||
+                              (project.projectless
+                                ? thread?.title || t("operations.schedules.newTitle")
+                                : project.root.split("/").pop()),
+                          })
                         : t("common.conversation.projectless")
                     }
                   >
