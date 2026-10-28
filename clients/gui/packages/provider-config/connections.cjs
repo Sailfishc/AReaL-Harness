@@ -26,26 +26,28 @@ function connectionMetadata(provider, credentialSources = {}) {
     capabilityDefaults: preset.capabilityDefaults,
   };
 }
-const recommendedReasoningEfforts = Object.freeze(["low", "medium", "high", "xhigh"]);
-/** @template {{parameters?:{reasoningEffort?:string|null},capabilities?:unknown}} T @param {T} model @param {{reasoningEffort?:string|null}} [providerParameters] */
-function withDefaultModelCapabilities(model, providerParameters = {}) {
+/** @template {{id:string,parameters?:{reasoningEffort?:string|null},capabilities?:unknown}} T @param {T} model @param {unknown} [_providerParameters] */
+function withDefaultModelCapabilities(model, _providerParameters) {
   if (model.capabilities !== undefined) return model;
-  const effort = model.parameters?.reasoningEffort ?? providerParameters.reasoningEffort;
+  return { ...model, capabilities: { tools: true, vision: false, reasoning: true } };
+}
+/** @param {{endpoint?:string,baseUrl?:string,protocol?:string}} provider @param {{id:string,capabilities?:{tools:boolean,vision:boolean,reasoning:boolean,reasoningEffortOptions?:string[]}}} model */
+function resolvedModelCapabilities(provider, model) {
+  const declared = model.capabilities;
+  const url = new URL(provider.endpoint ?? provider.baseUrl ?? "http://unknown.invalid");
+  if (url.origin !== "https://api.openai.com" || model.id !== "gpt-6.1-sol") return declared;
+  const known = ["low", "medium", "high", "xhigh", "max"];
   return {
-    ...model,
-    capabilities: {
-      tools: true,
-      vision: false,
-      reasoning: true,
-      reasoningEffortOptions: [
-        ...new Set([...recommendedReasoningEfforts, ...(effort ? [effort] : [])]),
-      ],
-    },
+    ...(declared ?? { tools: true, vision: true, reasoning: true }),
+    reasoningEffortOptions:
+      declared?.reasoning === false
+        ? []
+        : (declared?.reasoningEffortOptions?.filter((effort) => known.includes(effort)) ?? known),
   };
 }
 module.exports = {
   definitions,
   connectionMetadata,
-  recommendedReasoningEfforts,
+  resolvedModelCapabilities,
   withDefaultModelCapabilities,
 };

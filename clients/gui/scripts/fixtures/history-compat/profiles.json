@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "source": "synthetic",
+  "profiles": [
+    {
+      "id": "settled-child",
+      "projectId": "111111111111111111111111",
+      "threadId": "22222222-2222-4222-8222-222222222222",
+      "storedVersion": 14,
+      "turnCount": 1,
+      "minPages": 0,
+      "maxPages": 1,
+      "parentThreadId": "11111111-1111-4111-8111-111111111111"
+    },
+    {
+      "id": "paged-history",
+      "projectId": "111111111111111111111111",
+      "threadId": "55555555-5555-4555-8555-555555555555",
+      "storedVersion": 14,
+      "turnCount": 40,
+      "minPages": 1,
+      "maxPages": 3,
+      "visibleText": "HISTORY_PAGE_39"
+    },
+    {
+      "id": "terminal-outcomes",
+      "projectId": "111111111111111111111111",
+      "threadId": "66666666-6666-4666-8666-666666666666",
+      "storedVersion": 14,
+      "turnCount": 3,
+      "minPages": 0,
+      "maxPages": 1,
+      "terminalStates": {
+        "terminal-completed": "completed",
+        "terminal-failed": "failed",
+        "terminal-interrupted": "interrupted"
+      },
+      "visibleText": "HISTORY_TERMINAL_INTERRUPTED"
+    }
+  ]
+}

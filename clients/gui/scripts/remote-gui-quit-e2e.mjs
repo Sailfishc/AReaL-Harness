@@ -265,7 +265,7 @@ async function run() {
       report.blockedAt = "production enableDirect gate";
       throw error;
     }
-    await button("生成配对链接").click();
+    await button("添加设备").click();
     const invite = await page.getByRole("textbox", { name: "配对链接", exact: true }).inputValue();
     browser = await chromium.launch({
       executablePath:
@@ -285,7 +285,7 @@ async function run() {
     const approval = page.getByRole("group", { name: `确认设备 ${pending[0].id}`, exact: true });
     await approval.getByLabel("workspace", { exact: true }).check();
     await approval.getByRole("radio", { name: "可操作", exact: true }).check();
-    await approval.getByRole("button", { name: "确认配对", exact: true }).click();
+    await approval.getByRole("button", { name: "允许连接", exact: true }).click();
     await remote
       .getByRole("status")
       .getByText(/已连接/)

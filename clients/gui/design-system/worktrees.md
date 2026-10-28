@@ -146,4 +146,4 @@
 
 `R-WORKTREE-047` 五个 Worktree 组合从私有 `@areal/ui/experimental` 消费，样式入口为 `worktree.css`。包与宿主职责见[架构分层](architecture.md#分层与所有权)，各组件合同维护本地交互和原业务适配边界。
 
-`R-WORKTREE-048` 操作失败/成功通知采用统一NotificationToast；提示自动消失不清除原记录或目录详情中的受阻原因。
+`R-WORKTREE-048` 保存和删除成功直接更新原界面，不弹通知；失败在原字段、目录行或选择器保留原因与重试入口。需要用户核对原请求时使用带核对动作的NotificationToast，提示消失不清除原记录或受阻原因。

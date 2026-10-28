@@ -138,3 +138,8 @@
   overflow-wrap: anywhere;
   overflow-x: hidden;
 }
+/* 组内打开一条命令时列表取消限高：命令输出自己滚动，不与组列表形成双层滚动（CONV-PROCESS-01）。 */
+.areal-activity-list:has([data-open] .command-card) {
+  max-height: none;
+  overflow: visible;
+}

@@ -11,7 +11,7 @@ test("native JSX accessibility checks reject unnamed images and pointer-only act
   try {
     await writeFile(
       file,
-      'export const View = () => <div onClick={() => {}}><img src="icon.png"/><label>Name</label></div>;',
+      '// @ts-ignore\nexport const View = () => <div onClick={() => {}}><img src="icon.png"/><label>Name</label></div>;',
     );
     const failures = await runA11yLint([file]);
     for (const rule of [

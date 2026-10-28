@@ -100,6 +100,8 @@ Serve 失败不会自动切换到 Funnel 或 Relay；公网切换只能在本地
 
 实际配置字段、限额与固定 Node 版本见 [Relay 服务说明](../../services/remote-relay/README.md)。资源限额不代表容量认证。先运行 `pnpm --dir clients/gui build`，再运行 `pnpm --dir clients/gui export:remote /absolute/new/remote-pwa`；导出命令只复制并校验 Remote manifest 的资源闭包，拒绝已存在目录。将此目录配置为 `assetsDir`，不要部署整个 Desktop dist。
 
+需要接入原生 App 时，管理员在 Relay JSON 配置中增加 `"allowedAppOrigins": ["capacitor://localhost"]`；配置样例中的空数组和省略此字段都拒绝 App 来源。只列出实际 App 使用的精确 `scheme://host`，不带端口、凭据、路径、查询、fragment、空白或百分号编码，且不能使用 HTTP(S)/WS(S) scheme。Web 来源继续放在 `allowedClientOrigins`。两份列表同时用于 WebSocket upgrade 和 client 注册；缺少 Origin 的 Client 仍被拒绝。原生 App 可伪造 Origin，最终 Host 身份与设备权限仍由 Noise pin 和 Host DeviceGrant 验证。
+
 容器内部非 root 运行，默认文件系统只读，仅指定数据卷可写；宿主无需挂载用户项目。固定镜像/依赖版本，提供 SBOM/第三方归属及可复现构建说明；源码、静态客户端、配置样例和运行所需脚本全部公开。
 
 ## G4. Relay 管理员与用户流程
@@ -107,6 +109,23 @@ Serve 失败不会自动切换到 Funnel 或 Relay；公网切换只能在本地
 管理员先完成域名/TLS/数据卷/反向代理配置，用本地管理入口生成十分钟一次性 Host 登记 code，再把 endpoint 和 code 通过组织已有安全渠道交给 Host 使用者。不存在要求终端用户配置数据库或修改路由器的步骤。
 
 桌面用户在手机设置中填写精确 HTTPS Relay origin 和一次性管理员 code，勾选信任确认后启用；连接成功后选择 Relay 配对传输。需要换 origin 时重新登记。Host 用独立 capability 连接 Relay；登记 code 消费后不再使用，capability 不进入手机二维码。
+
+登记中会显示进度；登记失败时保留输入的地址、注册码和确认勾选，供检查后重试。登记成功后显示已登记的中继地址和注册码已使用的说明；注册码不回显。添加设备弹窗显示二维码和可复制链接；本机 HTTP 入口会明确标注仅供本机浏览器使用，连接手机需要中继或已配置的 HTTPS 入口。
+
+桌面登记 HTTPS 和 Relay WSS 共用 Desktop TLS 配置：合并 Node 默认公共根与系统信任的 CA，保留标准证书链、有效期和主机名校验。不同团队使用相同 GUI 安装包，通过设备上的信任配置选择自己的测试或正式私有 CA；公共 CA 签发的服务端证书无需额外安装。安装包不包含团队 CA、证书私钥或登记码，也不需要通过终端环境变量启动。服务端必须提供叶证书和所需中间证书；发送根证书不能代替设备端信任。
+
+### 团队安装内部 CA（macOS GUI）
+
+1. 管理员通过团队已有可信渠道提供**公开根 CA 证书**及 SHA-256 指纹。使用 `openssl x509 -in team-root-ca.pem -noout -subject -dates -fingerprint -sha256` 核对来源、指纹和有效期。不要向用户分发 CA 私钥或把服务端叶证书安装为信任根。
+2. 在“钥匙串访问”中将根 CA 导入当前用户的“登录”钥匙串；团队统一管理的电脑可由管理员部署到“系统”钥匙串。打开该根证书的“信任”，将“使用此证书时”设为“始终信任”，保存并完成系统授权。仅导入而未信任、仅对特定主机放行、或只在浏览器中接受证书警告，不满足此部署方式。管理员应仅为组织批准的 CA 设置此信任。
+3. 完全退出 GUI 及其 Desktop 后台，再从 Finder 正常启动 GUI。Node 会缓存 CA；安装、移除或更换根 CA 后都需要重启。按正常流程填写中继地址和一次性注册码，确认后开启手机连接。无需设置 `NODE_EXTRA_CA_CERTS`。开发环境原有的该变量仍按 Node 默认 CA 语义生效。
+4. 用“添加设备”生成新二维码并在手机上配对。iPhone 必须另行安装同一 CA 的描述文件，并在“设置 → 通用 → 关于本机 → 证书信任设置”启用根证书的完全信任；通过组织 MDM 或 Apple Configurator 部署时按其证书信任策略处理。桌面的信任设置不会同步到手机。
+
+证书是否用于测试不改变校验要求。服务端证书的 SAN 必须包含访问域名；使用 IP 地址时须包含对应 IP SAN。测试 CA、服务端证书及中间证书均须在计划使用期内有效。相同根 CA 下续期或更换服务端证书不需要更新 GUI；轮换根 CA 时先向桌面和手机部署新根并重启，再切换服务端，完成迁移后移除旧根并再次重启。
+
+此行为采用 Node 的默认根与系统根合并规则，不等同于浏览器全部证书策略：系统对另一来源的公共根设置的不信任或吊销策略，不保证覆盖 Node 默认根。有关系统信任读取规则见 [Node CA 文档](https://nodejs.org/api/cli.html#--use-system-ca)，iPhone 部署见 [Apple 证书信任说明](https://support.apple.com/en-us/102390)。当前发布安装包仅支持 macOS arm64；本节不声明 Windows/Linux 安装包已验收。
+
+团队交付验收应在未设置 CA 环境变量的电脑上，从 Finder 启动同一安装包，分别验证团队 A/B 的受信任 CA 与公共 CA：登记成功、WSS 已连接、重启后恢复、新二维码完成手机配对。未安装的 CA、过期证书和主机名不符必须被拒绝。登记失败保留表单并显示 TLS 错误码；检查系统信任、服务端证书链和有效期，不关闭 TLS 校验。
 
 用户在桌面点击配对，扫描含 Host pin 和 room 的 HTTPS 链接；手机生成设备身份，桌面确认其指纹及项目范围。以后手机打开同 origin，选择记住的 Host 即可恢复；换设备、清理浏览器存储、改变 Web origin 则重新配对。更换 origin 不自动跨站迁移私钥。
 

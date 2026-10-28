@@ -5,10 +5,12 @@ import { join } from "node:path";
 export async function runConversationSystem(page, scratch, checks) {
   await page.setViewportSize({ width: 1440, height: 1100 });
   const preview = page.getByRole("region", { name: "对话流设计预览", exact: true });
-  const activity = preview.getByRole("button", {
-    name: "读取文件、运行命令 · 30 项活动",
-    exact: true,
-  });
+  // 预览的组标题取自生产 activityRunLabel，与真实对话流同源（CONV-ACTIVITY-01）。
+  const activity = preview.getByRole("button", { name: "已探索，已运行命令", exact: true });
+  assert.equal(
+    await preview.getByRole("button", { name: "已修改 1 个文件，已运行命令", exact: true }).count(),
+    1,
+  );
   const image = preview.getByRole("button", { name: "已查看图片 · 界面参考.png", exact: true });
   const sources = preview.getByRole("region", { name: "输入来源", exact: true });
   const contextToggle = preview.getByRole("button", { name: "任务上下文", exact: true });
@@ -28,6 +30,7 @@ export async function runConversationSystem(page, scratch, checks) {
   assert.equal(await activity.getAttribute("aria-expanded"), "false");
   assert.equal(await image.getAttribute("aria-expanded"), "false");
   assert.equal(await sources.getByRole("button", { name: /^查看来源：/ }).count(), 3);
+  // R-ACTIVITYGROUP-006：摘要沿 Disclosure 键盘语义，Enter 展开。
   await activity.focus();
   await activity.press("Enter");
   const list = preview.getByRole("region", { name: "分组活动列表", exact: true });
@@ -37,6 +40,7 @@ export async function runConversationSystem(page, scratch, checks) {
     vertical: element.scrollHeight > element.clientHeight,
     horizontal: element.scrollWidth > element.clientWidth + 1,
   }));
+  // R-ACTIVITYGROUP-028 / R-ACTIVITYGROUP-029：列表有界纵向滚动，不产生横向溢出。
   assert.equal(geometry.vertical, true);
   assert.equal(geometry.horizontal, false);
   await list.hover();
@@ -45,6 +49,34 @@ export async function runConversationSystem(page, scratch, checks) {
     () => document.querySelector('[aria-label="分组活动列表"]').scrollTop > 0,
   );
   await list.evaluate((element) => element.scrollTo(0, 0));
+  // R-ACTIVITYROW-002：箭头静止时隐藏，键盘焦点时出现；开合由按钮的 aria-expanded 表达。
+  const row = list.locator("button.areal-activity-row").first();
+  const chevron = () =>
+    row
+      .locator(".areal-activity-row-chevron")
+      .evaluate((element) => getComputedStyle(element).opacity);
+  await page.mouse.move(0, 0);
+  await row.evaluate((element) => element.blur());
+  assert.equal(await chevron(), "0", "activity chevron stays hidden at rest");
+  await row.focus();
+  assert.equal(await chevron(), "1", "activity chevron appears on keyboard focus");
+  assert.ok(["true", "false"].includes(await row.getAttribute("aria-expanded")));
+  await row.evaluate((element) => element.blur());
+  // R-ACTIVITYROW-006：展开的分组里每行保留行首图标；文件行只写文件名，悬停给出完整路径。
+  const read = list.locator('[data-tool-id="system-read-1"]');
+  assert.equal(
+    await read.locator("svg[data-activity-icon]").first().isVisible(),
+    true,
+    "rows inside an expanded group keep their own icon",
+  );
+  const readName = read.locator(".areal-activity-row-detail, .tool-file-link").first();
+  assert.equal(await readName.innerText(), "section-2.tsx");
+  await readName.hover();
+  await page
+    .locator(".areal-activity-row-hint")
+    .filter({ hasText: "src/conversation/section-2.tsx" })
+    .waitFor();
+  await page.mouse.move(0, 0);
   const command = list.locator('[data-tool-id="system-command"]').getByRole("button").first();
   await command.click();
   await list.getByText("工作目录：/preview/AReaL-Harness", { exact: true }).waitFor();
@@ -132,7 +164,7 @@ export async function runConversationSystem(page, scratch, checks) {
   await sources.getByText("草稿待发送", { exact: true }).waitFor();
   await preview.getByLabel("来源数量", { exact: true }).selectOption("5");
   await preview.getByRole("tab", { name: "需要关注", exact: true }).click();
-  await activity.click(); // Close the list: the warning must remain outside it.
+  await activity.click(); // R-ACTIVITYGROUP-024: close the list; the warning must remain outside it.
   await preview.getByRole("status").filter({ hasText: "结果待核对" }).first().waitFor();
   await preview.getByRole("button", { name: "查看待核对记录", exact: true }).click();
   await preview.getByRole("heading", { name: "结果待核对", exact: true }).waitFor();

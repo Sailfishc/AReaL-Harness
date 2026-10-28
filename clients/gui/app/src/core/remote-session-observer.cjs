@@ -1,12 +1,14 @@
 // @ts-check
 "use strict";
 const decoder = require("./remote-core-decoder.cjs");
+const { failure } = decoder;
 /** @typedef {import('@areal/runtime-client/core').CoreClient} Client */
 /** @typedef {import('./project-state.cjs').CoreProject} CoreProject */
 /** @typedef {CoreProject & {client:Client}} ReadyProject */
 /** @typedef {{connectionId:string,peer:string,grantRevision:number,gatewayGeneration:string,alive:()=>boolean,send:(value:unknown)=>void,close:()=>void}} RemoteConnection */
 /** @typedef {ReturnType<typeof snapshot> & {models?:Record<string,unknown>[]}} SessionState */
-/** @typedef {{id:string,viewers:Set<Viewer>,state:SessionState|null,refreshQueued?:boolean}} ThreadObserver */
+/** @typedef {{authorized:()=>boolean,receive:(method:string,params:unknown)=>void,release:()=>void}} PushWatch */
+/** @typedef {{id:string,pushWatches?:Set<PushWatch>,viewers:Set<Viewer>,state:SessionState|null,refreshQueued?:boolean}} ThreadObserver */
 /** @typedef {{projectId:string,project:ReadyProject,desktop:Client,endpoint:string,token:string,serviceId:string,generation:string,gatewayGeneration:string,threads:Map<string,ThreadObserver>,pending:number,readers:number,tail:Promise<unknown>,closed:boolean,client?:Client,socket?:import('ws'),ready?:Promise<void>,offDesktop?:()=>void,offModel?:()=>void,offClose?:()=>void,offEvents?:()=>void,failureCode?:string}} ObserverEntry */
 /** @typedef {{id:string,connection:RemoteConnection,entry:ObserverEntry,thread:ThreadObserver,publish:(value:SessionPublished)=>void,sequence:number,published:boolean,body?:{id:string,encoded:Buffer,turnId:string,itemId:string,expiresAt:number}|null}} Viewer */
 /** @typedef {{snapshot:SessionState,[key:string]:unknown}} SessionPublished */
@@ -14,13 +16,14 @@ const decoder = require("./remote-core-decoder.cjs");
 const { randomUUID } = require("node:crypto");
 const WebSocket = require("ws");
 const {
+  modelCatalog,
   snapshot,
   update,
   historyPage,
   constrain,
   publicBody,
 } = require("./remote-session-projection.cjs");
-const { LIMITS: TASK_QUESTION_LIMITS } = require("./remote-task-questions.cjs");
+const { readTaskQuestion } = require("./remote-task-questions.cjs");
 const METHODS = ["session.open", "session.history", "session.body", "subscription.close"];
 const LIMITS = Object.freeze({
   observerConnections: 16,
@@ -39,8 +42,6 @@ const READ_METHODS = new Set([
   "areal/task/read",
   "areal/channel/read",
 ]);
-/** @param {string} code @param {string} message */
-const failure = (code, message) => Object.assign(new Error(message), { code });
 
 class SessionObservers {
   /** @param {InstanceType<typeof import("./remote.cjs").RemoteControl>} remote */
@@ -77,7 +78,7 @@ class SessionObservers {
     )
       throw failure("FORBIDDEN", "此项目未获授权");
     const project = remote.backend.projects?.get(projectId);
-    if (remote.backend.closing || !readyProject(project))
+    if (remote.backend.closing || !decoder.readyProject(project))
       throw failure("CORE_UNAVAILABLE", "项目 Core 当前不可用");
     if (
       !project.client.capabilities?.features?.atomicObserveOwnership ||
@@ -210,7 +211,7 @@ class SessionObservers {
             event: "session.invalidated",
             ...this.keys(viewer),
             sequence: ++viewer.sequence,
-            error: { code: errorCode(error), message: error.message },
+            error: { code: decoder.errorCode(error), message: error.message },
             history: { truncated: true, unavailable: true },
           });
         } catch {
@@ -227,7 +228,8 @@ class SessionObservers {
         this.invalidate(entry);
         continue;
       }
-      for (const thread of entry.threads.values())
+      for (const thread of entry.threads.values()) {
+        for (const watch of thread.pushWatches ?? []) if (!watch.authorized()) watch.release();
         for (const viewer of thread.viewers) {
           if (viewer.body && viewer.body.expiresAt < Date.now()) viewer.body = null;
           try {
@@ -236,11 +238,16 @@ class SessionObservers {
             this.release(viewer.connection.connectionId);
           }
         }
+      }
     }
   }
   /** @param {RemoteConnection} connection @param {string} projectId */
   entry(connection, projectId) {
     const project = this.authorize(connection, projectId);
+    return this.projectEntry(projectId, project);
+  }
+  /** @param {string} projectId @param {ReadyProject} project */
+  projectEntry(projectId, project) {
     let entry = this.projects.get(projectId);
     if (entry && !this.current(entry)) {
       this.invalidate(entry);
@@ -349,7 +356,7 @@ class SessionObservers {
         },
       });
     } catch (error) {
-      const code = errorCode(error);
+      const code = decoder.errorCode(error);
       // 超时未取消服务端观察；关闭专用连接，不能遗忘未知是否创建的订阅。
       if (client.closed || code === "RESPONSE_UNKNOWN" || code === "DISCONNECTED")
         this.invalidate(entry, entry.failureCode);
@@ -367,6 +374,28 @@ class SessionObservers {
       );
     }
   }
+  /** @param {RemoteConnection} connection @param {string} projectId @param {(value:unknown)=>void} publish */
+  models(connection, projectId, publish) {
+    const project = this.authorize(connection, projectId);
+    const client = project.client;
+    const generation = project.service?.generation;
+    const result = {
+      projectId,
+      gatewayGeneration: connection.gatewayGeneration,
+      grantRevision: connection.grantRevision,
+      serviceGeneration: generation,
+      models: modelCatalog(this.remote.backend.providers, project),
+    };
+    if (
+      this.authorize(connection, projectId) !== project ||
+      project.client !== client ||
+      project.service?.generation !== generation
+    )
+      throw failure("RESYNC_REQUIRED", "项目连接已变化，请重新读取");
+    if (Buffer.byteLength(JSON.stringify(result)) > 128 * 1024)
+      throw failure("LIMIT_EXCEEDED", "模型目录超过读取预算");
+    publish(result);
+  }
   /** @param {ObserverEntry} entry @param {ThreadObserver} thread @param {import("./remote-core-decoder.cjs").Observation} result */
   baseline(entry, thread, result) {
     this.check(entry);
@@ -374,26 +403,7 @@ class SessionObservers {
     if (!["ordinary", "task"].includes(result.ownership?.kind))
       throw failure("CORE_INCOMPATIBLE", "Core 未返回原子会话归属");
     thread.state = snapshot(result.thread, this.scope(entry, thread.id), result.ownership);
-    const models = entry.project.models ?? [];
-    const catalog = decoder.modelCatalog(
-      this.remote.backend.providers?.catalog(models, entry.project) ?? models,
-    );
-    thread.state.models = catalog
-      .slice(0, 200)
-      .map((model) =>
-        Object.fromEntries(
-          [
-            "providerId",
-            "modelId",
-            "displayName",
-            "reasoningEffortOptions",
-            "available",
-            "unavailableReason",
-          ]
-            .filter((key) => model[key] !== undefined)
-            .map((key) => [key, model[key]]),
-        ),
-      );
+    thread.state.models = modelCatalog(this.remote.backend.providers, entry.project);
     constrain(thread.state, this.scope(entry, thread.id));
   }
   /** @param {ObserverEntry} entry @param {ThreadObserver} thread */
@@ -428,6 +438,10 @@ class SessionObservers {
       (decoder.record(params.interaction) ? params.interaction.threadId : undefined);
     if (typeof threadId !== "string") return;
     const thread = entry.threads.get(threadId);
+    for (const watch of thread?.pushWatches ?? []) {
+      if (watch.authorized()) watch.receive(method, params);
+      else watch.release();
+    }
     if (!thread?.state) return;
     if (!decoder.notification(params)) {
       this.invalidate(entry);
@@ -549,89 +563,16 @@ class SessionObservers {
       });
     } finally {
       entry.readers--;
-      if (!entry.readers && ![...entry.threads.values()].some((value) => value.viewers.size))
+      if (
+        !entry.readers &&
+        ![...entry.threads.values()].some((value) => value.viewers.size || value.pushWatches?.size)
+      )
         this.invalidate(entry);
     }
   }
   /** @template T @param {RemoteConnection} connection @param {string} projectId @param {{taskId:string,runId?:string,questionId?:string}} params @param {(result:TaskQuestionRead,entry:ObserverEntry)=>T} publish */
-  async taskQuestion(connection, projectId, params, publish) {
-    const project = this.authorize(connection, projectId);
-    if (
-      !["areal/task/read", ...(params.questionId ? ["areal/channel/read"] : [])].every((method) =>
-        project.client.capabilities?.methods?.includes(method),
-      )
-    )
-      throw failure("CORE_INCOMPATIBLE", "Core 不支持 Task 问题读取");
-    const entry = this.entry(connection, projectId);
-    entry.readers++;
-    try {
-      return await this.enqueue(entry, async () => {
-        const check = () => {
-          this.check(entry);
-          if (this.authorize(connection, projectId) !== entry.project)
-            throw failure("RESYNC_REQUIRED", "项目已变化");
-        };
-        check();
-        const task = decoder.taskRead(
-          await this.rpc(entry, "areal/task/read", { taskId: params.taskId }),
-        );
-        check();
-        if (Buffer.byteLength(JSON.stringify(task)) > LIMITS.nativeHistoryBytes)
-          throw failure("RESOURCE_UNAVAILABLE", "Task 超过读取上限");
-        if (
-          task.id !== params.taskId ||
-          (params.runId && !task.runs?.some((run) => run.id === params.runId))
-        )
-          throw failure("TARGET_CHANGED", "原 Task Run 已不存在");
-        if (!params.questionId) return publish({ task, complete: true }, entry);
-        let afterSequence = 0,
-          item,
-          complete = false,
-          bytes = 0;
-        // 有界读取独立 Channel；不打开、订阅或恢复协调 Session。
-        for (let page = 0; page < TASK_QUESTION_LIMITS.taskQuestionPages; page++) {
-          const result = decoder.channelRead(
-            await this.rpc(entry, "areal/channel/read", {
-              taskId: params.taskId,
-              afterSequence,
-              limit: 100,
-            }),
-          );
-          check();
-          bytes += Buffer.byteLength(JSON.stringify(result));
-          if (bytes > LIMITS.nativeHistoryBytes) break;
-          if (
-            result.taskId !== params.taskId ||
-            !Array.isArray(result.data) ||
-            result.data.length > 100
-          )
-            throw failure("TARGET_CHANGED", "Channel 身份或分页无效");
-          item = result.data.find(
-            (value) =>
-              value.id === params.questionId &&
-              value.runId === params.runId &&
-              value.kind === "question",
-          );
-          if (item) {
-            complete = true;
-            break;
-          }
-          if (!result.hasMore) {
-            complete = true;
-            break;
-          }
-          if (!Number.isSafeInteger(result.nextSequence) || result.nextSequence <= afterSequence)
-            break;
-          afterSequence = result.nextSequence;
-        }
-        check();
-        return publish({ task, item, complete }, entry);
-      });
-    } finally {
-      entry.readers--;
-      if (!entry.readers && ![...entry.threads.values()].some((value) => value.viewers.size))
-        this.invalidate(entry);
-    }
+  taskQuestion(connection, projectId, params, publish) {
+    return readTaskQuestion(this, connection, projectId, params, publish);
   }
   /** @template T @param {RemoteConnection} connection @param {string} projectId @param {string} threadId @param {(thread:import("./remote-core-decoder.cjs").Thread,entry:ObserverEntry,check:()=>void,read:()=>Promise<import("./remote-core-decoder.cjs").Thread>)=>T} work */
   async reviewThread(connection, projectId, threadId, work) {
@@ -666,7 +607,10 @@ class SessionObservers {
       });
     } finally {
       entry.readers--;
-      if (!entry.readers && ![...entry.threads.values()].some((value) => value.viewers.size))
+      if (
+        !entry.readers &&
+        ![...entry.threads.values()].some((value) => value.viewers.size || value.pushWatches?.size)
+      )
         this.invalidate(entry);
     }
   }
@@ -718,7 +662,10 @@ class SessionObservers {
       this.check(entry, viewer);
       if (params.cursor === undefined) {
         const result = decoder.threadRead(
-          await this.rpc(entry, "thread/read", { threadId: params.threadId, includeTurns: true }),
+          await this.rpc(entry, "thread/read", {
+            threadId: params.threadId,
+            includeTurns: true,
+          }),
         );
         this.check(entry, viewer);
         if (result.thread?.id !== params.threadId)
@@ -782,20 +729,86 @@ class SessionObservers {
     viewer.body = null;
     const { entry, thread } = viewer;
     thread.viewers.delete(viewer);
-    if (entry.closed || thread.viewers.size) return true;
-    if (!entry.readers && ![...entry.threads.values()].some((value) => value.viewers.size)) {
+    if (!thread.viewers.size) thread.state = null;
+    this.releaseUnused(entry, thread);
+    return true;
+  }
+  /** @param {ObserverEntry} entry @param {ThreadObserver} thread */
+  releaseUnused(entry, thread) {
+    if (entry.closed || thread.viewers.size || thread.pushWatches?.size) return;
+    if (
+      !entry.readers &&
+      ![...entry.threads.values()].some((value) => value.viewers.size || value.pushWatches?.size)
+    ) {
       this.invalidate(entry);
-      return true;
+      return;
     }
     void this.enqueue(entry, async () => {
-      if (thread.viewers.size || entry.threads.get(thread.id) !== thread) return;
-      thread.state = null;
+      if (
+        thread.viewers.size ||
+        thread.pushWatches?.size ||
+        entry.threads.get(thread.id) !== thread
+      )
+        return;
       await this.rpc(entry, "areal/subscription/remove", { threadIds: [thread.id] });
-      this.check(entry);
-      if (!thread.viewers.size && entry.threads.get(thread.id) === thread)
+      if (
+        !thread.viewers.size &&
+        !thread.pushWatches?.size &&
+        entry.threads.get(thread.id) === thread
+      )
         entry.threads.delete(thread.id);
     }).catch(() => this.invalidate(entry));
-    return true;
+  }
+  /** @param {string} projectId @param {string} threadId @param {()=>boolean} authorized @param {(method:string,params:unknown)=>void} receive */
+  watchPush(projectId, threadId, authorized, receive) {
+    const project = this.remote.backend.projects.get(projectId);
+    if (!authorized() || !decoder.readyProject(project))
+      throw failure("FORBIDDEN", "推送观察未获授权");
+    const count = [...this.projects.values()].reduce(
+      (sum, entry) =>
+        sum +
+        [...entry.threads.values()].reduce((n, thread) => n + (thread.pushWatches?.size ?? 0), 0),
+      0,
+    );
+    if (count >= LIMITS.observerSubscriptions)
+      throw failure("LIMIT_EXCEEDED", "推送观察已达到上限");
+    const entry = this.projectEntry(projectId, project);
+    let thread = entry.threads.get(threadId);
+    if (!thread) {
+      const subscriptions = [...this.projects.values()].reduce(
+        (sum, value) => sum + value.threads.size,
+        0,
+      );
+      if (subscriptions >= LIMITS.observerSubscriptions) {
+        if (!entry.threads.size) this.invalidate(entry);
+        throw failure("LIMIT_EXCEEDED", "观察订阅已达到上限");
+      }
+      thread = { id: threadId, viewers: new Set(), state: null };
+      entry.threads.set(threadId, thread);
+    }
+    const target = thread;
+    const watch = {
+      authorized,
+      receive,
+      release: () => {
+        target.pushWatches?.delete(watch);
+        this.releaseUnused(entry, target);
+      },
+    };
+    (thread.pushWatches ??= new Set()).add(watch);
+    void this.enqueue(entry, async () => {
+      if (!watch.authorized()) {
+        watch.release();
+        return;
+      }
+      await this.rpc(entry, "areal/thread/observe", { threadId }, (raw) => {
+        if (watch.authorized()) watch.receive("baseline", decoder.observation(raw));
+      });
+    }).catch(() => watch.release());
+    return {
+      release: watch.release,
+      alive: () => !entry.closed && target.pushWatches?.has(watch) === true,
+    };
   }
   close() {
     if (this.closed) return;
@@ -803,18 +816,5 @@ class SessionObservers {
     for (const entry of this.projects.values()) this.invalidate(entry);
     this.closed = true;
   }
-}
-/** @param {CoreProject|undefined} project @returns {project is ReadyProject} */
-function readyProject(project) {
-  return (
-    !!project?.client?.ready &&
-    !project.client.closed &&
-    !!project.model.state.connected &&
-    !project.resourceInitializing
-  );
-}
-/** @param {unknown} error */
-function errorCode(error) {
-  return error && typeof error === "object" && "code" in error ? error.code : undefined;
 }
 module.exports = { SessionObservers, METHODS, LIMITS };

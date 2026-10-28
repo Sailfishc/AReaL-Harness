@@ -6,7 +6,8 @@
   "type": "module",
   "exports": {
     ".": "./src/channel.mjs",
-    "./raster": "./src/raster.mjs"
+    "./raster": "./src/raster.mjs",
+    "./wire": "./src/wire.mjs"
   },
   "dependencies": {
     "@chainsafe/libp2p-noise": "17.0.0",

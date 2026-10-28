@@ -16,7 +16,6 @@ import { settingsNavigationGroups } from "./settings/settingsNavigation.js";
 import { SettingsNavigation } from "./settings/SettingsWorkspace.js";
 import { UnsavedChangesProvider, useGuardedNavigation } from "./settings/UnsavedChanges.js";
 import { useTrajectoryPolling } from "./settings/useTrajectoryPolling.js";
-import { conversationCatalog } from "./state/conversationCatalog.js";
 import { useNavigationWorkspace } from "./state/navigationWorkspace.js";
 import { projectExecutionBlocked } from "./state/projectExecution.js";
 import { useTaskWorkspace } from "./state/taskWorkspace.js";
@@ -82,6 +81,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     snapshot,
     library,
     projects,
+    summaries,
     project,
     thread,
     projectId,
@@ -134,7 +134,6 @@ function AppContent({ services }: { services: PlatformServices }) {
   } = surfaces;
   const navigationWorkspace = useNavigationWorkspace();
   const navigation = navigationWorkspace.workspace;
-  const archived = navigationWorkspace.archived;
   useEffect(surfaces.restoreSettingsFocus, [settingsOpen]);
   const fork = useConversationFork(
     project,
@@ -374,7 +373,6 @@ function AppContent({ services }: { services: PlatformServices }) {
     terminalLocation,
     openBrowser,
   ]);
-  const summaries = conversationCatalog(projects, library);
   const conversationReferences = summaries
     .filter((row) => row.owner.id === project?.id && row.summary.id !== thread?.id && !row.archived)
     .sort((a, b) => b.updatedAt - a.updatedAt || a.summary.id.localeCompare(b.summary.id))
@@ -423,16 +421,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     !(thread && admitting) &&
     thread?.conversation?.kind !== "fork" &&
     !thread?.turns?.some((turn: Data) => turn.items?.length || turn.status === "inProgress");
-  const taskActions = (
-    <WorkspaceTaskActions
-      session={session}
-      workspacePanels={workspacePanels}
-      navigation={navigation}
-      archived={archived}
-      setSidebar={setSidebar}
-      showPanel={showPanel}
-    />
-  );
+  const taskActions = <WorkspaceTaskActions session={session} workspacePanels={workspacePanels} />;
   const pluginCenterActive = surfaces.pluginCenterActive;
   const applicationRail = (
     <WorkbenchRail

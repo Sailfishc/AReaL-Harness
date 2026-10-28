@@ -9,7 +9,7 @@ import json
 import os
 from pathlib import Path
 
-from fixture_session_title import reply_to_session_title
+from fixture_session_title import assert_session_title_audits, reply_to_session_title
 import random
 import struct
 import subprocess
@@ -276,6 +276,7 @@ def main():
                     self.send_error(400)
 
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Model)
+        server.daemon_threads = False
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         config = f"""schema_version = 1
@@ -365,48 +366,43 @@ max_tool_calls = 32
                 text=True,
                 timeout=100,
             )
-            assert not errors, errors
-            assert stdin_checks == [
-                "default-closed",
-                "explicit-write-and-close",
-                "explicit-close-only",
-            ], stdin_checks
-            assert done.returncode == 0, done.stdout[-5000:] + done.stderr[-5000:]
-            assert (repo / "code.py").read_text() == "value = 4\n"
-            task_scratch = list(scratch.glob("agent-*"))
-            assert len(task_scratch) == 1, task_scratch
-            receipts = list((task_scratch[0] / "verification").glob("*.json"))
-            assert len(receipts) == 1, receipts
-            assert json.loads(receipts[0].read_text())["exitCode"] == 0
-            audits = [json.loads(p.read_text()) for p in (data / "model-requests").glob("*.json")]
-            assert len(audits) == len(requests) + len(naming_requests), audits
-            ordinary = [audit for audit in audits if audit["purpose"] == "Solve"]
-            summaries = [audit for audit in audits if audit["purpose"] == "Summary"]
-            assert len(ordinary) == len(requests), ordinary
-            assert len(summaries) == len(naming_requests), summaries
-            assert all(a["outcome"] == "completed" for a in ordinary), ordinary
-            # Session naming is best effort: Engine shutdown cancels its stream
-            # after the foreground turn completes (core/engine/src/session_name.rs).
-            assert all(
-                a["outcome"] in {"completed", "interrupted_or_unfinished"} for a in summaries
-            ), summaries
-            assert all(a["toolCount"] == 0 for a in summaries), summaries
-            print(
-                json.dumps(
-                    {
-                        "native_tool_smoke": "passed",
-                        "stdin_checks": stdin_checks,
-                        "sandbox_profile": args.sandbox_profile,
-                        "model_requests": len(requests),
-                        "verification_receipts": len(receipts),
-                        "png_bytes": len(png),
-                    }
-                )
-            )
         finally:
+            # 等所有已接收的请求退出，避免响应写完前后与主线程断言竞争。
             server.shutdown()
             server.server_close()
             thread.join()
+        assert not errors, errors
+        assert stdin_checks == [
+            "default-closed",
+            "explicit-write-and-close",
+            "explicit-close-only",
+        ], stdin_checks
+        assert done.returncode == 0, done.stdout[-5000:] + done.stderr[-5000:]
+        assert (repo / "code.py").read_text() == "value = 4\n"
+        task_scratch = list(scratch.glob("agent-*"))
+        assert len(task_scratch) == 1, task_scratch
+        receipts = list((task_scratch[0] / "verification").glob("*.json"))
+        assert len(receipts) == 1, receipts
+        assert json.loads(receipts[0].read_text())["exitCode"] == 0
+        audits = [json.loads(p.read_text()) for p in (data / "model-requests").glob("*.json")]
+        ordinary = [audit for audit in audits if audit["purpose"] == "Solve"]
+        summaries = [audit for audit in audits if audit["purpose"] == "Summary"]
+        assert len(ordinary) == len(requests), ordinary
+        assert len(audits) == len(ordinary) + len(summaries), audits
+        assert all(a["outcome"] == "completed" for a in ordinary), ordinary
+        assert_session_title_audits(summaries, len(naming_requests))
+        print(
+            json.dumps(
+                {
+                    "native_tool_smoke": "passed",
+                    "stdin_checks": stdin_checks,
+                    "sandbox_profile": args.sandbox_profile,
+                    "model_requests": len(requests),
+                    "verification_receipts": len(receipts),
+                    "png_bytes": len(png),
+                }
+            )
+        )
 
 
 if __name__ == "__main__":

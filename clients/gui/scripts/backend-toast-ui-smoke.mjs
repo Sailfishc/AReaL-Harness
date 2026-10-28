@@ -88,7 +88,6 @@ try {
       summaries: [{ id: threadId, name: "Keep streaming until I pause.", status: "idle" }],
       configurations: {},
       outcomes: {},
-      core: {},
       desktopCapabilities: { currentCommands: true },
     };
     const snapshot = {
@@ -96,7 +95,15 @@ try {
       projects: [project],
       connection: { state: "ready" },
       desktopCapabilities: { currentCommands: true },
-      library: { projects: {}, threads: {}, settings: {}, projectOrder: [] },
+      library: {
+        projects: {},
+        threads: {},
+        settings: {},
+        projectOrder: [],
+        sidebarThreadOrder: [],
+        sidebarRevision: 0,
+        sections: [],
+      },
     };
     let projectionListener,
       sequence = 0;
@@ -115,13 +122,36 @@ try {
     window.calls = [];
     window.setBackendState = (patch) => {
       Object.assign(snapshot, patch);
+      for (const [key, value] of Object.entries(patch)) if (value === null) delete snapshot[key];
       if (patch.desktopCapabilities) project.desktopCapabilities = patch.desktopCapabilities;
       publish();
     };
     window.currentBackendState = () => structuredClone(snapshot);
     window.repeatBackendState = publish;
-    window.ordinaryToast = (message) =>
-      document.dispatchEvent(new CustomEvent("areal:toast", { detail: message }));
+    window.historyReads = [];
+    window.setHistory = (viewGeneration) => {
+      thread.displayHistory = {
+        supported: true,
+        viewGeneration,
+        complete: true,
+        latestTurnComplete: true,
+      };
+      publish();
+    };
+    window.finishHistory = (index, failed = false) =>
+      window.historyReads[index](
+        failed
+          ? {
+              ok: false,
+              error: {
+                message: "历史视图已变化，请重新加载。",
+                code: "HISTORY_VIEW_UNAVAILABLE",
+                outcome: { kind: "noMutation" },
+                recovery: { kind: "none" },
+              },
+            }
+          : { ok: true, value: { supported: true, complete: true } },
+      );
     localStorage.setItem("areal-gui:project", project.id);
     localStorage.setItem(`areal-gui:thread:${project.id}`, threadId);
     window.arealDesktop = {
@@ -141,6 +171,13 @@ try {
             snapshot: structuredClone(snapshot),
           },
         }),
+      setInterfaceLocale: async () => {},
+      onQuitRequested: () => () => {},
+      onQuitProgress: () => () => {},
+      onPreviewEvent: () => () => {},
+      onUpdate: () => () => {},
+      onNotificationOpen: () => () => {},
+      onMcpAppDeepLink: () => () => {},
       theme: async () => ({ platform: "darwin", dark: false, id: "light" }),
       onTheme: () => () => {},
       onMcpAppEvent: () => () => {},
@@ -148,14 +185,31 @@ try {
       preview: async () => ({}),
       command: async (name, params) => {
         window.calls.push({ name, params });
+        if (name === "history" && params.operation !== "release")
+          return new Promise((resolve) =>
+            window.historyReads.push((response) =>
+              resolve(
+                response.ok && params.operation === "loadOlder"
+                  ? { ok: true, value: { data: [], complete: true, nextCursor: null } }
+                  : response,
+              ),
+            ),
+          );
+        if (name === "history") return { ok: true, value: { released: true } };
+        if (["connect", "list", "open"].includes(name))
+          return { ok: true, value: structuredClone(snapshot) };
         if (name === "workspace") return { ok: true, value: { git: true, branch: "main" } };
         if (name === "trajectory")
           return { ok: true, value: { enabled: false, state: "disabled", queue: {}, records: [] } };
+        if (name === "connectService") return { ok: true, value: null };
+        if (name === "serviceLifecycle") return { ok: true, value: snapshot.lifecycle };
         if (name === "serviceStatus")
           return {
             ok: true,
             value: {
               connected: true,
+              canStop: true,
+              providerUpdating: false,
               clients: 1,
               busy: false,
               activeCommands: 0,
@@ -174,6 +228,80 @@ try {
   await page.clock.install();
   const before = await input.boundingBox();
   await page.screenshot({ path: join(scratch, "01-before.png"), animations: "disabled" });
+  const toast = page.locator('[data-testid="toast"]');
+  await page.evaluate(() => window.setHistory("first"));
+  await page.waitForFunction(() => window.historyReads.length === 1);
+  await page.evaluate(() => window.setHistory("second"));
+  await page.waitForFunction(() => window.historyReads.length === 2);
+  await page.evaluate(() => {
+    window.finishHistory(1);
+    window.finishHistory(0, true);
+  });
+  await page.clock.runFor(100);
+  check(
+    (await toast.count()) === 0 && (await page.getByRole("alert").count()) === 0,
+    "A replaced history read fails silently after the new view succeeds.",
+  );
+  await page.evaluate(() => window.setHistory("third"));
+  await page.waitForFunction(() => window.historyReads.length === 3);
+  await page.evaluate(() => window.finishHistory(2, true));
+  const historyError = page.getByRole("alert").filter({ hasText: "历史内容加载失败" });
+  await historyError.waitFor();
+  await page.screenshot({ path: join(scratch, "history-local-retry.png"), animations: "disabled" });
+  check(
+    (await toast.count()) === 0,
+    "A current history failure stays local instead of producing a global error toast.",
+  );
+  await page.getByRole("button", { name: "重试加载对话", exact: true }).click();
+  await page.waitForFunction(() => window.historyReads.length === 4);
+  await page.evaluate(() => window.finishHistory(3));
+  await historyError.waitFor({ state: "hidden" });
+  check(
+    (await input.innerText()) === "DRAFT_PRESERVED_SENTINEL",
+    "History retry preserves the draft.",
+  );
+  await page.evaluate(() => window.setHistory("fourth"));
+  await page.waitForFunction(() => window.historyReads.length === 5);
+  await page.evaluate(() => window.finishHistory(4, true));
+  await historyError.waitFor();
+  await page.evaluate(() => window.setHistory("fifth"));
+  await page.waitForFunction(() => window.historyReads.length === 6);
+  await page.evaluate(() => window.finishHistory(5));
+  await historyError.waitFor({ state: "hidden" });
+  check(
+    (await toast.count()) === 0,
+    "A new authoritative history view clears the earlier local failure.",
+  );
+  for (const patch of [
+    { connection: { state: "connecting" } },
+    { connection: { state: "ready" }, backendUpdate: { state: "applying" } },
+    {
+      backendUpdate: null,
+      lifecycle: {
+        supported: true,
+        operations: [],
+        requestId: "pending",
+        phase: "acceptedPending",
+      },
+    },
+    {
+      lifecycle: {
+        supported: true,
+        operations: [],
+        requestId: "stopped",
+        kind: "stopDesktop",
+        phase: "completed",
+        desktopExit: "requested",
+      },
+    },
+  ]) {
+    await page.evaluate((patch) => window.setBackendState(patch), patch);
+    await page.clock.runFor(1500);
+    check(
+      (await toast.count()) === 0,
+      "Automatic progress and a completed stop do not notify the user.",
+    );
+  }
   const lifecycle = {
     supported: true,
     operations: [],
@@ -184,15 +312,14 @@ try {
     targets: [{ projectId: "toast-fixture", phase: "admissionUnconfirmed" }],
   };
   await page.evaluate((lifecycle) => window.setBackendState({ lifecycle }), lifecycle);
-  const toast = page.locator('[data-testid="toast"]');
   await toast.waitFor({ timeout: 5000 });
   check(
-    (await toast.getByRole("button").count()) === 0,
-    "Backend notification contains no ineffective action or details buttons.",
+    (await toast.getByRole("button", { name: "检查设置", exact: true }).count()) === 1,
+    "Actionable backend notification provides a settings recovery entry.",
   );
   check(
-    (await toast.getAttribute("role")) === "status",
-    "The transient notification uses a polite status announcement.",
+    (await toast.getByRole("alert").count()) === 1,
+    "A backend failure retains its error announcement.",
   );
   check(
     !(await toast.innerText()).includes("TECHNICAL_"),
@@ -247,25 +374,12 @@ try {
   );
   await toast.waitFor();
   checks.push("A distinct request with the same failure produces a new notification.");
-  await page.clock.fastForward(3000);
-  await page.evaluate(() => window.ordinaryToast("COPIED_SUCCESS_SENTINEL"));
-  await toast.filter({ hasText: "COPIED_SUCCESS_SENTINEL" }).waitFor();
-  await page.clock.fastForward(2001);
-  check((await toast.count()) === 1, "An older notification timer cannot dismiss a newer message.");
+  await page.evaluate(() => window.setBackendState({ lifecycle: null }));
+  await toast.waitFor({ state: "hidden" });
   check(
-    (await page
-      .locator('[data-testid="feedback-notice"]')
-      .filter({ hasText: "COPIED_SUCCESS_SENTINEL" })
-      .count()) === 0,
-    "Ordinary success feedback no longer creates a persistent error card.",
+    (await toast.count()) === 0,
+    "Resolved backend state immediately dismisses the stale recovery notification.",
   );
-  await page.clock.fastForward(3000);
-  await toast.waitFor({ state: "hidden" });
-  await page.evaluate(() => window.ordinaryToast("COPIED_SUCCESS_SENTINEL"));
-  await toast.waitFor();
-  checks.push("Repeating a user action can show the same success message again.");
-  await page.clock.fastForward(5001);
-  await toast.waitFor({ state: "hidden" });
   await page.evaluate(() =>
     window.setBackendState({ lifecycle: null, desktopCapabilities: { currentCommands: false } }),
   );
@@ -300,10 +414,14 @@ try {
       window.setBackendState({ lifecycle, desktopCapabilities: { currentCommands: true } }),
     lifecycle,
   );
-  await page.getByRole("button", { name: "设置", exact: true }).click();
-  await page.getByRole("button", { name: "后台服务", exact: true }).click();
+  await toast.getByRole("button", { name: "检查设置", exact: true }).click();
   const checkButton = page.getByRole("button", { name: "检查后台", exact: true });
   await checkButton.click();
+  await page.waitForFunction(() =>
+    window.calls.some(
+      (call) => call.name === "serviceLifecycle" && call.params.operation === "check",
+    ),
+  );
   check(
     (await page.evaluate(
       () =>

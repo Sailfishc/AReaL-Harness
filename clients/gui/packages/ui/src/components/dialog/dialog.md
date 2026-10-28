@@ -2,8 +2,8 @@
 id: dialog
 title: Dialog
 summary: 模态对话框，沿用现有生产实现与交互。
-status: experimental
-entry: experimental
+status: stable
+entry: index
 layer: core
 category: overlay
 aliases: ["模态对话框"]
@@ -27,7 +27,7 @@ exports: ["Dialog", "DialogClose", "DialogContent", "DialogDescription", "Dialog
 
 ## 行为
 
-`R-DIALOG-002` 保留Base UI焦点约束与恢复；本地化关闭文案由原renderer适配传入。业务busy/dirty守卫由宿主负责。
+`R-DIALOG-002` 设置、附件预览、命令选择和移动模型面板复用同一稳定 API。保留 Base UI 焦点约束与恢复、受控开关及本地化关闭参数；业务 busy/dirty 守卫由宿主负责。
 
 ## 内容
 
@@ -39,7 +39,7 @@ exports: ["Dialog", "DialogClose", "DialogContent", "DialogDescription", "Dialog
 
 ## 规则
 
-引用 [R-UI-COMMON-004](../../../README.md#共同合同)。
+引用 [R-UI-COMMON-003](../../../README.md#共同合同)。
 
 ## 示例
 

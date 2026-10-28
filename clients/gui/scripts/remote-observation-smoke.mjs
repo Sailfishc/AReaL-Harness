@@ -1,3 +1,4 @@
+import { RemoteConnection } from "@areal/remote-client";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { resolve, dirname, join } from "node:path";
@@ -68,56 +69,60 @@ try {
   const page = await fetch(address.origin);
   assert.equal(page.status, 200);
   assert.match(await page.text(), /Remote/);
-  const { secure, messages } = await connect();
-  secure.send({
-    method: "hello",
-    apiVersion: "areal.remote.v2",
-    clientVersion: "fixture",
-    displayName: "Fixture browser",
+  const socket = new WebSocket(address.ws, { origin: address.origin });
+  const client = new RemoteConnection({
+    socket,
+    identity: deviceIdentity,
+    host: identityId(hostIdentity),
+    hello: { displayName: "Fixture browser" },
+    isCurrent: () => true,
+    onClose() {},
   });
-  const ready = (await messages.next()).value;
+  const ready = await client.connect({ onHandshake() {}, onReady() {}, onSession() {} });
   assert.equal(ready.event, "ready");
   assert.equal(ready.hostId, identityId(hostIdentity));
   assert.deepEqual(ready.capabilities, ["observe"]);
   for (const method of ["session.open", "session.history", "subscription.close"])
     assert.ok(ready.methods.includes(method), `Remote advertises ${method}`);
-  secure.send({
-    id: "one",
+  const projects = await client.request({
     method: "project.list",
     context: { projectId: "project-a" },
     params: { limit: 1 },
   });
-  const projects = (await messages.next()).value;
   assert.deepEqual(
-    projects.result.projects.map((project) => project.projectId),
+    projects.projects.map((project) => project.projectId),
     ["project-a"],
   );
-  assert.equal(projects.result.nextCursor, "1");
-  secure.send({ id: "next", method: "project.list", params: { cursor: "1", limit: 1 } });
+  assert.equal(projects.nextCursor, "1");
+  const next = await client.request({ method: "project.list", params: { cursor: "1", limit: 1 } });
   assert.deepEqual(
-    (await messages.next()).value.result.projects.map((project) => project.projectId),
+    next.projects.map((project) => project.projectId),
     ["project-c"],
   );
   assert.equal(JSON.stringify([ready, projects]).includes(privateRoot), false);
-  secure.send({
-    id: "two",
-    method: "project.list",
-    context: { projectId: "project-b" },
-    params: {},
+  await assert.rejects(
+    client.request({
+      method: "project.list",
+      context: { projectId: "project-b" },
+      params: {},
+    }),
+    { code: "FORBIDDEN" },
+  );
+  await assert.rejects(
+    client.request({
+      method: "no.such.method",
+      context: { projectId: "project-a" },
+      params: {},
+    }),
+    { code: "INVALID_PARAMS" },
+  );
+  await assert.rejects(client.request({ method: "host.describe", params: {}, extra: true }), {
+    code: "INVALID_PARAMS",
   });
-  assert.equal((await messages.next()).value.error.code, "FORBIDDEN");
-  secure.send({
-    id: "three",
-    method: "no.such.method",
-    context: { projectId: "project-a" },
-    params: {},
+  await assert.rejects(client.request({ method: "project.list", params: { limit: 101 } }), {
+    code: "INVALID_PARAMS",
   });
-  assert.equal((await messages.next()).value.error.code, "INVALID_PARAMS");
-  secure.send({ id: "four", method: "host.describe", params: {}, extra: true });
-  assert.equal((await messages.next()).value.error.code, "INVALID_PARAMS");
-  secure.send({ id: "five", method: "project.list", params: { limit: 101 } });
-  assert.equal((await messages.next()).value.error.code, "INVALID_PARAMS");
-  secure.close();
+  socket.close();
   const old = await connect();
   old.secure.send({
     method: "hello",
@@ -193,7 +198,7 @@ try {
     JSON.stringify({
       passed: true,
       checks: [
-        "fixture Noise observation and pagination",
+        "shared client with production Noise observation and pagination",
         "wrong Host pin",
         "unknown protocol, fields and method",
         "wrong Origin and management route",

@@ -18,6 +18,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24.22.1'
@@ -37,10 +38,17 @@ jobs:
         run: |
           mkdir -p target/ci/audit
           python3 scripts/ci-fingerprint.py > target/ci/audit/fingerprint.json
-          python3 scripts/dependency-audit.py
+          python3 scripts/ci-preflight.py --groups audit --output target/ci/checks/audit
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
           name: dependency-audit-evidence
           path: target/ci/audit/
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: ci-checks-${{ github.run_id }}-${{ github.run_attempt }}-audit
+          path: target/ci/checks/audit/
+          if-no-files-found: warn
           retention-days: 7

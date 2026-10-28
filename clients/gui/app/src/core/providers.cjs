@@ -1,11 +1,19 @@
 // @ts-check
 "use strict";
+const { catalog, rejectModel, subscriptionAvailable } = require("./provider-model-catalog.cjs");
+const { testConnection, errorMessage } = require("./provider-probe.cjs");
 const { startupTrace } = require("./startup-timing.cjs");
-const { readFile, appendFile } = require("node:fs/promises");
+const { readFile } = require("node:fs/promises");
 const { join } = require("node:path");
-const { randomUUID, randomBytes } = require("node:crypto");
+const { randomUUID, randomBytes, createHash } = require("node:crypto");
 const { isDeepStrictEqual } = require("node:util");
-const { SubscriptionStore } = require("./subscription.cjs");
+const {
+  SubscriptionStore,
+  transportRecord,
+  publicSubscriptionModels,
+  requestAudit,
+  subscriptionContexts,
+} = require("./subscription.cjs");
 const {
   definitions,
   connectionMetadata,
@@ -32,63 +40,8 @@ const providerContract = require("./provider-contract.cjs");
 /** @typedef {{target:ProviderTarget,applied?:boolean,pending?:boolean,error?:unknown}} ApplyOutcome */
 /** @typedef {{pending?:boolean,rejected?:boolean,generationChanged?:boolean,error?:unknown}} PendingOutcome */
 
-const { connection, validContextWindow, modelParameters, modelCapabilities } = providerContract;
+const { connection, modelParameters, modelCapabilities } = providerContract;
 
-const connectionFailures = [
-  {
-    causes: ["ENOTFOUND", "EAI_AGAIN"],
-    category: "DNS",
-    message: "域名解析失败：请检查 Base URL、DNS 和网络代理设置",
-  },
-  {
-    causes: ["ECONNREFUSED"],
-    category: "REFUSED",
-    message: "连接被拒绝：请检查 Base URL、服务端口及网络代理是否可用",
-  },
-  {
-    causes: [
-      "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
-      "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
-      "SELF_SIGNED_CERT_IN_CHAIN",
-      "DEPTH_ZERO_SELF_SIGNED_CERT",
-      "CERT_HAS_EXPIRED",
-      "ERR_TLS_CERT_ALTNAME_INVALID",
-    ],
-    category: "TLS",
-    message: "TLS 证书验证失败：请检查服务地址、系统信任证书和网络代理证书",
-  },
-  {
-    causes: ["ETIMEDOUT", "ABORT_ERR", "AbortError", "TimeoutError"],
-    category: "TIMEOUT",
-    message: "连接超时或已取消：请检查网络和服务状态后重试",
-  },
-  {
-    causes: ["proxy-unavailable"],
-    category: "PROXY",
-    message: "网络代理不可用：请检查系统代理设置后重试",
-  },
-  {
-    causes: ["no-redirect"],
-    category: "REDIRECT",
-    message: "模型服务返回重定向：请将 Base URL 改为最终服务地址",
-  },
-];
-
-/** @param {unknown} cause */
-function connectionError(cause) {
-  const error = providerContract.record(cause) ? cause : {};
-  const nested = providerContract.record(error.cause) ? error.cause : {};
-  const reasons = [error?.code, nested.code, error?.type, error?.name];
-  if (error?.message === "ChatGPT proxy unavailable") reasons.push("proxy-unavailable");
-  const failure = connectionFailures.find(({ causes }) =>
-    causes.some((code) => reasons.includes(code)),
-  ) ?? { category: "UNAVAILABLE", message: "连接失败：请检查 Base URL、网络及服务是否可用" };
-  return Object.assign(new Error(failure.message), {
-    code: `PROVIDER_NETWORK_${failure.category}`,
-  });
-}
-
-/** Core 拥有模型元数据，Desktop 只负责加密凭据与 OAuth。 */
 class AppProviders {
   /** @param {InstanceType<typeof import('./backend.cjs').CoreBackend>} backend @param {import('electron').SafeStorage} [encryption] */
   constructor(backend, encryption) {
@@ -110,14 +63,37 @@ class AppProviders {
     /** @type {Promise<ReturnType<typeof import('@areal/chatgpt-provider/network').subscriptionNetwork>>|undefined} */ this.networkPromise =
       undefined;
     /** @type {Promise<unknown>|undefined} */ this.loginAttempt = undefined;
-    /** @type {Promise<import('./provider-contract.cjs').CoreProvider|null|undefined>|undefined} */ this.subscriptionSync =
+    /** @type {Map<string,Promise<import('./provider-contract.cjs').CoreProvider|null|undefined>>} */ this.subscriptionSync =
+      new Map();
+    /** @type {import('@areal/workbench/desktop-contract/provider').ChatGPTStatus} */ this.subscription =
+      {
+        authenticated: false,
+        availability: "unavailable",
+        refreshing: false,
+        state: "signed_out",
+        email: null,
+        planType: null,
+        modelError: null,
+        models: [],
+        diagnostic: null,
+        login: null,
+        error: null,
+        billing: "subscription",
+        catalog: null,
+      };
+    /** @type {string|null} */ this.subscriptionIdentity = null;
+    /** @type {{service:import('@areal/chatgpt-provider/core').CoreSubscription,revision:number,lifetime:AbortController}|undefined} */ this.subscriptionRefreshScope =
       undefined;
+    /** @type {Promise<void>|undefined} */ this.subscriptionRefresh = undefined;
+    /** @type {WeakMap<CoreProject,{models:import('./provider-contract.cjs').ModelCatalogEntry[],configuration:ModelSnapshot|undefined,subscription:import('@areal/workbench/desktop-contract/provider').ChatGPTStatus,accepted:import('./provider-contract.cjs').AcceptedModel|undefined,configured:string,result:import('./provider-contract.cjs').ModelCatalogEntry[]}>} */ this.catalogs =
+      new WeakMap();
     /** @type {PreparedStatus|null} */ this.preparedSubscriptionStatus = null;
     /** @type {NodeJS.Timeout|null} */ this.reconciliationTimer = null;
     /** @type {Promise<void>|null} */ this.reconciliation = null;
     /** @type {Promise<void>|undefined} */ this.modelSelectionUpdate = undefined;
     /** @type {InstanceType<typeof import('./subscription.cjs').SubscriptionStore>|undefined} */ this.openaiStore =
       undefined;
+    this.subscriptionInitialized = false;
     this.closed = false;
     this.saving = false;
   }
@@ -144,6 +120,7 @@ class AppProviders {
       await this.backend.save("subscription-transport.json", this.transport);
     }
     this.openaiToken = this.transport.token;
+    await this.readSubscription(await this.openai(), true);
   }
   get value() {
     return this.config.value ?? { data: [], defaultModel: null, revision: undefined };
@@ -164,58 +141,9 @@ class AppProviders {
       this.openaiPromise = import("@areal/chatgpt-provider/core")
         .then(({ CoreSubscription }) => {
           this.openaiStore = new SubscriptionStore(this.backend, this.encryption);
-          /** @type {((audit:import('@areal/chatgpt-provider/core').RequestAudit)=>Promise<void>)|undefined} */
           const onRequest =
             process.env.AREAL_CORE_PROVIDER_AUDIT === "1"
-              ? async ({
-                  providerId,
-                  protocol,
-                  model,
-                  startedAt,
-                  completedAt,
-                  upstreamHttpStatus,
-                  upstreamContentType,
-                  localHttpStatus,
-                  outcome,
-                  failureKind,
-                  streamFailureReason,
-                  code,
-                  state,
-                  phase,
-                  httpStatus,
-                  requestId,
-                  adjustments,
-                  sessionIdentitySent,
-                  turnStateSent,
-                  turnStateReceived,
-                }) => {
-                  await appendFile(
-                    join(this.backend.home, "provider-requests.jsonl"),
-                    JSON.stringify({
-                      providerId,
-                      protocol,
-                      model,
-                      startedAt,
-                      completedAt,
-                      upstreamHttpStatus,
-                      upstreamContentType,
-                      localHttpStatus,
-                      outcome,
-                      failureKind,
-                      streamFailureReason,
-                      code,
-                      state,
-                      phase,
-                      httpStatus,
-                      requestId,
-                      adjustments,
-                      sessionIdentitySent,
-                      turnStateSent,
-                      turnStateReceived,
-                    }) + "\n",
-                    { mode: 0o600 },
-                  );
-                }
+              ? requestAudit(this.backend.home)
               : undefined;
           const transport = this.transport;
           if (!transport) throw new Error("订阅传输尚未初始化");
@@ -275,30 +203,199 @@ class AppProviders {
     const trace = startupTrace("providers.prepare");
     trace.advance("subscription_config");
     try {
-      try {
-        const value = JSON.parse(
-          await readFile(join(this.backend.home, "openai-subscription.json"), "utf8"),
-        );
-        if (!providerContract.record(value)) throw new Error("订阅凭据记录无效");
-        if (!value.secret) {
-          trace.finish("skipped");
-          return;
-        }
-      } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-          trace.finish("skipped");
-          return;
-        }
-        throw error;
+      const service = await this.openai();
+      if (!this.subscriptionInitialized) await this.readSubscription(service);
+      if (!this.subscription.authenticated) {
+        trace.finish("skipped");
+        return;
       }
       trace.advance("local_ready");
-      const service = await this.openai();
       await service.ready();
-      this.prepareSubscriptionStatus(service);
+      void this.refreshSubscriptionStatus(service, { synchronize: false });
       trace.finish("ok");
     } catch (error) {
       trace.finish("error", error);
       throw error;
+    }
+  }
+  /** @param {import('@areal/chatgpt-provider/core').CoreSubscription} service @param {boolean} [restore] */
+  async readSubscription(service, restore = false) {
+    this.subscriptionInitialized = true;
+    const account = service.openaiAccount;
+    const revision = account.revision;
+    try {
+      const local = await account.read();
+      const directory = await account.directory.snapshot();
+      const selected = directory.records[directory.activeId]?.record;
+      const registration = selected?.payload;
+      const identity = local
+        ? createHash("sha256")
+            .update(
+              JSON.stringify([
+                directory.activeId,
+                registration?.hostId,
+                registration?.clientId,
+                registration?.accountId,
+                registration?.subject,
+                registration?.issuer,
+              ]),
+            )
+            .digest("hex")
+        : null;
+      const publicAccounts = await account.directory.public();
+      if (revision !== account.revision || this.closed) return;
+      const changed = identity !== this.subscriptionIdentity;
+      this.subscriptionIdentity = identity;
+      const models = changed ? [] : this.subscription.models;
+      this.subscription = {
+        ...this.subscription,
+        ...publicAccounts,
+        authenticated: !!local,
+        availability: local ? "checking" : "unavailable",
+        refreshing: false,
+        state: local
+          ? "ready"
+          : selected?.payload?.reauthRequired
+            ? "reauth_required"
+            : "signed_out",
+        email: local?.email ?? null,
+        planType: local?.planType ?? null,
+        models,
+        modelError: null,
+        diagnostic: null,
+        login: account.login,
+        error: account.error,
+        ...(changed ? { catalog: null } : {}),
+      };
+      if (restore && identity) {
+        try {
+          const saved = JSON.parse(
+            await readFile(join(this.backend.home, "subscription-catalog.json"), "utf8"),
+          );
+          if (saved.version === 1 && saved.identity === identity) {
+            const cached = publicSubscriptionModels(
+              providerContract.subscriptionModels(saved.models),
+            );
+            this.subscription = { ...this.subscription, models: cached };
+          }
+        } catch (error) {
+          if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
+            console.warn("ChatGPT 公开模型缓存无效，将重新刷新。");
+        }
+      }
+      if (changed && !restore)
+        await this.backend.save("subscription-catalog.json", { version: 1, identity, models: [] });
+    } catch (error) {
+      if (revision !== account.revision || this.closed) return;
+      this.subscription = {
+        ...this.subscription,
+        availability: "unavailable",
+        refreshing: false,
+        state: "storage_locked",
+        modelError: null,
+        error: this.redact(errorMessage(error)),
+      };
+    }
+  }
+  /** @param {import('@areal/chatgpt-provider/core').CoreSubscription} service */
+  refreshSubscriptionStatus(service, { synchronize = true, force = false } = {}) {
+    if (
+      this.subscriptionRefresh &&
+      this.subscriptionRefreshScope?.service === service &&
+      this.subscriptionRefreshScope.revision === service.account.revision &&
+      this.subscriptionRefreshScope.lifetime === service.account.lifetime
+    )
+      return this.subscriptionRefresh;
+    if (force) this.preparedSubscriptionStatus = null;
+    const revision = service.account.revision,
+      lifetime = service.account.lifetime;
+    this.subscriptionRefreshScope = { service, revision, lifetime };
+    const current = () =>
+      !this.closed &&
+      revision === service.account.revision &&
+      lifetime === service.account.lifetime &&
+      !lifetime.signal.aborted;
+    this.subscription = { ...this.subscription, refreshing: true };
+    this.backend.onChange();
+    const work = (async () => {
+      const status = await this.subscriptionStatus(
+        service,
+        startupTrace("providers.subscription_refresh"),
+      );
+      if (!status || !current()) return;
+      const success = status.authenticated && status.state === "ready" && !status.modelError;
+      const authenticated =
+        status.state === "storage_locked" ? this.subscription.authenticated : status.authenticated;
+      const models = success
+        ? publicSubscriptionModels(status.models)
+        : authenticated
+          ? this.subscription.models
+          : [];
+      this.subscription = {
+        ...this.subscription,
+        ...status,
+        authenticated,
+        models,
+        billing: "subscription",
+        catalog: service.catalog?.metadata() ?? null,
+        availability: success
+          ? "available"
+          : ["signed_out", "reauth_required", "storage_locked"].includes(status.state)
+            ? "unavailable"
+            : "checking",
+        refreshing: true,
+      };
+      if (success && this.subscriptionIdentity)
+        await this.backend.save("subscription-catalog.json", {
+          version: 1,
+          identity: this.subscriptionIdentity,
+          models,
+        });
+      this.backend.onChange();
+      if (!synchronize) return;
+      await Promise.all(
+        [...this.backend.projects.values()]
+          .filter((project) => project.client?.ready)
+          .map(async (project) => {
+            const scope = this.subscriptionScope(project, service);
+            const provider = await this.syncSubscription(project, service, undefined, scope);
+            await this.publishSubscription(scope, provider);
+          }),
+      );
+    })()
+      .catch((error) => {
+        if (!current()) return;
+        this.subscription = {
+          ...this.subscription,
+          modelError: this.redact(errorMessage(error)),
+        };
+        this.backend.onChange();
+      })
+      .finally(() => {
+        if (this.subscriptionRefresh !== work) return;
+        this.subscriptionRefresh = undefined;
+        if (!current()) return;
+        this.subscription = { ...this.subscription, refreshing: false };
+        this.backend.onChange();
+      });
+    this.subscriptionRefresh = service.account.track(work);
+    return work;
+  }
+  /** @param {CoreProject} project */
+  async ensureSubscription(project) {
+    const service = await this.openai();
+    const applied = this.subscriptionApplications.get(project);
+    if (applied && this.currentSubscription(applied.scope)) return;
+    try {
+      await service.ready();
+      const scope = this.subscriptionScope(project, service);
+      const provider = await this.syncSubscription(project, service, undefined, scope);
+      await this.publishSubscription(scope, provider);
+    } catch (error) {
+      throw Object.assign(new Error(this.redact(errorMessage(error))), {
+        submissionUnknown: false,
+        outcome: { kind: "noMutation" },
+      });
     }
   }
   /** @param {import('@areal/chatgpt-provider/core').CoreSubscription} service @returns {PreparedStatus|undefined} */
@@ -404,8 +501,15 @@ class AppProviders {
   async chatgpt(request) {
     if (!providerContract.isRequest("chatgpt", request)) throw new Error("ChatGPT 操作参数无效");
     if ((request.provider ?? "openai") !== "openai") throw new Error("不支持的账号类型");
-    const service = await this.openai();
     const op = request.operation;
+    if (op === "status") {
+      const snapshot = this.subscription;
+      void this.openai().then((service) =>
+        this.refreshSubscriptionStatus(service, { force: true }),
+      );
+      return snapshot;
+    }
+    const service = await this.openai();
     // 首次授权不重启 Core 或替换已有授权；无关任务、终端与待确认资源不阻塞它。
     if (op === "login") {
       /** @type {InstanceType<typeof import('./subscription.cjs').SubscriptionStore>|undefined} */
@@ -423,6 +527,12 @@ class AppProviders {
         newAccount: request.newAccount === true,
         accountId: request.accountId,
       });
+      this.subscription = {
+        ...this.subscription,
+        login: service.account.login,
+        error: service.account.error,
+      };
+      this.backend.onChange();
       const completion = service.account.attempt?.done;
       if (completion && this.loginAttempt !== completion) {
         this.loginAttempt = completion;
@@ -432,6 +542,7 @@ class AppProviders {
             .then(async () => {
               if (service.account.lifetime.signal.aborted || !(await service.account.read()))
                 return;
+              await this.readSubscription(service);
               await this.chatgpt({ operation: "status" });
             })
             .catch(() => {
@@ -479,17 +590,12 @@ class AppProviders {
     } else if (op === "cancel") await service.account.cancel();
     else if (op === "probe") return service.probe(request.model);
     else if (op !== "status") throw new Error("不支持的 ChatGPT 操作");
-    const status = await service.account.status();
-    await service.ready();
-    // OAuth 完成不重启 Core，也不改变已有任务的模型选择。
-    for (const project of this.backend.projects.values()) {
-      if (!project.client?.ready) continue;
-      const scope = this.subscriptionScope(project, service);
-      const provider = await this.syncSubscription(project, service, undefined, scope);
-      await this.publishSubscription(scope, provider);
-    }
-    return { ...status, billing: "subscription", catalog: service.catalog?.metadata() ?? null };
+    await this.readSubscription(service);
+    this.backend.onChange();
+    void this.refreshSubscriptionStatus(service);
+    return this.subscription;
   }
+
   /** @param {CoreProject} project @param {import('@areal/chatgpt-provider/core').CoreSubscription|null} service @returns {SubscriptionScope} */
   subscriptionScope(project, service) {
     return {
@@ -570,13 +676,19 @@ class AppProviders {
   ) {
     const queueTrace = startupTrace("providers.subscription_queue", correlation);
     queueTrace.advance("queue_wait");
-    const task = (this.subscriptionSync ?? Promise.resolve())
+    const task = (this.subscriptionSync.get(project.id) ?? Promise.resolve())
       .catch(() => {})
       .then(() => {
         queueTrace.finish("ok");
         return this.applySubscription(scope, correlation);
       });
-    this.subscriptionSync = task;
+    this.subscriptionSync.set(project.id, task);
+    void task
+      .finally(() => {
+        if (this.subscriptionSync.get(project.id) === task)
+          this.subscriptionSync.delete(project.id);
+      })
+      .catch(() => {});
     return task;
   }
   /** @param {SubscriptionScope} scope @param {Record<string,unknown>} [correlation] */
@@ -587,6 +699,16 @@ class AppProviders {
       service,
     } = scope;
     const current = () => this.currentSubscription(scope);
+    const pendingWrite = () => {
+      const pending = project.pending?.some(
+        (entry) =>
+          (entry.method === "areal/provider/upsert" &&
+            providerContract.record(entry.params.provider) &&
+            entry.params.provider.id === "areal_openai") ||
+          (entry.method === "areal/provider/remove" && entry.params.id === "areal_openai"),
+      );
+      if (pending) throw new Error("ChatGPT 配置提交结果未知，请先查询原提交结果");
+    };
     const prepared = this.preparedSubscriptionStatus;
     trace.advance(prepared?.service === service ? "consume_wait" : "account_status");
     try {
@@ -620,6 +742,7 @@ class AppProviders {
           return null;
         }
         trace.advance("provider_remove");
+        if (existing) pendingWrite();
         if (existing)
           await this.backend.submit(
             project,
@@ -641,12 +764,19 @@ class AppProviders {
         return;
       }
       const models = status.models ?? service.models;
-      const contexts = Object.fromEntries(
-        models.flatMap((m) =>
-          validContextWindow(m.parameters?.contextWindowTokens)
-            ? [[m.id, { contextWindowTokens: m.parameters.contextWindowTokens }]]
-            : [],
-        ),
+      const contexts = subscriptionContexts(models);
+      const capabilities = Object.fromEntries(
+        models
+          .filter((model) => model.reasoningEffortOptions !== undefined)
+          .map((model) => [
+            model.id,
+            {
+              tools: true,
+              vision: true,
+              reasoning: true,
+              reasoningEffortOptions: model.reasoningEffortOptions,
+            },
+          ]),
       );
       const desired = {
         id: service.id ?? "areal_openai",
@@ -656,6 +786,7 @@ class AppProviders {
         credentialRef: service.id ?? "areal_openai",
         models: models.map((m) => m.id),
         ...(Object.keys(contexts).length ? { modelParameters: contexts } : {}),
+        ...(Object.keys(capabilities).length ? { modelCapabilities: capabilities } : {}),
         parameters: {},
       };
       trace.advance(scope.observeOnly ? "provider_confirm" : "provider_upsert");
@@ -663,6 +794,7 @@ class AppProviders {
       if (
         !existing ||
         !isDeepStrictEqual(existing.modelParameters ?? {}, contexts) ||
+        !isDeepStrictEqual(existing.modelCapabilities ?? {}, capabilities) ||
         Object.entries(desired).some(
           ([k, v]) => k !== "modelParameters" && JSON.stringify(existing[k]) !== JSON.stringify(v),
         )
@@ -671,6 +803,7 @@ class AppProviders {
           trace.finish("degraded");
           return null;
         }
+        pendingWrite();
         provider = providerContract.provider(
           await this.backend.submit(
             project,
@@ -729,7 +862,8 @@ class AppProviders {
     try {
       if (this.openaiPromise) await (await this.openaiPromise).close();
     } finally {
-      await this.subscriptionSync?.catch(() => {});
+      await Promise.allSettled(this.subscriptionSync.values());
+      await this.subscriptionRefresh;
       await this.reconciliation;
       if (this.networkPromise) (await this.networkPromise).close();
     }
@@ -851,36 +985,15 @@ class AppProviders {
   }
   /** @param {import('./provider-contract.cjs').ModelCatalogEntry} model @param {CoreProject} project */
   subscriptionAvailable(model, project) {
-    if (model.providerId !== "areal_openai") return true;
-    const application = this.subscriptionApplications.get(project),
-      service = this.openaiService;
-    const scope = application?.scope;
-    return (
-      !!scope &&
-      !this.closed &&
-      !this.backend.closing &&
-      scope.service === service &&
-      !!service?.endpoint &&
-      (!this.backend.projects || this.backend.projects.get(project.id) === project) &&
-      scope.target.serviceId === project.service?.serviceId &&
-      scope.target.generation === project.service?.generation &&
-      scope.accountRevision === service.account.revision &&
-      scope.accountLifetime === service.account.lifetime &&
-      !!scope.accountLifetime &&
-      !scope.accountLifetime.signal.aborted &&
-      model.providerRevision === application.providerRevision &&
-      service.models.some((item) => item.id === model.modelId)
-    );
+    return subscriptionAvailable(this, model, project);
   }
   /** @param {import('./provider-contract.cjs').ModelCatalogEntry[]} models @param {CoreProject} project */
   catalog(models, project) {
-    return models.map((m) => ({
-      ...m,
-      ...(m.providerId === "areal_openai"
-        ? { available: m.available !== false && this.subscriptionAvailable(m, project) }
-        : {}),
-      displayName: this.model(m, project)?.displayName || m.displayName || m.modelId,
-    }));
+    return catalog(this, models, project);
+  }
+  /** @param {CoreProject} project @param {import('./provider-contract.cjs').ModelRef|null|undefined} model @param {unknown} error */
+  rejectModel(project, model, error) {
+    return rejectModel(this, project, model, error);
   }
   /** @param {{apiKeyEnv?:string}} item */
   key(item) {
@@ -1598,139 +1711,8 @@ class AppProviders {
     return this.testConnection(provider, { model, operation });
   }
   /** @param {{endpoint:string,protocol:string,apiKeyEnv?:string,models?:import('./provider-contract.cjs').ModelConfig[]}} provider @param {{model?:unknown,operation:string,apiKey?:string}} request */
-  async testConnection(provider, { model, operation, apiKey }) {
-    const key = apiKey ?? this.key(provider);
-    const url =
-      operation === "discover" ? `${baseUrl(provider.endpoint)}/models` : provider.endpoint;
-    if (operation === "probe" && !provider.models?.some((m) => m.id === model && m.enabled))
-      throw new Error("请选择已启用的模型");
-    const body =
-      provider.protocol === "responses"
-        ? {
-            model,
-            input: [{ role: "user", content: "Reply with OK." }],
-            store: false,
-            stream: true,
-          }
-        : { model, messages: [{ role: "user", content: "Reply with OK." }], stream: true };
-    let response;
-    try {
-      response = await (
-        await this.network()
-      ).fetch(url, {
-        method: operation === "discover" ? "GET" : "POST",
-        redirect: "error",
-        signal: AbortSignal.timeout(30000),
-        headers: {
-          ...(key ? { Authorization: `Bearer ${key}` } : {}),
-          "Content-Type": "application/json",
-        },
-        ...(operation === "probe" ? { body: JSON.stringify(body) } : {}),
-      });
-    } catch (error) {
-      throw connectionError(error);
-    }
-    if (!response.ok) {
-      await response.body?.cancel().catch(() => {});
-      throw new Error(
-        response.status === 401 || response.status === 403
-          ? "认证失败：请检查 API Key 及模型访问权限"
-          : `模型服务返回 HTTP ${response.status}`,
-      );
-    }
-    if (operation === "probe") {
-      const { probeResponse } = await import("@areal/chatgpt-provider/core");
-      try {
-        return await probeResponse(
-          response,
-          provider.protocol === "chat-completions" ? "chatCompletions" : provider.protocol,
-        );
-      } catch {
-        throw new Error("模型服务未完成有效的流式文本回复，请检查模型和协议");
-      }
-    }
-    // 上游响应可能包含凭据，不得将响应原文返回 IPC。
-    let bytes = 0,
-      chunks = [];
-    try {
-      if (!response.body) throw new Error("响应为空");
-      for await (const chunk of response.body) {
-        bytes += chunk.length;
-        if (bytes > 1024 * 1024) throw new Error("模型服务响应过大");
-        chunks.push(chunk);
-      }
-    } catch {
-      throw new Error("模型列表读取失败，请重试或手动添加模型");
-    }
-    /** @type {unknown} */ let data;
-    try {
-      data = JSON.parse(Buffer.concat(chunks).toString());
-    } catch {
-      throw new Error("模型服务未返回有效的 JSON 响应");
-    }
-    if (operation === "discover") {
-      if (!providerContract.record(data) || !Array.isArray(data.data))
-        throw new Error("服务未返回模型列表，请手动添加模型");
-      const models = [
-        ...new Map(
-          data.data
-            .filter(providerContract.record)
-            .flatMap((item) => {
-              if (
-                typeof item.id !== "string" ||
-                !item.id.trim() ||
-                item.id.length > 256 ||
-                (key && item.id.includes(key))
-              )
-                return [];
-              const id = item.id.trim();
-              return [
-                {
-                  id,
-                  ...(validContextWindow(item.context_window)
-                    ? { contextWindow: item.context_window }
-                    : {}),
-                },
-              ];
-            })
-            .map((item) => [item.id, item]),
-        ).values(),
-      ].slice(0, 64);
-      const parameters = Object.fromEntries(
-        models.flatMap((item) =>
-          item.contextWindow === undefined
-            ? []
-            : [[item.id, { contextWindowTokens: item.contextWindow }]],
-        ),
-      );
-      return {
-        models: models.map((p) => p.id),
-        ...(Object.keys(parameters).length ? { modelParameters: parameters } : {}),
-      };
-    }
-    throw new Error("不支持的供应商测试操作");
+  testConnection(provider, request) {
+    return testConnection(provider, request, this);
   }
-}
-/** @param {unknown} value */
-function transportRecord(value) {
-  if (
-    !providerContract.record(value) ||
-    typeof value.token !== "string" ||
-    !/^[a-f0-9]{64}$/.test(value.token) ||
-    typeof value.port !== "number" ||
-    !Number.isInteger(value.port) ||
-    value.port < 0 ||
-    value.port > 65535
-  )
-    throw new Error("本地订阅传输配置无效");
-  return { token: value.token, port: value.port };
-}
-/** @param {unknown} value */
-function errorMessage(value) {
-  return value instanceof Error
-    ? value.message
-    : providerContract.record(value) && typeof value.message === "string"
-      ? value.message
-      : String(value);
 }
 module.exports = { AppProviders, connection };

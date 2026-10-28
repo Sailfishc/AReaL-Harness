@@ -1,5 +1,6 @@
 // @ts-check
 "use strict";
+const { nativeText } = require("./native-i18n.cjs");
 const { isDeepStrictEqual } = require("node:util");
 const { readReceipts } = require("@areal/workbench/desktop-contract/shared");
 const { modelRecord } = require("@areal/workbench/core-model-contract");
@@ -75,6 +76,42 @@ function matchingReceipt(entry, records, scopedThreadId) {
     return !receipt.threadId && !receipt.taskId;
   });
 }
+/** @param {Pending} entry @param {ReturnType<typeof readReceipts>} result @param {import('@areal/runtime-client/core').CoreClient['capabilities']} capabilities @param {string} [scopedThreadId] @returns {Receipt|undefined} */
+function reconcileReceipt(entry, result, capabilities, scopedThreadId) {
+  const receipt = matchingReceipt(entry, result.data, scopedThreadId);
+  // 普通回执只证明已受理；只有下面核验过的独立证明能生成 accepted:false。
+  if (receipt) return { ...receipt, accepted: true };
+  const proof = result.creationAdmission;
+  const original = entry.params.creationAdmission;
+  const coverage = capabilities?.features?.threadCreationJournal?.binding;
+  if (
+    entry.method === "areal/thread/start" &&
+    capabilities?.features?.threadCreationJournal &&
+    original &&
+    proof?.status === "notAdmitted" &&
+    coverage?.identity === original.identity &&
+    proof.identity === original.identity &&
+    coverage.journalEpoch === original.journalEpoch &&
+    coverage.coreInstanceId !== original.coreInstanceId &&
+    proof.requestId === entry.params.requestId &&
+    proof.journalEpoch === original.journalEpoch &&
+    proof.coreInstanceId === original.coreInstanceId &&
+    result.data.length === 0
+  ) {
+    return {
+      method: entry.method,
+      requestId: entry.params.requestId,
+      status: "failed",
+      accepted: false,
+      operation: entry.operation ?? operationOf(entry.method, entry.params),
+      error: {
+        message: nativeText("recovery.creationNotAdmitted"),
+        data: { reason: "NOT_ADMITTED" },
+      },
+    };
+  }
+  return undefined;
+}
 /** @param {Receipt} receipt */
 const receiptStatus = (receipt) =>
   receipt.status ??
@@ -94,13 +131,57 @@ function readReceiptIdentity(value) {
     });
   return value;
 }
+// 精确 Remote 停止/交互不会重放；保留日志用于核对，不阻塞后续桌面操作。
+/** @param {Pending} entry */
+const isRemoteControl = (entry) =>
+  (entry.method === "turn/interrupt" &&
+    entry.remote?.method === "turn.stop" &&
+    entry.remote.capability === "interrupt" &&
+    typeof entry.operationId === "string" &&
+    typeof entry.params?.turnId === "string" &&
+    entry.remote.target?.expectedTurnId === entry.params.turnId &&
+    typeof entry.params.threadId === "string" &&
+    entry.remote.target.threadId === entry.params.threadId) ||
+  (entry.method === "areal/interaction/respond" &&
+    entry.remote?.method === "interaction.respond" &&
+    entry.remote.capability === "answer" &&
+    typeof entry.operationId === "string" &&
+    typeof entry.params?.requestId === "string" &&
+    entry.remote.target?.interactionId === entry.params.requestId &&
+    typeof entry.params.turnId === "string" &&
+    entry.remote.target.turnId === entry.params.turnId &&
+    typeof entry.params.threadId === "string" &&
+    entry.remote.target.threadId === entry.params.threadId) ||
+  (entry.method === "areal/channel/reply" &&
+    entry.remote?.method === "task.question.reply" &&
+    entry.remote.capability === "answer" &&
+    typeof entry.operationId === "string" &&
+    entry.params?.requestId === entry.operationId &&
+    ["taskId", "runId", "questionId"].every(
+      (key) =>
+        typeof entry.params[key] === "string" && entry.remote?.target?.[key] === entry.params[key],
+    )) ||
+  (entry.method === "areal/task/pause" &&
+    entry.remote?.method === "task.pause" &&
+    entry.remote.capability === "pauseTask" &&
+    typeof entry.operationId === "string" &&
+    entry.params?.requestId === entry.operationId &&
+    ["taskId", "expectedRunId"].every(
+      (key) =>
+        typeof entry.params[key] === "string" && entry.remote?.target?.[key] === entry.params[key],
+    ) &&
+    Number.isSafeInteger(entry.params.expectedRevision) &&
+    entry.remote.target.expectedRevision === entry.params.expectedRevision);
+
 module.exports = {
+  isRemoteControl,
   creationTargets,
   processControls,
   operationOf,
   explicitRejection,
   readReceipts,
   matchingReceipt,
+  reconcileReceipt,
   receiptStatus,
   receiptResult,
   readReceiptIdentity,

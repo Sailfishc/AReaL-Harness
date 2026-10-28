@@ -1,6 +1,6 @@
 import React from "react";
+import { Route } from "lucide-react";
 import { ApplicationRail } from "../app-shell/ApplicationNavigation.js";
-import { ReviewPanelIcon } from "../app-shell/panelIcons.js";
 import { WorkspaceHeader } from "../app-shell/WorkbenchShell.js";
 import { Button } from "../components/ui/button.js";
 import {
@@ -13,20 +13,16 @@ import { stageComposerDraft } from "../composerDraftStorage.js";
 import { ProjectFolderIcon, SidePanelIcon, SidebarToggleIcon } from "../homeChromeIcons.js";
 import { useI18n } from "../i18n/IntlProvider.js";
 import {
-  Browser,
-  FileTree,
   Home,
   MoreOptionsIcon,
   NavigationBackIcon,
   NavigationForwardIcon,
   ScheduledIcon,
   Settings,
-  TerminalSquare,
 } from "../interfaceIcons.js";
 import { type PlatformServices } from "../services.js";
-import { SettingsPluginIcon, SettingsUsageIcon } from "../settings/settingsNavIcons.js";
+import { SettingsPluginIcon } from "../settings/settingsNavIcons.js";
 import { useGuardedNavigation } from "../settings/UnsavedChanges.js";
-import { useNavigationWorkspace } from "../state/navigationWorkspace.js";
 import { useTaskWorkspace } from "../state/taskWorkspace.js";
 import { useSessionNavigation } from "../state/useSessionNavigation.js";
 import { useWorkbenchSurfaces } from "../state/useWorkbenchSurfaces.js";
@@ -35,25 +31,6 @@ import { useWorkspacePanels } from "../state/useWorkspacePanels.js";
 import { UpdateIndicator } from "../UpdateIndicator.js";
 import { TaskResourcesPopover } from "../views/TaskResourcesPopover.js";
 import { WorktreeActions } from "../WorktreeStatus.js";
-// Launcher, tabs and this menu share sampled native panel artwork. Host-only
-// entries keep their labels until their reference role is actually observed.
-const panelList = [
-  ["文件", <FileTree />],
-  ["改动", <ReviewPanelIcon />],
-  ["终端", <TerminalSquare size={16} />],
-  ["进程", null],
-  ["预览", <Browser size={16} />],
-  ["子任务", null],
-  ["旁路讨论", null],
-  ["队列", null],
-  ["执行计划", null],
-  ["上下文", null],
-  ["已保存授权", null],
-  ["Skills", null],
-  ["MCP", null],
-  ["用量", <SettingsUsageIcon />],
-  ["设置", <Settings size={16} />],
-] as const;
 type Session = ReturnType<typeof useSessionNavigation>;
 type Surfaces = ReturnType<typeof useWorkbenchSurfaces>;
 type Panels = ReturnType<typeof useWorkspacePanels>;
@@ -204,17 +181,9 @@ export function WorkspaceNavigation({
 export function WorkspaceTaskActions({
   session,
   workspacePanels,
-  navigation,
-  archived,
-  setSidebar,
-  showPanel,
 }: {
   session: Session;
   workspacePanels: Panels;
-  navigation: ReturnType<typeof useNavigationWorkspace>["workspace"];
-  archived: boolean;
-  setSidebar: (show: boolean) => void;
-  showPanel: (name: string) => void;
 }) {
   const { t } = useI18n();
   const { project, thread } = session;
@@ -233,25 +202,6 @@ export function WorkspaceTaskActions({
         }
       />
       <DropdownMenuContent align="end">
-        {thread && project?.core?.features?.sidePreview === true && (
-          <DropdownMenuItem
-            onClick={() => {
-              workspacePanels.selectPanel("历史旁路讨论");
-              workspacePanels.selectLayout("split");
-            }}
-          >
-            {t("chat.side.history")}
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem
-          onClick={() => {
-            navigation.toggleArchive();
-            setSidebar(true);
-          }}
-        >
-          <span aria-hidden="true" className="size-4 shrink-0" />
-          {archived ? t("common.navigation.currentTask") : t("common.navigation.viewArchive")}
-        </DropdownMenuItem>
         {thread && project && (
           <DropdownMenuItem
             onClick={() => {
@@ -259,26 +209,10 @@ export function WorkspaceTaskActions({
               workspacePanels.exposePanel();
             }}
           >
-            <span aria-hidden="true" className="size-4 shrink-0" />
+            <Route size={16} aria-hidden="true" />
             {t("common.navigation.viewTrajectory")}
           </DropdownMenuItem>
         )}
-        {panelList
-          .filter(
-            ([name]) =>
-              name !== "终端" &&
-              (name !== "旁路讨论" ||
-                (!!thread &&
-                  !thread.parentThreadId &&
-                  thread.conversation?.kind !== "side" &&
-                  project?.core?.features?.sidePreview === true)),
-          )
-          .map(([name, icon]) => (
-            <DropdownMenuItem key={name} onClick={() => showPanel(name)}>
-              {icon ?? <span aria-hidden="true" className="size-4 shrink-0" />}
-              {name}
-            </DropdownMenuItem>
-          ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );

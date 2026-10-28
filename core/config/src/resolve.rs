@@ -374,7 +374,7 @@ pub(crate) fn valid(field: &str, entry: &Entry) -> Result<()> {
         "reasoning_effort" | "summary_reasoning_effort" => {
             if !matches!(
                 value.as_str(),
-                "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+                "default" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
             ) {
                 return Err(reject("unsupported reasoning effort"));
             }

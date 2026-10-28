@@ -18,6 +18,11 @@ def normalized(value):
     return json.dumps(json.loads(value), sort_keys=True, separators=(",", ":"))
 
 
+def require_match(generated, committed, name):
+    if normalized(generated) != normalized(committed):
+        raise ValueError(f"schema differs: {name}; run make desktop-schemas")
+
+
 def artifact_executable(output, example):
     paths = set()
     for line in output.splitlines():
@@ -37,7 +42,10 @@ def artifact_executable(output, example):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write", action="store_true")
+    parser.add_argument("--counterexample", action="store_true")
     args = parser.parse_args()
+    if args.write and args.counterexample:
+        parser.error("counterexample validation cannot write committed schemas")
     with tempfile.TemporaryDirectory(prefix="areal-schema-") as temporary:
         prepared = []
         for package, example, arguments, name in GENERATORS:
@@ -68,9 +76,22 @@ def main():
                 staged = committed.with_suffix(".json.tmp")
                 staged.write_bytes(generated.read_bytes())
                 staged.replace(committed)
-            elif normalized(generated.read_bytes()) != normalized(committed.read_bytes()):
-                raise SystemExit(f"schema differs: {committed.name}; run make desktop-schemas")
+            else:
+                try:
+                    require_match(generated.read_bytes(), committed.read_bytes(), committed.name)
+                except ValueError as error:
+                    raise SystemExit(str(error)) from error
             print(f"schema verified: {committed.name}")
+        if args.counterexample:
+            generated, committed = prepared[0]
+            changed = json.loads(committed.read_bytes())
+            changed["type"] = "null"
+            try:
+                require_match(generated.read_bytes(), json.dumps(changed), committed.name)
+            except ValueError:
+                print(json.dumps({"counterexample": "schema-contract-drift", "rejected": True}))
+            else:
+                raise SystemExit("schema checker accepted the injected contract drift")
 
 
 if __name__ == "__main__":

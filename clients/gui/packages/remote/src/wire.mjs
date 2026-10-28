@@ -23,6 +23,7 @@ export function publicLocator({ host, room }) {
 }
 
 // socket 始终由调用方以当前页面 origin 构造；此层不接受 URL、身份或业务请求。
+/** @param {WebSocket} socket @param {{room?: string|null}} [options] */
 export function createRemoteWire(socket, { room = null } = {}) {
   if (room !== null && !/^[a-f0-9]{64}$/.test(room)) throw new Error("Relay 房间无效");
   socket.binaryType = "arraybuffer";

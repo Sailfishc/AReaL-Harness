@@ -1,5 +1,6 @@
 // @ts-check
 "use strict";
+const { mergeHistory, historyGaps } = require("./history-projection.cjs");
 const { randomUUID } = require("node:crypto");
 const {
   readObservationResult,
@@ -9,13 +10,13 @@ const {
   readThreadList,
   isDeferredItem,
   isHistoryNotification,
-  readHistoryInteractions,
   historyFailure,
 } = require("./history-contract.cjs");
 const { TaskNotificationMonitor } = require("./notifications.cjs");
 const { readTask } = require("@areal/workbench/desktop-contract/management-tasks");
 const { modelRecord } = require("@areal/workbench/core-model-contract");
 const { isTaskDraftConfiguration } = require("./task-draft.cjs");
+const { readInspection } = require("./thread-configuration.cjs");
 
 // Owns rebuildable history windows and read recovery. It cannot submit mutations.
 /** @param {unknown} error */
@@ -36,68 +37,6 @@ const historyReason = (error) =>
   modelRecord(error)
     ? (error.reason ?? (modelRecord(error.data) ? error.data.reason : undefined))
     : undefined;
-/** @param {import('@areal/workbench/core-model-contract').CoreThread} thread @param {Array<Pick<import('./history-contract.cjs').HistoryEntry,'sourceTurnId'|'sourceItemId'|'turn'|'item'> & {sourceTurnStatus?:string}>} entries */
-function mergeHistory(thread, entries) {
-  /** @type {Map<string,import('./history-contract.cjs').HistoryTurn>} */
-  const turns = new Map();
-  for (const entry of entries) {
-    const turn = turns.get(entry.sourceTurnId) ?? {
-      ...entry.turn,
-      id: entry.sourceTurnId,
-      status: entry.sourceTurnStatus,
-      items: [],
-    };
-    if (!turn.items.some((item) => item.id === entry.sourceItemId)) turn.items.push(entry.item);
-    turns.set(turn.id, turn);
-  }
-  // 只有页内新出现的轮次排在已显示轮次之前（向上分页）；已显示的轮次保持原顺序，
-  // 补全最新一轮时它不会越过已显示的上一轮。
-  const shown = new Set((thread.turns ?? []).map((turn) => turn.id));
-  const merged = (thread.turns ?? []).map((current) => {
-    const older = turns.get(current.id);
-    const currentIds = new Set((current.items ?? []).map((item) => item.id));
-    return older
-      ? {
-          ...older,
-          ...current,
-          items: [
-            ...older.items.filter((item) => !currentIds.has(item.id)),
-            ...(current.items ?? []),
-          ],
-        }
-      : { ...current, items: current.items ?? [] };
-  });
-  return {
-    ...thread,
-    turns: [...[...turns.values()].filter((turn) => !shown.has(turn.id)), ...merged],
-  };
-}
-/** Only cursors survive eviction; Core remains the authority for page bodies.
- * @param {import('./history-state.cjs').HistoryWindow} window */
-function historyGaps(window) {
-  const cached = new Map(window.pages.map((page) => [page.pageId, page]));
-  const gaps = [];
-  let beforeItemId = window.baselineFirstItemId;
-  for (let index = 0; index < window.pageRecords.length; index++) {
-    const record = window.pageRecords[index];
-    const page = cached.get(record.id);
-    if (page) {
-      beforeItemId = page.data[0]?.sourceItemId ?? beforeItemId;
-      continue;
-    }
-    // Consecutive unloaded pages share one entry point. From older content,
-    // restore the adjacent newer page; at the top restore the adjacent older one.
-    const start = index;
-    while (index + 1 < window.pageRecords.length && !cached.has(window.pageRecords[index + 1].id))
-      index++;
-    gaps.push({
-      id: window.pageRecords[index === window.pageRecords.length - 1 ? start : index].id,
-      beforeItemId,
-      atTop: index === window.pageRecords.length - 1,
-    });
-  }
-  return gaps;
-}
 /** @param {unknown} error */
 const retryableRead = (error) =>
   modelRecord(error) &&
@@ -431,28 +370,31 @@ class HistoryObservation {
     return this.historyWindows?.get(`${project.id}:${threadId}`);
   }
 
-  /** @param {import('./project-state.cjs').CoreProject} project @param {import('./history-state.cjs').HistoryWindow} window @param {import('@areal/workbench/core-model-contract').CoreThread} [thread] */
-  publishHistory(project, window, thread = project.model.state.threads[window.threadId]) {
+  /** @param {import('./project-state.cjs').CoreProject} project @param {import('./history-state.cjs').HistoryWindow} window @param {import('@areal/workbench/core-model-contract').CoreThread} [thread] @param {Parameters<import('@areal/workbench/core-model').CoreTaskModel['replace']>[1]} [metadata] */
+  publishHistory(project, window, thread = project.model.state.threads[window.threadId], metadata) {
     if (this.historyWindow(project, window.threadId) !== window) return;
     if (!thread) return;
     // 会话内容与历史边界一次发布：中间态缺少 displayHistory 会让渲染端以为不再支持分页而释放视图。
-    project.model.replace({
-      ...thread,
-      displayHistory: {
-        supported: true,
-        complete:
-          window.displayed?.complete ??
-          (window.complete && !historyGaps(window).some((gap) => gap.atTop)),
-        gaps: historyGaps(window),
-        omitted: window.displayed?.omitted ?? window.omitted,
-        loadingOlder: !!window.olderRead,
-        loadingLatest: !window.displayed && !!window.latestTurn.read,
-        latestTurnComplete: !!window.displayed || window.latestTurn.complete,
-        loadingItems: Object.fromEntries(window.loading),
-        baselineFirstItemId: window.baselineFirstItemId,
-        viewGeneration: window.viewGeneration,
+    project.model.replace(
+      {
+        ...thread,
+        displayHistory: {
+          supported: true,
+          complete:
+            window.displayed?.complete ??
+            (window.complete && !historyGaps(window).some((gap) => gap.atTop)),
+          gaps: historyGaps(window),
+          omitted: window.displayed?.omitted ?? window.omitted,
+          loadingOlder: !!window.olderRead,
+          loadingLatest: !window.displayed && !!window.latestTurn.read,
+          latestTurnComplete: !!window.displayed || window.latestTurn.complete,
+          loadingItems: Object.fromEntries(window.loading),
+          baselineFirstItemId: window.baselineFirstItemId,
+          viewGeneration: window.viewGeneration,
+        },
       },
-    });
+      metadata,
+    );
   }
 
   /** @param {import('./project-state.cjs').CoreProject} project @param {import('./history-contract.cjs').ObservationResult} input @param {import('@areal/runtime-client/core').CoreClient|null} [client] */
@@ -460,8 +402,28 @@ class HistoryObservation {
     const result = input;
     const thread = result.thread;
     const previousThread = project.model.state.threads[thread.id];
+    const desktop = thread.desktop;
+    if (desktop?.configuration) {
+      project.configurations ??= {};
+      const previous = project.configurations[thread.id];
+      if ((previous?.revision ?? -1) <= (desktop.configuration.revision ?? 0))
+        project.configurations[thread.id] = {
+          ...desktop.configuration,
+          ...(previous?.revision === desktop.configuration.revision &&
+          previous?.defaultModelRevision === desktop.configuration.defaultModelRevision
+            ? { modelName: previous?.modelName, resolvedParameters: previous?.resolvedParameters }
+            : {}),
+        };
+    }
+    const metadata = {
+      queue: desktop?.queue,
+      interactions:
+        desktop?.interactions && desktop.interactionRevision !== undefined
+          ? { revision: desktop.interactionRevision, data: desktop.interactions }
+          : undefined,
+    };
     if (!result.history) {
-      project.model.replace({ ...thread, displayHistory: { supported: false } });
+      project.model.replace({ ...thread, displayHistory: { supported: false } }, metadata);
     } else {
       if (!client) throw historyFailure("会话连接尚未就绪。");
       this.historyWindows ??= new Map();
@@ -588,6 +550,7 @@ class HistoryObservation {
               }))
             : []),
         ]),
+        metadata,
       );
       if (window.views.size && !previous?.invalidated)
         void this.hydrateLatest(project, window).catch(() => {});
@@ -663,55 +626,59 @@ class HistoryObservation {
       window.views.size > 0;
     const loading = Promise.resolve().then(async () => {
       try {
-        while (!window.latestTurn.complete) {
+        /** @type {import('./history-contract.cjs').HistoryEntry[]} */
+        const entries = [];
+        let cursor = window.baselineCursor;
+        let page;
+        do {
           if (!current()) throw historyFailure("历史视图已变化，请重新加载。");
-          const cursor = window.baselineCursor;
-          const page = await client.request(
+          page = await client.request(
             "areal/conversation/history",
             { threadId, view: "own", cursor, maxBytes: historyPageBytes },
             { decode: readHistoryPage, maxResponseBytes: historyPageBytes },
           );
           if (!current()) throw historyFailure("历史视图已变化，请重新加载。");
           this.validateHistoryPage(window, page, cursor);
-          for (const entry of page.data) window.latestSeen.add(entry.sourceItemId);
-          const authoritative = new Map(page.data.map((entry) => [entry.sourceItemId, entry.item]));
-          const displayed = project.model.state.threads[threadId];
-          const reconciled = {
-            ...displayed,
-            turns: (displayed.turns ?? []).map((turn) => ({
-              ...turn,
-              items: (turn.items ?? []).map((item) =>
-                item.type !== "userMessage" && window.preservedLatestItems.get(item.id) === item
-                  ? (authoritative.get(item.id) ?? item)
-                  : item,
-              ),
-            })),
-          };
-          let thread = mergeHistory(reconciled, page.data);
-          window.latestTurn.complete =
-            page.complete || page.data.some((entry) => entry.sourceTurnId !== window.latestTurn.id);
-          if (window.latestTurn.complete) window.displayed = undefined;
-          window.baselineCursor = window.nextCursor = page.nextCursor;
-          window.baselineComplete = window.complete = page.complete;
-          if (window.latestTurn.complete && window.preservedLatestItems.size) {
-            thread = {
-              ...thread,
-              turns: (thread.turns ?? []).map((turn) => ({
-                ...turn,
-                items: (turn.items ?? []).filter(
-                  (item) =>
-                    !window.preservedLatestItems.has(item.id) || window.latestSeen.has(item.id),
-                ),
-              })),
-            };
-            window.preservedLatestItems.clear();
-          }
-          window.baselineFirstItemId = (thread.turns ?? []).flatMap(
-            (turn) => turn.items ?? [],
-          )[0]?.id;
-          project.model.replace(thread);
-          this.publishHistory(project, window);
-        }
+          entries.unshift(...page.data);
+          cursor = page.nextCursor;
+        } while (
+          !page.complete &&
+          !page.data.some((entry) => entry.sourceTurnId !== window.latestTurn.id)
+        );
+        for (const entry of entries) window.latestSeen.add(entry.sourceItemId);
+        const authoritative = new Map(entries.map((entry) => [entry.sourceItemId, entry.item]));
+        const displayed = project.model.state.threads[threadId];
+        const reconciled = {
+          ...displayed,
+          turns: (displayed.turns ?? []).map((turn) => ({
+            ...turn,
+            items: (turn.items ?? []).map((item) =>
+              item.type !== "userMessage" && window.preservedLatestItems.get(item.id) === item
+                ? (authoritative.get(item.id) ?? item)
+                : item,
+            ),
+          })),
+        };
+        const merged = mergeHistory(reconciled, entries);
+        const thread = {
+          ...merged,
+          turns: (merged.turns ?? []).map((turn) => ({
+            ...turn,
+            items: (turn.items ?? []).filter(
+              (item) => !window.preservedLatestItems.has(item.id) || window.latestSeen.has(item.id),
+            ),
+          })),
+        };
+        window.latestTurn.complete = true;
+        window.displayed = undefined;
+        window.baselineCursor = window.nextCursor = page.nextCursor;
+        window.baselineComplete = window.complete = page.complete;
+        window.preservedLatestItems.clear();
+        window.baselineFirstItemId = (thread.turns ?? []).flatMap(
+          (turn) => turn.items ?? [],
+        )[0]?.id;
+        window.latestTurn.read = null;
+        this.publishHistory(project, window, thread);
       } catch (error) {
         // 补全失败时公开真实边界，让恢复提示与重试入口出现。
         window.displayed = undefined;
@@ -1087,8 +1054,6 @@ class HistoryObservation {
         );
         this.host.requireConnection(project, client);
         if (result.thread?.id !== threadId) throw new Error("恢复结果与目标会话不匹配");
-        project.configurations[threadId] = result.thread.desktop?.configuration;
-        this.host.onChange();
         return;
       }
       if (!client.capabilities?.methods?.includes("areal/thread/observe")) {
@@ -1101,45 +1066,39 @@ class HistoryObservation {
       });
       this.host.requireConnection(project, client);
       if (resumed.thread?.id !== threadId) throw new Error("恢复结果与目标会话不匹配");
-      if (resumed.thread?.desktop?.archived) {
-        project.configurations[threadId] = resumed.thread.desktop.configuration;
-        if (
-          !resumed.thread.desktop.queue ||
-          resumed.thread.desktop.interactionRevision === undefined ||
-          !resumed.thread.desktop.interactions
-        )
-          throw historyFailure("归档会话状态不完整。");
-        project.model.setQueue(threadId, resumed.thread.desktop.queue);
-        project.model.setInteractions(threadId, {
-          revision: resumed.thread.desktop.interactionRevision,
-          data: resumed.thread.desktop.interactions,
-        });
-        this.host.onChange();
-        return;
-      }
-      if (resumed.thread?.conversation?.policy?.kind === "sideReadOnlyV1") {
-        project.configurations[threadId] = resumed.thread.desktop?.configuration;
-        this.host.onChange();
-        return;
-      }
-      const timeoutMs = Math.min(6000, Math.max(1, deadline - Date.now()));
-      const results = await Promise.allSettled([
-        client.request(
-          "areal/interaction/list",
+      const configuration = resumed.thread.desktop?.configuration;
+      if (
+        configuration?.model === null &&
+        configuration.defaultModelRevision &&
+        !resumed.thread.desktop?.archived &&
+        resumed.thread.conversation?.policy?.kind !== "sideReadOnlyV1"
+      ) {
+        await client.request(
+          "areal/thread/inspect",
           { threadId },
           {
-            decode: readHistoryInteractions,
-            timeoutMs,
-            onResult: (result) => {
-              if (current()) project.model.setInteractions(threadId, result);
+            decode: readInspection,
+            timeoutMs: Math.min(6000, Math.max(1, deadline - Date.now())),
+            onResult: (inspection) => {
+              const latest = project.configurations[threadId];
+              if (
+                !current() ||
+                latest?.revision !== configuration.revision ||
+                latest?.defaultModelRevision !== configuration.defaultModelRevision ||
+                inspection.configuration.revision !== configuration.revision ||
+                inspection.configuration.defaultModelRevision !== configuration.defaultModelRevision
+              )
+                return;
+              project.configurations[threadId] = {
+                ...latest,
+                modelName: inspection.modelName,
+                resolvedParameters: inspection.resolvedParameters,
+              };
+              this.host.onChange();
             },
           },
-        ),
-        this.host.refreshConfiguration(project, threadId, { client, timeoutMs, current }),
-        this.host.refreshQueue(project, threadId, { client, timeoutMs, current }),
-      ]);
-      const failure = results.find((result) => result.status === "rejected");
-      if (failure) throw failure.reason;
+        );
+      }
     } catch (error) {
       if (
         !this.supportsBoundedHistory(client) &&

@@ -29,8 +29,11 @@ export class CommandState {
     if (value.admissionState === "accepted") delete command.error;
     if (
       value.admissionState === "accepted" &&
-      (command.method === "session.send" || command.method === "session.control" && ["steer", "goalCreate"].includes(command.params.operation)) &&
-      this.drafts.get(key) === (command.params.text ?? command.params.values?.text ?? command.params.values?.objective)
+      (command.method === "session.send" ||
+        (command.method === "session.control" &&
+          ["steer", "goalCreate"].includes(command.params.operation))) &&
+      this.drafts.get(key) ===
+        (command.params.text ?? command.params.values?.text ?? command.params.values?.objective)
     )
       this.drafts.set(key, "");
   }

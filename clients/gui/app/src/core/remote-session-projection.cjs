@@ -1,5 +1,6 @@
 // @ts-check
 "use strict";
+const decoder = require("./remote-core-decoder.cjs");
 const { part } = require("./remote-core-decoder.cjs");
 /** @typedef {import('./remote-core-decoder.cjs').Fields} Fields */
 /** @typedef {import('./remote-core-decoder.cjs').Item} Item */
@@ -486,7 +487,33 @@ function update(state, method, params, scope) {
   constrain(state, scope);
   return true;
 }
+/** @param {Record<string,unknown>[]} catalog */
+function publicModels(catalog) {
+  return catalog
+    .slice(0, 200)
+    .map((model) =>
+      Object.fromEntries(
+        [
+          "providerId",
+          "modelId",
+          "displayName",
+          "reasoningEffortOptions",
+          "available",
+          "unavailableReason",
+        ]
+          .filter((key) => model[key] !== undefined)
+          .map((key) => [key, model[key]]),
+      ),
+    );
+}
+
+/** @param {InstanceType<typeof import('./providers.cjs').AppProviders>|undefined} providers @param {import('./project-state.cjs').CoreProject} project */
+function modelCatalog(providers, project) {
+  const models = project.models ?? [];
+  return publicModels(decoder.modelCatalog(providers?.catalog(models, project) ?? models));
+}
 module.exports = {
+  modelCatalog,
   snapshot,
   update,
   historyPage,

@@ -54,9 +54,9 @@ test('local enrollment code is single-use and registration survives restart', as
   assert.equal((await f.enroll(issued.code)).status, 403);
 });
 
-async function socket(f, registration, role = 'host') {
+async function socket(f, registration, role = 'host', options) {
   const { default: WebSocket } = await import('ws');
-  const ws = new WebSocket(f.origin.replace('http:', 'ws:') + '/remote/socket', role === 'client' ? { origin: f.origin } : {});
+  const ws = new WebSocket(f.origin.replace('http:', 'ws:') + '/remote/socket', options ?? (role === 'client' ? { origin: f.origin } : {}));
   const events = []; const waiters = [];
   ws.on('message', data => { const event = JSON.parse(data.toString()); const waiter = waiters.shift(); if (waiter) waiter(event); else events.push(event); });
   ws.on('error', () => {});
@@ -130,6 +130,33 @@ test('Origins and exact Host are checked before registration; forwarded headers 
   missingOrigin.send(JSON.stringify({ protocol: 'areal.relay.v1', role: 'client', room: a.room })); await closed(missingOrigin);
   assert.equal(await new Promise((resolve, reject) => { const req = request(`${f.origin}/healthz`, { headers: { host: 'evil.example', 'x-forwarded-host': new URL(f.origin).host } }, res => { res.resume(); resolve(res.statusCode); }); req.on('error', reject); req.end(); }), 421);
   assert.equal((await fetch(`${f.origin}/enroll`, { method: 'POST', headers: { origin: f.origin, 'content-type': 'application/json' }, body: '{}' })).status, 403);
+});
+
+test('configured App Origin passes upgrade and client registration alongside Web clients', async t => {
+  const f = await fixture(t, { allowedAppOrigins: ['capacitor://localhost'] }); await f.start();
+  const a = await enrolled(f); const host = await socket(f, a); await host.next();
+  const app = await socket(f, a, 'client', { origin: 'capacitor://localhost' });
+  const ready = await app.next(); assert.equal(ready.type, 'ready');
+  assert.deepEqual(await host.next(), { type: 'open', channel: ready.channel });
+  app.send({ type: 'data', channel: ready.channel, data: 'YXBw' });
+  assert.deepEqual(await host.next(), { type: 'data', channel: ready.channel, data: 'YXBw' });
+  const web = await socket(f, a, 'client'); assert.equal((await web.next()).type, 'ready'); await host.next();
+  const missingOrigin = await rawSocket(f); await opened(missingOrigin);
+  missingOrigin.send(JSON.stringify({ protocol: 'areal.relay.v1', role: 'client', room: a.room }));
+  await closed(missingOrigin);
+  const appHost = await rawSocket(f, { origin: 'capacitor://localhost' }); await opened(appHost);
+  appHost.send(JSON.stringify({ protocol: 'areal.relay.v1', role: 'host', ...a })); await closed(appHost);
+  for (const origin of ['capacitor://other-host', 'other-app://localhost', 'capacitor://localhost/', 'https://evil.example', 'null']) {
+    const ws = await rawSocket(f, { origin });
+    await assert.rejects(opened(ws), /Unexpected server response: 403/);
+    await closed(ws);
+  }
+});
+
+test('App Origin is denied by default before WebSocket registration', async t => {
+  const f = await fixture(t); await f.start();
+  const ws = await rawSocket(f, { origin: 'capacitor://localhost' });
+  await assert.rejects(opened(ws), /Unexpected server response: 403/); await closed(ws);
 });
 
 test('client cannot address another client channel and oversized or malformed data is rejected', async t => {

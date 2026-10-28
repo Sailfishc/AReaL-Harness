@@ -1,9 +1,11 @@
 import { Button } from "@areal/ui";
 import { useEffect, useState } from "react";
 import { RefreshIcon } from "./interfaceIcons.js";
+import { useI18n } from "./i18n/IntlProvider.js";
 import type { PlatformServices, UpdateState } from "./services.js";
 
 export function UpdateIndicator({ services }: { services: PlatformServices }) {
+  const { t } = useI18n();
   const [update, setUpdate] = useState<UpdateState | null>(null);
   useEffect(() => {
     if (!services.updateState || !services.onUpdate) return;
@@ -18,6 +20,10 @@ export function UpdateIndicator({ services }: { services: PlatformServices }) {
   const canDownload =
     update.status === "available" || (update.status === "error" && !update.installing);
   const needsResources = update.status === "deferred" && update.detail?.includes("后台资源");
+  const errorDetail =
+    !update.installing && !update.downloaded && update.detail?.includes("ERR_NETWORK_CHANGED")
+      ? t("common.update.networkChanged")
+      : update.detail;
   const percent =
     typeof update.percent === "number" && Number.isFinite(update.percent)
       ? Math.max(0, Math.min(100, Math.round(update.percent)))
@@ -34,7 +40,9 @@ export function UpdateIndicator({ services }: { services: PlatformServices }) {
     update.status === "available"
       ? `下载更新 ${update.version}`
       : update.status === "error" && !update.installing
-        ? `重试更新 ${update.version}`
+        ? update.version
+          ? `重试更新 ${update.version}`
+          : t("common.update.retryCheck")
         : update.status === "downloading"
           ? `正在下载更新${percent === null ? "" : ` ${percent}%`}`
           : update.status === "validating"
@@ -116,7 +124,7 @@ export function UpdateIndicator({ services }: { services: PlatformServices }) {
       {update.status === "deferred" && <span className="sr-only">{update.detail}</span>}
       {update.status === "error" && update.detail && (
         <span className="areal-update-error" role="alert">
-          {update.detail}
+          {errorDetail}
         </span>
       )}
     </div>

@@ -95,6 +95,7 @@ export function ChatPromptEditor({
   shellClassName,
   surfaceLayout = "default",
   compactPlaceholder = false,
+  touchInput = false,
   onChange,
   onSubmit,
   onModifiedSubmit,
@@ -162,6 +163,7 @@ export function ChatPromptEditor({
   shellClassName?: string;
   surfaceLayout?: "default" | "compact";
   compactPlaceholder?: boolean;
+  touchInput?: boolean;
   onChange?: (value: string) => void;
   // 适配：返回 false 表示业务层拒绝/延迟本次提交，Lexical 不自行 reset（草稿保留）。
   onSubmit: (value: string) => boolean | void;
@@ -543,6 +545,7 @@ export function ChatPromptEditor({
         }
         editor={
           <LexicalChatInput
+            touchInput={touchInput}
             placeholder={placeholder}
             nextPrompt={nextPrompt}
             disabled={disabled}

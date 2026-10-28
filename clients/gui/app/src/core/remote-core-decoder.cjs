@@ -281,7 +281,28 @@ function modelCatalog(value) {
   if (!Array.isArray(value) || !value.every(record)) throw invalid();
   return value;
 }
+/** @param {import('./project-state.cjs').CoreProject|undefined} project @returns {project is import('./remote-session-observer.cjs').ReadyProject} */
+function readyProject(project) {
+  return (
+    !!project?.client?.ready &&
+    !project.client.closed &&
+    !!project.model.state.connected &&
+    !project.resourceInitializing
+  );
+}
+
+/** @param {unknown} error */
+function errorCode(error) {
+  return error && typeof error === "object" && "code" in error ? error.code : undefined;
+}
+
+/** @param {string} code @param {string} message */
+const failure = (code, message) => Object.assign(new Error(message), { code });
+
 module.exports = {
+  failure,
+  errorCode,
+  readyProject,
   modelCatalog,
   record,
   part,

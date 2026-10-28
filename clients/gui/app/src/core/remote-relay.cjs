@@ -3,6 +3,7 @@
 const WebSocket = require("ws");
 const { EventEmitter } = require("node:events");
 const { LIMITS } = require("./remote-session-acceptor.cjs");
+const { desktopTlsOptions } = require("./desktop-network.cjs");
 
 // 每条通道只有字节、存活、背压和关闭；Noise/授权/业务分派全部归共同 acceptor。
 class RelayEndpoint extends EventEmitter {
@@ -64,6 +65,7 @@ class RelayTransport {
     this.channels = new Map();
     this.closed = false;
     this.ready = false;
+    this.pushSupported = false;
     this.replaced = false;
     this.unsupportedBudget = false;
     this.draining = false;
@@ -77,10 +79,13 @@ class RelayTransport {
     /** @type {Map<string,string>} */
     this.controls = new Map();
     this.controlBytes = 0;
+    /** @type {Map<string,()=>boolean>} */ this.pushGuards = new Map();
     remote.channels = this.channels;
     const relay = remote.config.relay;
     if (typeof relay !== "string") throw new Error("Relay 未配置");
     this.socket = new WebSocket(relay.replace(/^https:/, "wss:") + "/remote/socket", {
+      ...desktopTlsOptions(),
+      headers: { "X-Areal-Relay-Capabilities": "push" },
       maxPayload: LIMITS.transportFrameBytes,
       perMessageDeflate: false,
     });
@@ -103,6 +108,8 @@ class RelayTransport {
       try {
         const message = remote.crypto.decodeRelayMessage(raw.toString(), binary);
         if (message.type === "error") {
+          if (this.ready && ["LIMIT_EXCEEDED", "UNAVAILABLE"].includes(message.code))
+            remote.push.diagnostic = "push-dropped";
           if (message.code === "REPLACED") this.replaced = true;
           if (!this.ready || this.replaced) socket.terminate();
           return;
@@ -111,10 +118,16 @@ class RelayTransport {
           if (message.type !== "ready" || message.channel !== undefined) throw new Error();
           this.configureBudget(message.limits);
           this.ready = true;
+          this.pushSupported = message.push === true;
+          remote.push.start();
           clearTimeout(this.deadline);
           remote.connected = true;
           remote.relayError = "";
           remote.service.schedule();
+          return;
+        }
+        if (message.type === "pushResult") {
+          remote.push.unregisterToken(message.token);
           return;
         }
         if (message.type === "open") {
@@ -148,6 +161,7 @@ class RelayTransport {
     socket.on("close", () => {
       clearTimeout(this.deadline);
       this.closed = true;
+      this.pushSupported = false;
       this.clearPacing();
       for (const endpoint of Array.from(this.channels.values())) endpoint.close(false);
       if (remote.relayTransport !== this) return;
@@ -170,6 +184,7 @@ class RelayTransport {
     const reservedFrames = Math.ceil(1000 / limits.heartbeatIntervalMs) + 1;
     const dataFrames = limits.framesPerSecond - reservedFrames - 1;
     const envelopeBytes = Math.min(limits.maxFrameBytes, Math.floor(limits.bytesPerSecond / 4));
+    this.maxFrameBytes = envelopeBytes;
     this.chunkBytes = Math.min(49152, Math.floor((envelopeBytes - 128) / 4) * 3);
     if (dataFrames <= 0 || this.chunkBytes < 1) throw new Error("Relay 限额不足");
     this.frameInterval = 1000 / dataFrames;
@@ -185,6 +200,32 @@ class RelayTransport {
     const text = this.controls.get(channel);
     if (text) this.controlBytes -= Buffer.byteLength(text);
     this.controls.delete(channel);
+    this.pushGuards.delete(channel);
+  }
+  /** @param {import('./remote-push.cjs').PushMessage} value @param {()=>boolean} authorized */
+  tryPush(value, authorized) {
+    const text = JSON.stringify(value);
+    if (
+      this.closed ||
+      !this.ready ||
+      !this.pushSupported ||
+      this.socket.readyState !== 1 ||
+      !authorized() ||
+      Object.values(value.target).some((field) => !field || Buffer.byteLength(field) > 256) ||
+      Buffer.byteLength(text) > (this.maxFrameBytes ?? 0) ||
+      this.pushGuards.size >= LIMITS.activeHostConnections ||
+      this.controls.size >= LIMITS.activeHostConnections * 2 ||
+      this.remote.sessions.sendBufferedBytes() + Buffer.byteLength(text) >
+        LIMITS.hostSendBufferedBytes
+    )
+      return false;
+    const key = `push:${value.token}:${value.collapseId}`;
+    this.removeControl(key);
+    this.controls.set(key, text);
+    this.pushGuards.set(key, authorized);
+    this.controlBytes += Buffer.byteLength(text);
+    this.drain();
+    return true;
   }
   /** @param {{type:"close",channel:string}} value */
   control(value) {
@@ -193,8 +234,12 @@ class RelayTransport {
     const text = JSON.stringify(value);
     // 每个未送出的 close 都仍占 Relay 的通道位；同通道去重并在服务 close 后删除。
     if (this.controls.size >= LIMITS.activeHostConnections * 2) {
-      this.socket.terminate();
-      return;
+      const push = this.pushGuards.keys().next().value;
+      if (push) this.removeControl(push);
+      else {
+        this.socket.terminate();
+        return;
+      }
     }
     this.controls.set(value.channel, text);
     this.controlBytes += Buffer.byteLength(text);
@@ -227,6 +272,12 @@ class RelayTransport {
     let sending;
     if (isControl) {
       const [channel, text] = /** @type {[string,string]} */ (this.controls.entries().next().value);
+      const guard = this.pushGuards.get(channel);
+      if (guard && !guard()) {
+        this.removeControl(channel);
+        this.drain();
+        return;
+      }
       sending = { kind: "control", channel, text };
     } else {
       const previousIndex = endpoints.findIndex((endpoint) => endpoint.channel === this.previous);
@@ -248,7 +299,11 @@ class RelayTransport {
       this.draining = false;
       if (this.closed) return;
       if (error) {
-        this.socket.terminate();
+        if (sending.kind === "control" && sending.channel.startsWith("push:")) {
+          this.removeControl(sending.channel);
+          this.remote.push.diagnostic = "push-dropped";
+          this.drain();
+        } else this.socket.terminate();
         return;
       }
       // 按实际 JSON/base64 字节而非明文字节计费；数据和 close 共用此时钟。
@@ -258,8 +313,10 @@ class RelayTransport {
           this.frameInterval,
           (1000 * Buffer.byteLength(sending.text)) / this.bytesPerSecond,
         );
-      if (sending.kind === "control") this.removeControl(sending.channel);
-      else if (sending.endpoint.readyState !== 3) {
+      if (sending.kind === "control") {
+        if (this.controls.get(sending.channel) === sending.text)
+          this.removeControl(sending.channel);
+      } else if (sending.endpoint.readyState !== 3) {
         const { endpoint, job, bytes } = sending;
         job.offset += bytes.length;
         if (job.offset >= job.bytes.length) {
@@ -275,10 +332,12 @@ class RelayTransport {
     clearTimeout(this.paceTimer ?? undefined);
     this.paceTimer = null;
     this.controls.clear();
+    this.pushGuards.clear();
     this.controlBytes = 0;
   }
   close() {
     this.closed = true;
+    this.pushSupported = false;
     clearTimeout(this.deadline);
     this.clearPacing();
     for (const endpoint of Array.from(this.channels.values())) endpoint.close(false);

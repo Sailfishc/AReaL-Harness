@@ -115,6 +115,19 @@ export class ModelCatalog {
           ? m.display_name
           : m.slug,
       source: "account",
+      ...(Array.isArray(m.supported_reasoning_levels)
+        ? {
+            reasoningEffortOptions: [
+              ...new Set(
+                m.supported_reasoning_levels
+                  .map((level) => level?.effort)
+                  .filter((effort) =>
+                    ["none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(effort),
+                  ),
+              ),
+            ],
+          }
+        : {}),
       ...(Number.isSafeInteger(m.context_window) &&
       m.context_window > 0 &&
       m.context_window <= 2_000_000

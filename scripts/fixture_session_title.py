@@ -3,6 +3,18 @@
 import json
 
 
+def assert_session_title_audits(audits, received_count):
+    # 单个前台 Turn 最多尝试命名一次；发送前取消仍会留下尝试审计。
+    assert received_count <= len(audits) <= 1, (received_count, audits)
+    assert all(a["toolCount"] == 0 for a in audits), audits
+    assert all(a["outcome"] in {"completed", "interrupted_or_unfinished"} for a in audits), audits
+    if not received_count:
+        assert all(
+            a["outcome"] == "interrupted_or_unfinished" and a.get("httpStatus") is None
+            for a in audits
+        ), audits
+
+
 def reply_to_session_title(handler, request, title):
     naming = any(
         message.get("role") == "system"

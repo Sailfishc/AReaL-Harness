@@ -3,6 +3,7 @@
   "listen": "127.0.0.1:8080",
   "trustedLocalTlsProxy": true,
   "allowedClientOrigins": ["https://remote.example.org"],
+  "allowedAppOrigins": [],
   "dataDir": "/data",
   "assetsDir": "/assets",
   "payloadLogging": false

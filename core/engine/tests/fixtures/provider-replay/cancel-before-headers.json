@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "protocol": "chat-completions",
+  "source": "synthetic",
+  "responses": [
+    {
+      "expect": {
+        "/model": "fixture",
+        "/stream": true
+      },
+      "chunks": [
+        "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"late answer\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+      ],
+      "hold": true,
+      "cancelled": true
+    }
+  ]
+}

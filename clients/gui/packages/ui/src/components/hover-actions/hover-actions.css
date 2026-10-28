@@ -1,0 +1,18 @@
+/* 只改 opacity/pointer-events：宽度、display、position 一变，打开中的菜单就会跟着锚点漂移。 */
+.areal-hover-actions {
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+}
+/* Base UI 打开时给触发器加 data-popup-open；焦点在 Portal 里的弹出层上，:focus-within 兜不住。 */
+:is(:hover, :has(:focus-visible), :has([data-popup-open])) > .areal-hover-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (hover: none) {
+  .areal-hover-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}

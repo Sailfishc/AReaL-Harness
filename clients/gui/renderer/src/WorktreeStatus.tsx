@@ -1,4 +1,3 @@
-import { toast } from "./components/ui/toast.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "./components/ui/button.js";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover.js";
@@ -124,7 +123,6 @@ export function WorktreeActions({
       (cause) => {
         if (active) {
           setError(cause.message);
-          toast(cause.message, "error");
         }
       },
     );
@@ -151,12 +149,10 @@ export function WorktreeActions({
         const message =
           result.message || t(result.status === "unknown" ? "worktree.unknown" : "worktree.failed");
         setError(message);
-        toast(message, result.status === "unknown" ? "warning" : "error");
       }
     } catch (cause) {
       const message = (cause as Error).message;
       setError(message);
-      toast(message, "error");
     } finally {
       setBusy(false);
     }

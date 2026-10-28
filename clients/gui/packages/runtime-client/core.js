@@ -106,6 +106,7 @@ export class CoreClient {
     this.onServerRequest = onServerRequest;
     this.timeoutMs = timeoutMs;
     this.pending = new Map();
+    this.catalogReads = new Map();
     this.serverRequests = new Map();
     this.listeners = new Set();
     this.closeListeners = new Set();
@@ -234,7 +235,19 @@ export class CoreClient {
         }),
       );
     }
-    return new Promise((resolve, reject) => {
+    const readOnly = effect === "read" || effect === "subscription";
+    // 写前、写后都隔开在途目录读取，写后校验不能加入旧快照。
+    if (!readOnly) this.catalogReads.clear();
+    const catalogKey =
+      effect === "read" &&
+      ["areal/plugin/list", "areal/plugin/mcp/list"].includes(method) &&
+      Object.keys(params).length === 0 &&
+      decode === undefined &&
+      onResult === undefined
+        ? JSON.stringify([method, timeoutMs, maxResponseBytes])
+        : null;
+    if (catalogKey && this.catalogReads.has(catalogKey)) return this.catalogReads.get(catalogKey);
+    const response = new Promise((resolve, reject) => {
       const id = ++this.nextId;
       const timer = setTimeout(() => {
         this.pending.delete(id);
@@ -259,6 +272,13 @@ export class CoreClient {
         );
       }
     });
+    if (!readOnly) return response.finally(() => this.catalogReads.clear());
+    if (!catalogKey) return response;
+    const shared = response.finally(() => {
+      if (this.catalogReads.get(catalogKey) === shared) this.catalogReads.delete(catalogKey);
+    });
+    this.catalogReads.set(catalogKey, shared);
+    return shared;
   }
 
   receive(bytes) {
@@ -420,6 +440,7 @@ export class CoreClient {
       );
     }
     this.pending.clear();
+    this.catalogReads.clear();
     for (const controller of this.serverRequests.values()) controller.abort();
     this.serverRequests.clear();
     for (const listener of this.closeListeners)

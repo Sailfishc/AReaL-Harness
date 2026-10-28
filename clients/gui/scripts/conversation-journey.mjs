@@ -919,7 +919,10 @@ export function conversationJourney(
           JSON.stringify(await state(), null, 2),
         );
         if (process.env.AREAL_CONVERSATION_BASELINE !== "1") {
-          assert.match(await latest().locator(".turn-progress-summary").innerText(), /Working for/);
+          assert.match(
+            await latest().locator(".turn-progress-summary").innerText(),
+            /Work(?:ing|ed) for/,
+          );
           assert.equal(
             await latest()
               .locator(".turn-progress-summary .conversation-disclosure-action")

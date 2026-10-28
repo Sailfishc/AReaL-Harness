@@ -27,7 +27,7 @@ The local administrator's `enrollment` command prints a random 256-bit, ten-minu
 
 Build with `pnpm --dir clients/gui build` and export the Remote asset closure using `pnpm --dir clients/gui export:remote /absolute/new/remote-pwa`; use that output as `assetsDir`, never Desktop dist. CSP `style-src` permits inline styles, matching Direct for the same PWA styles; script policy remains same-origin.
 
-Host ready advertises configured frame/byte/max-frame limits and the actual heartbeat interval. New Hosts require this declaration and do not use older services that omit it; Client ready-channel is unchanged. Host reserves heartbeat capacity and paces data/close, refusing unusably low budgets without changing service configuration. The service still enforces its original per-frame limits; the declaration grants no execution authority.
+Host ready advertises configured frame/byte/max-frame limits, the actual heartbeat interval, and `push:boolean`. An older service without `push` means unsupported. New Hosts require these limits and do not use older services that omit them; Client ready-channel is unchanged. Host reserves heartbeat capacity and paces data/close, refusing unusably low budgets without changing service configuration. The service still enforces its original per-frame limits; the declaration grants no execution authority.
 
 ## Production boundary
 
@@ -35,19 +35,33 @@ Copy `config.example.json` and set the exact HTTPS `publicOrigin`, explicit `all
 
 Configure that proxy to accept only the chosen HTTPS hostname, preserve its exact Host header, forward `/remote/socket` as WebSocket, and impose request/connection limits. Plain HTTP may redirect to HTTPS but must not proxy enrollment or WebSocket traffic. Do not log request bodies, WebSocket data, enrollment codes, credentials, invites or sensitive URL fragments. Backend checks do not trust `Forwarded` or `X-Forwarded-*`; other local processes are inside this explicit trust boundary. There is no wildcard Origin or automatic public fallback. HTTP/WS are permitted only with explicit `development: true` and loopback public origin.
 
+Relay `allowedClientOrigins` continues to accept Web origins only. Optional `allowedAppOrigins` defaults to `[]`; native App deployments can explicitly set `["capacitor://localhost"]`. Each entry must be an exact `scheme://host` with a scheme other than `http`, `https`, `ws` or `wss`. Empty hosts, credentials, ports, paths (including a trailing slash), queries, fragments, whitespace and percent encoding are rejected. Both WebSocket upgrade and client registration require an Origin that exactly matches either list. Origin-less connections can only register as Hosts with valid enrollment credentials, never as Clients. A custom scheme can have `URL.origin` equal to `null`, so comparison uses the validated complete string. Native Apps can forge Origin; it grants no identity or execution authority. Noise pins still verify Host identity, and Host DeviceGrant still determines permissions.
+
 ## Outer wire
 
 Connect to `/remote/socket`; compression and binary WebSocket messages are disabled. Registration is the first JSON message:
 
 | Sender | Message / response |
 |---|---|
-| Host, no Origin | `{protocol:"areal.relay.v1",role:"host",room,capability}` → `{type:"ready",limits:{framesPerSecond,bytesPerSecond,maxFrameBytes,heartbeatIntervalMs}}` |
+| Host, no Origin | `{protocol:"areal.relay.v1",role:"host",room,capability}` → `{type:"ready",push?:boolean,limits:{framesPerSecond,bytesPerSecond,maxFrameBytes,heartbeatIntervalMs}}` |
 | Client, allowed Origin | `{protocol:"areal.relay.v1",role:"client",room}` → `{type:"ready",channel}`; Host receives `{type:"open",channel}` |
 | Either endpoint | `{type:"data",channel,data}` forwards opaque standard padded base64 to the owned peer only |
 | Either endpoint | `{type:"close",channel}` releases that channel |
 | Relay | `{type:"error",code}` or `{type:"close",channel}`; errors never echo input |
 
+Hosts that support push send the `X-Areal-Relay-Capabilities: push` header during the WebSocket upgrade. Only these Hosts receive the optional `push` field in ready and `pushResult` messages. Legacy Hosts retain the original ready shape. Legacy Relays ignore the header, and a missing ready field means push is unavailable. This header advertises decoder support; the registered capability remains the Host identity proof.
+
 Client data/close **must** carry its ready-provided channel. Valid Host reconnect replaces its old connection and closes all old channels. Stale Host sockets cannot reach new channels. Unauthorized or retired Host channel frames receive uniform `UNAVAILABLE` without routing; this permits in-flight data and Host close echoes without disconnecting other devices. Forged Client frames close that Client. Unknown, disabled and offline rooms all return the same `UNAVAILABLE`. On restart, endpoints reconnect and obtain a new application baseline; no offline messages are retained.
+
+## Configure APNs
+
+Default configurations omit `apns` and Host `ready` returns `push:false`. `config.apns.example.json` shows the configuration required for push. Replace the team ID, key ID, and Bundle ID, and place the Apple P-256 `.p8` key at `keyFile`. Startup reads that file; administration commands only validate configuration. The service process needs read permission. For containers, mount the key separately as a read-only file at the configured path, readable by UID 1000. Keep the key outside images, source control, and data backups.
+
+`maxPerHostPerMinute` defaults to 60 and accepts integers from 1 through 600. The budget belongs to the registered room, so reconnecting a Host does not reset its current-minute budget. At most 32 APNs requests run concurrently, with a 10-second deadline each. Rate limiting returns `LIMIT_EXCEEDED`; disabled push returns `UNAVAILABLE`. The Host connection remains usable. Relay does not retain tokens, queue notifications, or retry. Delivery failure changes no session or approval state.
+
+`production` uses `https://api.push.apple.com`, including TestFlight; `development` uses `https://api.sandbox.push.apple.com`. System TLS verification stays enabled. ES256 JWTs are cached for 50 minutes. Requests carry the configured Bundle ID, `alert` push type, priority 10, and the Host's `collapseId`. Only fixed Chinese alert text enters `aps`; navigation IDs enter top-level `target`. For `410 Unregistered`, Relay sends `pushResult` to the current Host so it can remove the token. Logs contain only time, random route, kind, and status.
+
+See Apple's [token authentication documentation](https://developer.apple.com/documentation/usernotifications/establishing-a-token-based-connection-to-apns) and [notification request documentation](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns).
 
 ## Budgets and administration
 
@@ -76,3 +90,5 @@ npm audit --omit=dev
 ```
 
 Tests start isolated real service processes, use actual WebSocket sockets, exercise capability/room/channel forgery, replacement/close races, restart/offline behavior, anonymous capacity/timeouts, frame/byte/fragment limits, a TCP reader that stops consuming, HTTP/Origin/static boundaries, expiration, revoke, backup/disabled restore, and marker scans of logs/SQLite. They test the opaque routing seam, not Noise or GUI behavior. No cloud, phone, public domain, native GUI or production-capacity test runs here.
+
+Push tests generate temporary P-256 keys and TLS certificates and use CLI enrollment, real WebSockets, and local HTTP/2 TLS to verify signatures, caching, fixed payloads, limits, failures, and shutdown. Tests substitute the network connector at an internal constructor boundary and connect only to localhost. Actual APNs delivery, iPhone lockscreen behavior, and TestFlight signing require separate acceptance with actual Apple resources.

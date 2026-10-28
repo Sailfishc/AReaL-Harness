@@ -230,7 +230,7 @@ pub fn projections() -> (Value, Value) {
     insert(
         &["capabilities"],
         object(
-            json!({"apiVersion":{"const":API_VERSION},"methods":array(string.clone()),"methodSemantics":{"type":"object","additionalProperties":schema::<MethodSemantics>()},"notifications":array(string.clone()),"serverRequests":array(string.clone()),"features":{"type":"object","properties":{"mcpPageToolsV1":object(json!({"version":{"const":1},"kinds":array(json!({"enum":["getSelection","applyPatch"]}))})),"conversationDerivationV1":nullable(object(json!({"preview":{"const":false},"methods":array(string.clone()),"forkBoundaries":array(json!({"enum":["before","after"]})),"workspaceModes":array(json!({"const":"sharedCurrent"})),"sideWorkspaceAccess":array(json!({"enum":["none","readOnly"]})),"historyBytes":number.clone(),"limits":object(json!({"maxThreads":number.clone(),"maxActiveTurns":number.clone(),"maxSideTurnsPerSource":number.clone(),"maxSideTurnsPerDeployment":number.clone(),"maxSideModelRounds":number.clone(),"maxSideToolCalls":number.clone(),"maxSideTurnSeconds":number.clone()}))})))},"additionalProperties":{"type":"boolean"}},"limits":object(json!({"frameBytes":number,"subscriptions":number,"sendQueue":number,"threadEventWindow":number})),"runtime":nullable(any_object.clone())}),
+            json!({"apiVersion":{"const":API_VERSION},"methods":array(string.clone()),"methodSemantics":{"type":"object","additionalProperties":schema::<MethodSemantics>()},"notifications":array(string.clone()),"serverRequests":array(string.clone()),"features":{"type":"object","properties":{"threadCreationJournal":object(json!({"version":{"const":1},"binding":schema::<CreationAdmission>()})),"mcpPageToolsV1":object(json!({"version":{"const":1},"kinds":array(json!({"enum":["getSelection","applyPatch"]}))})),"conversationDerivationV1":nullable(object(json!({"preview":{"const":false},"methods":array(string.clone()),"forkBoundaries":array(json!({"enum":["before","after"]})),"workspaceModes":array(json!({"const":"sharedCurrent"})),"sideWorkspaceAccess":array(json!({"enum":["none","readOnly"]})),"historyBytes":number.clone(),"limits":object(json!({"maxThreads":number.clone(),"maxActiveTurns":number.clone(),"maxSideTurnsPerSource":number.clone(),"maxSideTurnsPerDeployment":number.clone(),"maxSideModelRounds":number.clone(),"maxSideToolCalls":number.clone(),"maxSideTurnSeconds":number.clone()}))})))},"additionalProperties":{"type":"boolean"}},"limits":object(json!({"frameBytes":number,"subscriptions":number,"sendQueue":number,"threadEventWindow":number})),"runtime":nullable(any_object.clone())}),
         ),
     );
     insert(
@@ -481,10 +481,17 @@ pub fn projections() -> (Value, Value) {
             json!({"oneOf":[object(json!({"threadId":string,"turnId":string,"status":schema::<TurnStatus>(),"error":nullable(schema::<TurnError>()),"text":string,"truncated":boolean,"configuration":nullable(any_object.clone())})),object(json!({"agentId":string,"workspaceMode":{"const":"isolatedWrite"},"result":any_object}))]}),
         ),
     );
+    let mut request_receipts = object(
+        json!({"data":array(receipt),"retention":{"enum":["threadLifetime","deploymentLifetime","threadAndDeploymentLifetime"]},"capacity":number}),
+    );
+    request_receipts["properties"]["creationAdmission"] = json!({"type":"object","additionalProperties":false,
+        "required":["status","identity","requestId","method","journalEpoch","coreInstanceId"],
+        "properties":{"status":{"enum":["admitted","unconfirmed","notAdmitted"]},"identity":string,"requestId":string,
+            "method":{"const":"areal/thread/start"},"journalEpoch":{"type":"string","format":"uuid"},
+            "coreInstanceId":{"type":"string","format":"uuid"}}});
     insert(
         &["request/read"],
-        json!({"oneOf":[
-            object(json!({"data":array(receipt),"retention":{"enum":["threadLifetime","deploymentLifetime","threadAndDeploymentLifetime"]},"capacity":number})),
+        json!({"oneOf":[request_receipts,
             object(json!({"data":array(object(json!({"identity":string,"requestId":string,"method":{"const":"areal/task/runNow"},"digest":string,"result":run_now}))),"retention":{"const":"taskLifetime"}}))
         ]}),
     );

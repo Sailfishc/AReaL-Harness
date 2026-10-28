@@ -24,28 +24,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  plan:
+    name: Determine required verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      host_matrix: ${{ steps.plan.outputs.host_matrix }}
+      container: ${{ steps.plan.outputs.container }}
+      input_hash: ${{ steps.plan.outputs.input_hash }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Validate shared plan and workflow declarations
+        run: python3 scripts/check-workflows.py
+      - id: plan
+        run: python3 scripts/ci-scope.py
   host:
     name: ${{ matrix.name }}
+    needs: plan
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: macos-15
-            name: macOS native Harness
-            target: verify-native
-            setup: setup-node
-            log: verify-native
-          - os: ubuntu-24.04
-            name: Linux portable checks
-            target: verify
-            setup: setup
-            log: verify
+      matrix: ${{ fromJSON(needs.plan.outputs.host_matrix) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24.22.1'
@@ -83,22 +91,32 @@ jobs:
           CARGO_TEST_ARGS: --exclude areal-runtime-exec-native
           AREAL_UNIFIED_EVIDENCE_DIR: target/ci/unified
           AREAL_TEST_EVIDENCE: target/ci/local-service.json
-        run: make "${{ matrix.target }}" 2>&1 | tee "target/ci/${{ matrix.log }}.log"
+        run: python3 scripts/ci-preflight.py --groups "${{ matrix.target }}" --output "target/ci/checks/host-${{ runner.os }}" 2>&1 | tee "target/ci/${{ matrix.log }}.log"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
           name: ${{ runner.os }}-host-logs
           path: target/ci/
           retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: ci-checks-${{ github.run_id }}-${{ github.run_attempt }}-host-${{ runner.os }}
+          path: target/ci/checks/host-${{ runner.os }}/
+          if-no-files-found: warn
+          retention-days: 7
 
   container:
     name: Linux container Runtime
+    needs: plan
+    if: needs.plan.outputs.container == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13'
@@ -132,9 +150,13 @@ jobs:
             INSTALL_CLAUDE_CODE=0
           load: true
           tags: areal-ci:runtime
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            io.areal.verification-input=${{ needs.plan.outputs.input_hash }}
           cache-from: type=gha,scope=areal-runtime
           cache-to: type=gha,scope=areal-runtime,mode=max
       - name: Build native backend tests
+        if: ${{ !cancelled() }}
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -143,77 +165,57 @@ jobs:
           build-args: BUILD_PROFILE=ci
           load: true
           tags: areal-ci:runtime-tests
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            io.areal.verification-input=${{ needs.plan.outputs.input_hash }}
           cache-from: |
             type=gha,scope=areal-runtime-tests
             type=gha,scope=areal-runtime
           cache-to: type=gha,scope=areal-runtime-tests,mode=max
-      - name: Verify native backend inside its supported container
-        run: |
-          docker run --rm --network none \
-            --security-opt seccomp=unconfined --security-opt systempaths=unconfined \
-            --security-opt apparmor=unconfined \
-            areal-ci:runtime-tests 2>&1 | tee target/ci/native-tests.log
-      - name: Verify Linux sandbox and host-staged files
-        run: |
-          python3 - <<'PY' 2>&1 | tee target/ci/runtime.log
-          import sys
-          sys.path.insert(0, 'tests/perf')
-          from perf import smoke_runtime_profile
-          raise SystemExit(smoke_runtime_profile('areal-ci:runtime'))
-          PY
-      - name: Verify bundled search and durable result retrieval
-        run: |
-          docker run --rm --network none -e IS_SANDBOX=1 \
-            --security-opt seccomp=unconfined --security-opt systempaths=unconfined \
-            --security-opt apparmor=unconfined \
-            --mount "type=bind,source=$PWD,target=/repo,readonly" -w /repo \
-            --entrypoint python3 areal-ci:runtime scripts/native-tools-smoke.py \
-            --bin-dir /usr/local/bin --sandbox-profile outer-container-perf \
-            2>&1 | tee target/ci/native-tools.log
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        if: ${{ !cancelled() }}
         with:
           node-version: '24.22.1'
           cache: npm
-      - name: Prepare locked unified smoke dependencies
-        run: npm ci --ignore-scripts
-      - name: Verify unified delegation inside the supported container
+      - name: Execute every supported container check and collect independent failures
+        if: ${{ !cancelled() }}
         run: |
-          mkdir -p target/ci/unified
-          docker run --rm --network none \
-            --security-opt seccomp=unconfined --security-opt systempaths=unconfined \
-            --security-opt apparmor=unconfined \
-            --mount "type=bind,source=$PWD,target=/repo,readonly" -w /repo \
-            --mount "type=bind,source=$PWD/target/ci/unified,target=/evidence" \
-            -e AREAL_UNIFIED_BIN_DIR=/usr/local/bin -e AREAL_UNIFIED_EVIDENCE_DIR=/evidence \
-            --entrypoint node areal-ci:runtime scripts/unified-execution-smoke.mjs \
-            2>&1 | tee target/ci/unified.log
-      - name: Verify root-only container ownership cases
-        run: >-
-          docker run --rm --network none --entrypoint python3
-          --mount "type=bind,source=$PWD,target=/repo,readonly" -w /repo
-          areal-ci:runtime tests/perf/perf.py self-test
-          2>&1 | tee target/ci/perf-root.log
+          mkdir -p target/ci
+          python3 scripts/ci-preflight.py --groups container --output target/ci/checks/container 2>&1 | tee target/ci/container-checks.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
           name: linux-container-logs
           path: target/ci/
           retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: ci-checks-${{ github.run_id }}-${{ github.run_attempt }}-container
+          path: target/ci/checks/container/
+          if-no-files-found: warn
+          retention-days: 7
 
   # 保留原检查名；矩阵和容器必须全部成功，不能把跳过或取消视为通过。
   linux:
     name: Linux checks and container Runtime
-    needs: [host, container, dependencies]
+    needs: [plan, host, container, dependencies]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Require host matrix and container jobs
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: ci-checks-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: target/ci/checks
+      - name: Require every planned host, native, container and audit check
         env:
-          HOST_RESULT: ${{ needs.host.result }}
-          CONTAINER_RESULT: ${{ needs.container.result }}
-          DEPENDENCY_RESULT: ${{ needs.dependencies.result }}
-        run: test "$HOST_RESULT" = success && test "$CONTAINER_RESULT" = success && test "$DEPENDENCY_RESULT" = success
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python3 scripts/ci-gate.py --workflow verify
 
   dependencies:
     name: Dependency advisories

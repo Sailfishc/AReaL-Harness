@@ -1,7 +1,7 @@
 // @ts-check
 export const RELAY_FRAME_BYTES = 512 * 1024;
 /** @typedef {{framesPerSecond:number,bytesPerSecond:number,maxFrameBytes:number,heartbeatIntervalMs:number}} RelayLimits */
-/** @typedef {{type:'ready',channel:string,limits?:undefined}|{type:'ready',limits:RelayLimits,channel?:undefined}|{type:'open'|'close',channel:string}|{type:'data',channel:string,data:string}|{type:'error',code:string}} RelayMessage */
+/** @typedef {{type:'ready',channel:string,limits?:undefined}|{type:'ready',limits:RelayLimits,push?:boolean,channel?:undefined}|{type:'open'|'close',channel:string}|{type:'data',channel:string,data:string}|{type:'error',code:string}|{type:'pushResult',token:string,status:'unregistered'}} RelayMessage */
 /** @param {unknown} value @returns {value is string} */
 const channelShape = (value) =>
   typeof value === "string" &&
@@ -28,12 +28,21 @@ export function decodeRelayMessage(text, binary = false) {
 }
 /** @param {unknown} message @returns {message is RelayMessage} */
 function isRelayMessage(message) {
-  if (!exact(message, ["type", "channel", "limits", "data", "code"])) return false;
+  if (!exact(message, ["type", "channel", "limits", "data", "code", "push", "token", "status"]))
+    return false;
+  if (message.type === "pushResult")
+    return (
+      exact(message, ["type", "token", "status"]) &&
+      typeof message.token === "string" &&
+      /^[a-fA-F0-9]{64,200}$/.test(message.token) &&
+      message.status === "unregistered"
+    );
   const limits = message.limits;
   if (
     message?.type === "ready" &&
     ((exact(message, ["type", "channel"]) && channelShape(message.channel)) ||
-      (exact(message, ["type", "limits"]) &&
+      (exact(message, ["type", "limits", "push"]) &&
+        (message.push === undefined || typeof message.push === "boolean") &&
         exact(limits, [
           "framesPerSecond",
           "bytesPerSecond",

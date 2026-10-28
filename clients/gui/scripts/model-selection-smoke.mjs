@@ -543,8 +543,15 @@ async function verifyModelCapabilities() {
     "true",
   );
   assert.equal(await editor.getByRole("spinbutton", { name: "模型温度", exact: true }).count(), 0);
-  for (const name of ["低", "中", "高", "极高"])
-    assert.equal(await editor.getByRole("checkbox", { name, exact: true }).isChecked(), true);
+  for (const name of ["低", "中", "高", "极高"]) {
+    const option = editor.getByRole("checkbox", { name, exact: true });
+    assert.equal(
+      await option.isChecked(),
+      false,
+      "new custom models do not invent offered strengths",
+    );
+    await option.check();
+  }
   for (const name of ["无", "最少", "最高"])
     assert.equal(await editor.getByRole("checkbox", { name, exact: true }).isChecked(), false);
   const fields = {
@@ -607,6 +614,14 @@ async function verifyModelCapabilities() {
   await createProjectConversation(page, "workspace");
   await button("模型").click();
   await page.getByRole("radio", { name: "Capability model", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await button("模型").click();
+  assert.equal(
+    await page.getByRole("slider", { name: "思考强度", exact: true }).count(),
+    0,
+    "a newly selected custom model keeps effort unspecified until explicit selection",
+  );
+  await page.getByRole("button", { name: "中", exact: true }).click();
   await page.keyboard.press("Escape");
   await captureModelThemes("composer-selection", true);
   const send = async (text, expected) => {
@@ -782,26 +797,30 @@ async function verifyModelCapabilities() {
   assert.deepEqual((await configuredModel()).capabilities.reasoningEffortOptions ?? [], []);
   await until(
     (snapshot) =>
-      JSON.stringify(catalogModel(snapshot)?.reasoningEffortOptions) ===
-      JSON.stringify(["none", "minimal", "low", "medium", "high", "xhigh"]),
-    "empty configured subset uses the standard effort options",
+      JSON.stringify(catalogModel(snapshot)?.reasoningEffortOptions) === JSON.stringify([]),
+    "empty configured subset does not invent supported effort options",
   );
   await button("返回应用").click();
   await button("模型").click();
-  slider = page.getByRole("slider", { name: "思考强度", exact: true });
-  assert.equal(await slider.getAttribute("max"), "5");
-  await slider.press("End");
-  await waitForSavedEffort("极高");
+  assert.equal(await page.getByRole("slider", { name: "思考强度", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("group", { name: "选择思考强度", exact: true }).count(), 0);
   await page.screenshot({
-    path: join(scratch, "custom-model-effort-fallback.png"),
+    path: join(scratch, "custom-model-effort-empty.png"),
     animations: "disabled",
   });
+  await button("服务默认").click();
+  await page.waitForFunction(() =>
+    document.querySelector('[aria-label="模型"]')?.textContent.includes("服务默认"),
+  );
   await page.keyboard.press("Escape");
-  await send("Empty effort subset uses the standard maximum", {
-    model: "capability-model",
-    effort: "xhigh",
-    hasEffort: true,
-  });
+  await send(
+    "Empty effort subset requires explicit service default to omit unsupported parameters",
+    {
+      model: "capability-model",
+      effort: null,
+      hasEffort: false,
+    },
+  );
   await editCapabilities();
   await editor.getByRole("switch", { name: "推理能力", exact: true }).click();
   await editor.getByRole("button", { name: "保存模型", exact: true }).click();
@@ -816,7 +835,7 @@ async function verifyModelCapabilities() {
     hasEffort: false,
   });
   checks.push(
-    "custom model defaults, paired budget fields, persisted capabilities, configured effort subset, empty-list fallback, and reasoning disablement govern actual Core requests",
+    "custom model defaults, paired budget fields, persisted capabilities, configured effort subset, empty-list omission, and reasoning disablement govern actual Core requests",
   );
   await openModelSettings();
   await page.locator(".provider-catalog-row").filter({ hasText: "Capabilities" }).waitFor();
@@ -867,8 +886,21 @@ async function verifyModelDefaults(projectId) {
           enabled: true,
           parameters: { reasoningEffort: "high", temperature: 0.4, maxOutputTokens: 4096 },
         },
-        { id: "beta-default", displayName: "Beta", enabled: true, parameters: {} },
-      ],
+        {
+          id: "beta-default",
+          displayName: "Beta",
+          enabled: true,
+          parameters: {},
+        },
+      ].map((model) => ({
+        ...model,
+        capabilities: {
+          tools: true,
+          vision: true,
+          reasoning: true,
+          reasoningEffortOptions: ["none", "minimal", "low", "medium", "high", "xhigh"],
+        },
+      })),
     },
   });
   const provider = seeded.data.find((item) => item.name === "Defaults");
@@ -902,6 +934,16 @@ async function verifyModelDefaults(projectId) {
         (tabs && [...tabs.querySelectorAll('[role="tab"]')].some((tab) => !tab.disabled))
       );
     });
+    await page.waitForFunction(async () => {
+      const reply = await window.arealDesktop.command("serviceStatus", {});
+      return (
+        reply.ok &&
+        !reply.value.busy &&
+        !reply.value.activeCommands &&
+        !reply.value.starting &&
+        !reply.value.providerUpdating
+      );
+    });
     const defaultMenu = page.getByRole("combobox", { name: "备用默认模型", exact: true });
     if (await defaultMenu.count()) {
       await defaultMenu.click();
@@ -912,7 +954,15 @@ async function verifyModelDefaults(projectId) {
         .getByRole("tab", { name, exact: true })
         .click();
     await button("返回应用").click({ trial: true, timeout: 180000 });
-    const configured = await call("providers", { operation: "list" });
+    let configured;
+    await until(async () => {
+      configured = await call("providers", { operation: "list" });
+      return (
+        configured.defaultModel?.providerId === reference.providerId &&
+        configured.defaultModel?.modelId === reference.modelId &&
+        !configured.pendingApply
+      );
+    }, "fallback default save reaches its authoritative configuration");
     assert.deepEqual(configured.defaultModel, reference);
     assert.equal(configured.pendingApply, false);
     if (await defaultMenu.count())
@@ -994,6 +1044,10 @@ async function verifyModelDefaults(projectId) {
     "clicking selected model retains its configuration",
   );
   await chooseModel("Beta");
+  await expectModel("Beta", "未指定");
+  await button("模型").click();
+  await page.getByRole("button", { name: "中", exact: true }).click();
+  await page.keyboard.press("Escape");
   await expectModel("Beta", "中");
   const switchedParameters = snapshotProject(await state()).configurations[switched].parameters;
   assert.ok(
@@ -1025,8 +1079,12 @@ async function verifyModelDefaults(projectId) {
   await createProjectConversation(page, "workspace");
   await expectModel("Alpha", "高");
   await chooseModel("Beta");
+  await expectModel("Beta", "未指定");
+  await button("模型").click();
+  await page.getByRole("button", { name: "中", exact: true }).click();
+  await page.keyboard.press("Escape");
   await expectModel("Beta", "中");
-  const beta = await send("Explicit draft Beta displays and sends medium", {
+  const beta = await send("Explicit draft Beta displays and sends its user-selected medium", {
     model: "beta-default",
     effort: "medium",
     hasEffort: true,
@@ -1286,7 +1344,7 @@ async function verifyModelDefaults(projectId) {
   await stopService();
   await writeFile(
     config,
-    `schema_version=1\n[model]\nprovider="legacy"\nname="legacy-alpha"\nreasoning_effort="high"\n[model.providers.legacy]\nname="Legacy"\nendpoint="http://127.0.0.1:${server.address().port}/v1/chat/completions"\nprotocol="chat-completions"\nmodels=[{id="legacy-alpha",display_name="Legacy Alpha"},{id="legacy-beta",display_name="Legacy Beta"}]\n`,
+    `schema_version=1\n[model]\nprovider="legacy"\nname="legacy-alpha"\nreasoning_effort="high"\n[model.providers.legacy]\nname="Legacy"\nendpoint="http://127.0.0.1:${server.address().port}/v1/chat/completions"\nprotocol="chat-completions"\nmodels=[{id="legacy-alpha",display_name="Legacy Alpha",capabilities={tools=true,vision=true,reasoning=true,reasoning_effort_options=["none","minimal","low","medium","high","xhigh"]}},{id="legacy-beta",display_name="Legacy Beta",capabilities={tools=true,vision=true,reasoning=true,reasoning_effort_options=["none","minimal","low","medium","high","xhigh"]}}]\n`,
   );
   await launch();
   await until(
@@ -1407,13 +1465,24 @@ try {
       .models.filter((m) => m.providerId)
       .every((m) => m.credentialState === "unavailable"),
   );
+  assert.equal(await button("发送").isDisabled(), true, "an empty draft cannot enable sending");
   assert.equal(
-    await button("发送").isDisabled(),
-    true,
-    "a missing default credential cannot enable sending",
+    await button("模型").count(),
+    1,
+    "the selected model remains visible when credentials are missing",
   );
-  assert.equal(await button("模型").count(), 0, "an unavailable catalog has no meaningless picker");
-  await assertEmptyModelIndicator();
+  await page.getByTestId("chat-input").fill("REJECTED_MODEL_DRAFT");
+  assert.equal(await button("发送").isEnabled(), true, "Core owns submission validation");
+  await button("发送").click();
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="chat-input"]')
+        ?.textContent?.includes("REJECTED_MODEL_DRAFT") &&
+      !document.querySelector('button[aria-label="发送"]')?.disabled,
+  );
+  assert.match(await page.getByTestId("chat-input").innerText(), /REJECTED_MODEL_DRAFT/);
+  await page.getByTestId("chat-input").fill("");
   assert.equal(
     await page.getByRole("radio").count(),
     0,
@@ -1433,7 +1502,7 @@ try {
       ),
     { key: taskDraftKey, text: taskDescription },
   );
-  await button("新建自动化").click();
+  await button("新建定时任务").click();
   await page
     .getByRole("alert")
     .filter({ hasText: /凭据/ })
@@ -1643,7 +1712,7 @@ try {
     "Projects + opens the existing picker directly; cancel preserves the project and draft; reopening a directory keeps one registration",
   );
   await button("定时任务").click();
-  await button("新建自动化").click();
+  await button("新建定时任务").click();
   await page.getByTestId("chat-input").waitFor();
   await page.waitForFunction((key) => localStorage.getItem(key) === null, taskDraftKey);
   await page.waitForFunction(
@@ -1737,6 +1806,17 @@ try {
     operation: "default",
     model: null,
     expectedRevision: reopened.revision,
+  });
+  // 冷启动的目录可见不代表后台操作已结算；写入默认项后的刷新也需完成。
+  await page.waitForFunction(async () => {
+    const reply = await window.arealDesktop.command("serviceStatus", {});
+    return (
+      reply.ok &&
+      !reply.value.busy &&
+      !reply.value.activeCommands &&
+      !reply.value.starting &&
+      !reply.value.providerUpdating
+    );
   });
   await call("providers", { operation: "apply", expectedRevision: withoutDefault.revision });
   await until(
@@ -2032,16 +2112,12 @@ try {
     "disabled model absent from executable Core catalog",
   );
   await button("返回应用").click();
+  assert.equal(await button("模型").count(), 1, "disabled historical identity remains visible");
+  assert.match(await button("模型").innerText(), /env-model/);
   assert.equal(
-    await button("模型").count(),
-    0,
-    "disabled models and historical entries do not open an empty picker",
-  );
-  await assertEmptyModelIndicator();
-  assert.match(
-    await page.getByText("暂无可用模型", { exact: true }).getAttribute("title"),
-    /env-model/,
-    "disabled historical identity remains available",
+    await button("模型").locator('[aria-label="模型不可用"]').count(),
+    1,
+    "confirmed invalidity is marked inside the model label",
   );
   await openModelSettings();
   checks.push(
@@ -2069,8 +2145,11 @@ try {
   await createProjectConversation(page, "workspace");
   await until((s) => fixtureProject(s).models.length === 0, "empty Core catalog");
   const fallbackNotice = page.getByRole("status").filter({ hasText: "上次使用的模型" });
-  await fallbackNotice.waitFor();
-  assert.doesNotMatch(await fallbackNotice.innerText(), /已显示备用默认模型/);
+  assert.equal(
+    await fallbackNotice.count(),
+    0,
+    "catalog loading does not produce a preference warning",
+  );
   assert.equal(await button("发送").isDisabled(), true);
   await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0].setMinimumSize(640, 620),
@@ -2101,8 +2180,7 @@ try {
           ?.getBoundingClientRect();
         return bar && surface && surface.top <= bar.bottom + 1;
       });
-      const rect = await fallbackNotice.boundingBox();
-      assert.ok(rect && rect.x >= 0 && rect.width > 0 && rect.x + rect.width <= width);
+      assert.equal(await fallbackNotice.count(), 0, "missing preference does not add a layout row");
       await assertEmptyModelIndicator();
       await page.screenshot({
         path: join(scratch, `fallback-notice-${theme}-${width}.png`),

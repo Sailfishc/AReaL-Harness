@@ -1,3 +1,4 @@
+import { observeResize } from "../../lib/observe-resize.js";
 import {
   useEffect,
   useRef,
@@ -84,10 +85,8 @@ export function TaskTitleOverflowText({
       return () => window.removeEventListener("resize", updateOverflow);
     }
 
-    const resizeObserver = new ResizeObserver(updateOverflow);
-    resizeObserver.observe(textElement);
-    resizeObserver.observe(originalTextElement);
-    return () => resizeObserver.disconnect();
+    const stopObserving = observeResize([textElement, originalTextElement], updateOverflow);
+    return () => stopObserving();
   }, [children]);
 
   useEffect(() => {

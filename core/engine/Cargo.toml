@@ -8,6 +8,7 @@ repository.workspace = true
 
 [features]
 test-support = []
+native-tests = ["test-support"]
 
 [dependencies]
 chrono = { version = "=0.4.45", default-features = false, features = ["std"] }

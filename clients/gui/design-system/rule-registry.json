@@ -365,24 +365,24 @@
     },
     {
       "id": "R-CHECK-001",
-      "title": "node scripts/gui-health.mjs 在 GUI 工作目录输出生产范围、计数口径、源码摘要与指标证据",
+      "title": "node scripts/gui-health.mjs 输出范围、源码摘要和指标口径",
       "owner": "clients/gui/design-system/automation.md#工程检查入口",
       "strength": "default",
-      "textSha256": "d9368aa2dc027e845f8c36b5cfc82a0a2b559d383ea4b3dc2e74fd0c6375505e"
+      "textSha256": "8d338b3897615c582241bda95d2e3dd301cf43b48601892b9ab5d2229706c0f6"
     },
     {
       "id": "R-CHECK-002",
-      "title": "测试元数据归 scripts/test-manifest.json ，命令仍归根 package.json ",
+      "title": "测试元数据归 scripts/test-manifest.json，命令归根 package.json",
       "owner": "clients/gui/design-system/automation.md#工程检查入口",
       "strength": "default",
-      "textSha256": "84b76b927f3e508906493529d78296f58698187776a3cef7c1ab3bc57ec58ca9"
+      "textSha256": "edeb91a7cd98b533769d31ef19e9a3a00f45a4944c492f4bf776d20774a53acb"
     },
     {
       "id": "R-CHECK-003",
-      "title": "减少页面单点设计依靠四个环节相接：唯一设计源、有限组件/组合、可执行约束、独立效果验证",
+      "title": "闭环：唯一来源、有限组件/组合、可执行约束、独立验证",
       "owner": "clients/gui/design-system/automation.md#核对结论",
       "strength": "must",
-      "textSha256": "2ef28a0bcf497cabf845d7547daca71cfff0848995b4ba14966ca7980103c567"
+      "textSha256": "efa6721595bda78ac100965c4e53cf19c45eee5f690f9970a6fb916b5e3b6236"
     },
     {
       "id": "R-CHECK-004",
@@ -393,17 +393,17 @@
     },
     {
       "id": "R-CHECK-005",
-      "title": "生成器只重写 catalog 和标记的文档表格，不改 CSS、组件、页面、用户设置、测试基线或截图",
+      "title": "生成器只改 catalog 和标记的文档表格",
       "owner": "clients/gui/design-system/automation.md#areal-v1-已接入的闭环",
       "strength": "default",
-      "textSha256": "1b180a6d14b6d6833b1e1c37701d1f1dc79a4b3dab92bbf74bf96bd89b1c522e"
+      "textSha256": "8a2d15586ac88d5ebfcba8935f10762f62aad38851dc38adf6530dbc1375c602"
     },
     {
       "id": "R-CHECK-006",
-      "title": "design-system-audit.mjs 在既有目录检查、已迁移文件完整审计之外，自动读取 Git 的生产 rendere",
+      "title": "design-system-audit.mjs 在目录检查和已迁移文件审计之外，检查 Git 中生产 renderer ",
       "owner": "clients/gui/design-system/automation.md#增量设计检查",
       "strength": "default",
-      "textSha256": "8da17004ab8116610400c2fb5cd04e41e9e711ffa29b5f089ad6415bb8e4bced"
+      "textSha256": "9d5d300b3ee5c9b52e3d865cd7757cd738328e8e2c708ea9dc0a802d3e174ee8"
     },
     {
       "id": "R-CHECK-007",
@@ -421,10 +421,10 @@
     },
     {
       "id": "R-CHECK-009",
-      "title": "逐文件比较原有与当前的违规类型、具体值和出现次数",
+      "title": "- 逐文件比较违规类型、值和次数",
       "owner": "clients/gui/design-system/automation.md#增量设计检查",
       "strength": "default",
-      "textSha256": "e7ada3699c4bcb1870194f533a03d474360341cf54492dd575d5998c8a284c97"
+      "textSha256": "09a5863b502c12b4bccdb9e8c4303425014f9c494d7cecf4ae57358ea1632d6d"
     },
     {
       "id": "R-CHECK-010",
@@ -435,38 +435,38 @@
     },
     {
       "id": "R-CHECK-011",
-      "title": "现有 verify 和 verify:design 都执行门禁",
+      "title": "verify、verify:design 均执行门禁，后者同时检查目录与临时 Git 仓库回归",
       "owner": "clients/gui/design-system/automation.md#增量设计检查",
       "strength": "must",
-      "textSha256": "423382aa7031081f5f2f49c15a3b3c2e1b44cf17cc2c8ae0548080d2cc28b1d4"
+      "textSha256": "d9fb04d1196954bf501383199ae8ee05dcf1f63be12a43e2231d3efce27b45c3"
     },
     {
       "id": "R-CHECK-012",
-      "title": "入口通过本机 agent 指令及版本化贡献/开发指南连接",
+      "title": "入口由本机 Agent 指令和版本化开发指南连接",
       "owner": "clients/gui/design-system/automation.md#尚未接入的自动化",
       "strength": "must",
-      "textSha256": "d81f0cc76c862b90bb3441692fac14cf1d0c4948dab972c1cfe4a3cea5df7bc7"
+      "textSha256": "77e7e1872d44e6f658f50d0cb958f6c835c980f4e68d1d1ebbddb12951570041"
     },
     {
       "id": "R-CHECK-013",
-      "title": "目录检查不能证明声明的组件被实际使用",
+      "title": "静态检查不证明组件采用、视觉/动效/状态可达性，也不覆盖动态 class/style、普通 .ts 样式与自定义组件重复",
       "owner": "clients/gui/design-system/automation.md#尚未接入的自动化",
       "strength": "must",
-      "textSha256": "9f16ca076c9ee167539105cbd4e7f56456049ee1e8eeae7cbdf30cbd7c6cc59e"
+      "textSha256": "21345b7653fa398e688668667fe07d6bfe11076588207cc0e4be9e040be8eb38"
     },
     {
       "id": "R-CHECK-014",
-      "title": "后续页面工作按结构化流程执行选定的B路线",
+      "title": "页面执行结构化 B 路线，准入归 governance",
       "owner": "clients/gui/design-system/automation.md#视频分析辅助核查的默认路线",
       "strength": "must",
-      "textSha256": "94bd13084fc7409b788f1e491bbe8eab05c7a61fd804225a22590011ae77f19f"
+      "textSha256": "79be4d49ab253fbd260c1a8a8ff254e3d023b7b5a880aeb8a0b3f4580ec06799"
     },
     {
       "id": "R-CHECK-016",
-      "title": "视频观察器与页面实现者分工：前者提名视觉事件/差异，后者结合合同、原件和日志裁决并实现",
+      "title": "观察器提名差异，实现者结合合同、原件及日志裁决",
       "owner": "clients/gui/design-system/automation.md#视频分析辅助核查的默认路线",
       "strength": "default",
-      "textSha256": "07ded0e13ea3a788ccd8edc8b434e6216e84e9beb2a874e127db5500a0b2680e"
+      "textSha256": "4dd4cea4649c23ea6fd09238006f9a30bac576c44e78d1327f997867f4cb337f"
     },
     {
       "id": "R-BASE-001",
@@ -747,6 +747,30 @@
       "owner": "clients/gui/design-system/conversation-flow.md#生产接线",
       "strength": "default",
       "textSha256": "b2b35185b419d1bc9800147dce49c8b861373eb61489654dfd796040560dc438"
+    },
+    {
+      "id": "R-HOVERACTIONS-001",
+      "title": "行内只在悬停或键盘聚焦时出现的按钮（“更多”、置顶、新建等）必须放在 HoverActions 里，不在宿主 CSS 里",
+      "owner": "clients/gui/packages/ui/src/components/hover-actions/hover-actions.md#何时使用",
+      "strength": "must",
+      "textSha256": "e2fdadc724abe34a79ea9ebf28580d07da7610ca092ac9aa89d04af240633860",
+      "check": "clients/gui/scripts/popup-anchor-lint.mjs"
+    },
+    {
+      "id": "R-HOVERACTIONS-002",
+      "title": "隐藏只用 opacity 和 pointer-events，操作区始终占据同一位置",
+      "owner": "clients/gui/packages/ui/src/components/hover-actions/hover-actions.md#状态",
+      "strength": "must",
+      "textSha256": "e503e8b8018eeb388919d24b497358aecf30cbb4b95054f3b47c26b8b1d9d6ed",
+      "check": "clients/gui/scripts/popup-anchor-lint.mjs"
+    },
+    {
+      "id": "R-HOVERACTIONS-003",
+      "title": "行被悬停、行内有键盘焦点，或行内有触发器带 data-popup-open（Base UI 的打开态）时显示",
+      "owner": "clients/gui/packages/ui/src/components/hover-actions/hover-actions.md#行为",
+      "strength": "must",
+      "textSha256": "63b9cfb06661faeb5f80b6b98462337c3880eadfd11a03c0cc9eedebf25d38a8",
+      "check": "clients/gui/scripts/design-system-popup-anchors.mjs"
     },
     {
       "id": "R-TOKEN-001",
@@ -2360,10 +2384,10 @@
     },
     {
       "id": "R-WORKTREE-048",
-      "title": "操作失败/成功通知采用统一NotificationToast",
+      "title": "保存和删除成功直接更新原界面，不弹通知",
       "owner": "clients/gui/design-system/worktrees.md#ui包采用",
       "strength": "default",
-      "textSha256": "b231af17a756183d829ebf8c0495559a7fb5d64ff04c6252a1247c45e6db2db7"
+      "textSha256": "47df5d079b945a9ef9d91537db8549a1155e24c2c50be43a658f2a8ef96a18ab"
     },
     {
       "id": "R-ENTRY-008",
@@ -2640,10 +2664,10 @@
     },
     {
       "id": "R-DIALOG-002",
-      "title": "保留Base UI焦点约束与恢复",
+      "title": "设置、附件预览、命令选择和移动模型面板复用同一稳定 API",
       "owner": "clients/gui/packages/ui/src/components/dialog/dialog.md#行为",
       "strength": "default",
-      "textSha256": "8af02bdd0240d757b05119dc5dca92fbb9b6d8f681cb663c6702b786a867d9a0"
+      "textSha256": "fec322c090ca361e32fc7fcbbccd03a3e1e879c123076de5caf00d4e3795aadd"
     },
     {
       "id": "R-DIFFVIEWER-001",
@@ -2727,7 +2751,7 @@
       "title": "这是底层纯展示表面，不用于新的操作通知",
       "owner": "clients/gui/packages/ui/src/components/feedback-notice/feedback-notice.md#规则",
       "strength": "default",
-      "textSha256": "200bc6a6753eb3bb33fa8113e7ade218864238cf153d486b15d9472cd7ea877e"
+      "textSha256": "822a655427b8e165f5abb20c0692369cf5d1e25f009a061e2184534f9aa34552"
     },
     {
       "id": "R-INPUTGROUP-001",
@@ -2759,10 +2783,10 @@
     },
     {
       "id": "R-NOTIFICATIONTOAST-001",
-      "title": "用于操作后的短时通知",
+      "title": "用于需要用户决策或采取行动的短时通知，须提供明确且必要的处理入口",
       "owner": "clients/gui/packages/ui/src/components/notification-toast/notification-toast.md#何时使用",
       "strength": "default",
-      "textSha256": "b1230ef601aec924542f20c0dbd336b71e7b1bea15529f5c3f959772b17650a0"
+      "textSha256": "3fec6c412fd9306c3d4591298ce129616e6b6d40f03b7d2613ff990a0c64d7b6"
     },
     {
       "id": "R-NOTIFICATIONTOAST-002",
@@ -2881,224 +2905,89 @@
       "title": "同一轮、同一项目内连续工具活动的按需阅读",
       "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#何时使用",
       "strength": "default",
-      "textSha256": "081439e50cbc82b98085d392f0dd81605dcf3579ffdd7b83648f13d9e65eec5f"
+      "textSha256": "14ff935ca32f7be49cc546f4080b211145ba3f15b3bb11b5779c22a8b8b1475e"
     },
     {
       "id": "R-ACTIVITYGROUP-002",
       "title": "具名摘要、可聚焦的有界滚动区、折叠外的 status 插槽",
       "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#组成",
       "strength": "default",
-      "textSha256": "7f9a7250a33940dffe5fe0ad122ff34714ddba6897ff780ea6be11a2e1d3ab3b"
+      "textSha256": "787fd3ae7c1dd089e611b5e70abe802fed8ebc529422c9b4a2a891c5edf2b754"
     },
     {
       "id": "R-ACTIVITYGROUP-003",
       "title": "默认收起",
       "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#状态",
       "strength": "default",
-      "textSha256": "6eaf34b6cc8af6e82c922f5788082dd5198b2c2df51a4feaf2fe994e29a05a0b"
+      "textSha256": "a50a4ebdff5e245b3b32752fe7f72f7ec1d41771d539b48e65fc1e7963abe3ce"
     },
     {
       "id": "R-ACTIVITYGROUP-004",
-      "title": "列表只纵向滚动，摘要不随列表滚走",
+      "title": "列表只纵向滚动，高度上限为 --activity-list-max-height，摘要不随列表滚走",
       "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#行为",
       "strength": "default",
-      "textSha256": "b7990a466857b7d844fbf9dd21c82479c729b8239f3b0d2d02721ef14817c3e3"
+      "textSha256": "e3cc416cd0e13162a993f619e74ab2d756aca09032c48d4d9d83b88487400e02"
     },
     {
       "id": "R-ACTIVITYGROUP-005",
-      "title": "摘要使用真实类型和数量",
+      "title": "摘要使用真实类型和数量（如“已探索 · 4 个文件，1 个目录”“已运行 3 条命令”），没有准确计数就省略那一项",
       "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#内容",
       "strength": "default",
-      "textSha256": "752e0c47656d41719fc8c701f6f9c766637099abb4bc3802c1483c87de9954d9"
+      "textSha256": "a7d3d916d0a3ed95db2fa3599102d455c2e9d1de8618a0c79d47b9651ad591df"
     },
     {
       "id": "R-ACTIVITYGROUP-006",
-      "title": "沿 Disclosure 键盘语义",
+      "title": "沿 Disclosure 键盘语义，Enter/Space 切换并暴露 expanded",
       "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#可访问性",
       "strength": "must",
-      "textSha256": "5376cca829847c9e89e9ab5e885f0afdeaf5e2a28a3385c7679e0c21a68fbf80"
+      "textSha256": "6b1ab7de90dd589e4595ccd266f664ae78cfb47b453e087a71e503774e78f8d0",
+      "check": "clients/gui/scripts/design-system-conversation-system.mjs"
     },
     {
       "id": "R-ACTIVITYGROUP-007",
       "title": "使用原事件 ID 作 key",
       "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#规则",
       "strength": "default",
-      "textSha256": "63c3c59c49f0015b78fcfc417d2dfa0bfc16a99a67048424f3a8d249477ed8c9"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-009",
-      "title": "会话正文 用户消息、助手过程说明、最终回答 保留独立身份、顺序与完整阅读能力",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#主阅读列与活动层级",
-      "strength": "default",
-      "textSha256": "4cc723e1411a55e898ecd56a03d49f071a4b80d5cdbab7157260afb15cb0f125"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-010",
-      "title": "过程总组 本轮过程文字与常规活动 沿 CONV-GROUP-01：正常结算且 final 明确后可收敛",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#主阅读列与活动层级",
-      "strength": "default",
-      "textSha256": "c0375eb6f486620652dcc24e87bfe23f8627ee2fb3d36e1dd7cef38c2d2b3bea"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-011",
-      "title": "活动组 ActivityGroup 同一轮、同一段连续工具活动 用户要求默认收起",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#主阅读列与活动层级",
-      "strength": "default",
-      "textSha256": "aff79946faf5ddcf9215584cdac8ebe20207c2aaa2485c677d07135d0330b755"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-012",
-      "title": "活动行 ActivityRow 读取、命令、编辑、图片或子代理的一条事实 类型图标 + 动词/对象 + 必要状态 + 明确动作",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#主阅读列与活动层级",
-      "strength": "default",
-      "textSha256": "01d705443abe0b101d6f23dee44bbf8091958ce84ede4f30d3bc2e2cfc2a2e66"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-013",
-      "title": "这是可用的层级，不要求每条活动都套满五层",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#主阅读列与活动层级",
-      "strength": "default",
-      "textSha256": "0105dec1b9ec897b9ce7d1640c78694db9143573110a90cc58495aaf20a1161e"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-014",
-      "title": "分组使用原有事件身份与连续顺序：不跨用户消息、助手说明或最终回答合并，不把不同轮次或不同项目的活动混在一起",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#主阅读列与活动层级",
-      "strength": "default",
-      "textSha256": "913fa3c87e9b26d372099ce0e7ffee710fe8100e38fc486dec2323be4813bd6f"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-015",
-      "title": "Read / 读取 读取了哪个文件",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#活动行的有限变体",
-      "strength": "must",
-      "textSha256": "70bb04dcff8e052e3a1ede563a15bdfc06fd3dc83e82dd9298d11f48b2cf0ecd"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-016",
-      "title": "Command / 运行命令 执行了哪条命令，当前运行/退出情况 展开原命令、工作目录、输出、退出码及收集状态 工具返回不等于进",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#活动行的有限变体",
-      "strength": "default",
-      "textSha256": "839f702656c4f9216f5d43fe2dd41e0ddea0dec6e61e0749f884869db16fc697"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-017",
-      "title": "Image / 查看图片 “已查看图片”及数量或可识别名称 用户要求图片内容默认关闭",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#活动行的有限变体",
-      "strength": "default",
-      "textSha256": "db6a5f620f336b4383a50241dc925ff3787146cd476df228447ca6023a96ba3d"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-018",
-      "title": "Subagent / 子代理 可识别的任务名称与独立状态 打开该子对话",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#活动行的有限变体",
-      "strength": "default",
-      "textSha256": "8f8b97dafc6a50eac8368b4a4fa21f9d34ce7eb9a75485a7bd2c90eba391285d"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-019",
-      "title": "Mixed / 混合摘要 该段实际发生的类型，如“读取文件、编辑文件、运行命令” 展开原顺序活动 沿现有展示投影归类，不解析 s",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#活动行的有限变体",
-      "strength": "default",
-      "textSha256": "fd870afa3e451d1736103d51670d2726180af0378bfc1f5bfa66d19d7b08e909"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-020",
-      "title": "活动名称描述真实动作",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#活动行的有限变体",
-      "strength": "default",
-      "textSha256": "15f174b685056ecc07e868ac09dfdb79d19525e07722544da973c1240bf6a5e4"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-021",
-      "title": "常规活动组与命令详情 收起",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#折叠与状态",
-      "strength": "default",
-      "textSha256": "81bb0100ce91a41ad551c0402df1760bfb92cf4dac079bf3b34c444d8cdb8ff6"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-022",
-      "title": "工具活动图片 图片内容收起，保留具名入口 选择展开后保留选择",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#折叠与状态",
-      "strength": "default",
-      "textSha256": "448e3901a61b17b49957f3bb9412419f2afe2323ae60b11202c5aeaa1b735c8e"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-023",
-      "title": "正常完成的过程总组 沿原合同收敛，final 独立 不覆盖同身份的人工展开",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#折叠与状态",
-      "strength": "default",
-      "textSha256": "f050f1929dbfdc4beb09c707d4913062f41cc45f53b51ff6cdfbb706cb3fe5fe"
+      "textSha256": "c469c2167e1887cf5c38007f8d86de7bde24a57b9119cda7322fe790087d56b3",
+      "check": "clients/gui/design-system/verified-components.json"
     },
     {
       "id": "R-ACTIVITYGROUP-024",
-      "title": "待审批、失败、UNKNOWN、未结算 状态与合法入口在收起摘要外层仍可发现 关键决定不能藏在待展开的日志里",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#折叠与状态",
+      "title": "待审批、失败、UNKNOWN 和未结算的状态与合法入口放在 status 插槽，收起时仍可发现",
+      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#状态",
       "strength": "must",
-      "textSha256": "ecd920a4bd8cb3f1fc6370f56160b1a3b9291d732ff7ab288f7f0329686a6e84"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-025",
-      "title": "切换项目/会话/轮次 读取该对象自身的默认或选择 不继承另一对象的展开状态",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#折叠与状态",
-      "strength": "default",
-      "textSha256": "7949b7dc9d0130be239994ba3bcfad71cda2f1424282e7df2042a0279f85c645"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-026",
-      "title": "活动组收起不等于停止执行",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#折叠与状态",
-      "strength": "default",
-      "textSha256": "50e6a38760ac0c0f0eea54b348f61c383dcf178e4d7d439da004f6f2d043aa9a"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-027",
-      "title": "用户要求活动组只纵向滚动",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#溢出与滚动",
-      "strength": "default",
-      "textSha256": "dce087b48b24cad9e34691922b993f54b2acde978ea4fa5df11fe8b19ebc5320"
+      "textSha256": "e6090a477c673a956e8d573bdd93c0765f9eb2e1853e8eacf78e24da7bf627de",
+      "check": "clients/gui/scripts/design-system-conversation-system.mjs"
     },
     {
       "id": "R-ACTIVITYGROUP-028",
       "title": "活动摘要可截断，展开详情必须能读全",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#溢出与滚动",
+      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#行为",
       "strength": "must",
-      "textSha256": "70602767a90386ad8236de3c01f8bab89e5af4f6942870039244b7040f96cba2"
+      "textSha256": "e34cfcad03a5cf211eb8cc773bc06a7f2940b6cd04393b5e639a5be9e7cf5332",
+      "check": "clients/gui/scripts/design-system-conversation-system.mjs"
     },
     {
       "id": "R-ACTIVITYGROUP-029",
       "title": "不能仅隐藏横向滚动条而裁掉内容",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#溢出与滚动",
+      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#行为",
       "strength": "must",
-      "textSha256": "bd58ac8586b9606548953a92c0fc6e2fcae6ef82fed6ce1350a178a2ad6f2640"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-030",
-      "title": "长命令/输出按需进入既有详情区域，避免在活动组内再套多层独立纵向滚动",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#溢出与滚动",
-      "strength": "default",
-      "textSha256": "c96a27b3095326d5c2415e4dad500f0da77c15c2e3b6c1985d27f15318c95f1e"
-    },
-    {
-      "id": "R-ACTIVITYGROUP-031",
-      "title": "每个区域只有一个滚动所有者",
-      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#溢出与滚动",
-      "strength": "default",
-      "textSha256": "74d2acc9465377653f6f1132702a3dddec62ed5e9935d50183869da03bb8abcd"
+      "textSha256": "524750b685fa6e48a6d6faadc8cfd774960a95f91232fbdb807019353fb80dab",
+      "check": "clients/gui/scripts/design-system-conversation-system.mjs"
     },
     {
       "id": "R-ACTIVITYGROUP-032",
-      "title": "活动行、摘要、图片入口与子代理行共用对话节奏",
+      "title": "摘要与活动行同为一行对话文字高（--text-conversation × --conversation-line），相",
       "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#组成",
       "strength": "default",
-      "textSha256": "6c1b9338135fdd9a6613ce7e07cf603c343ffcf34bf94693ac93802cbbe98820"
+      "textSha256": "eaae34dbed35c044a205a1646dbab28f64c0a18149077e2cf384370084c6212a"
     },
     {
       "id": "R-ACTIVITYGROUP-033",
-      "title": "活动图形集沿用16单位网格并保持文字起点对齐",
+      "title": "行首图标使用 ActivityIcon 活动图形集，尺寸为 --activity-icon-size，箭头为 --act",
       "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#组成",
       "strength": "default",
-      "textSha256": "6bc7c7611501836eef829ee5c4468a815a3dc4b339e4da9626c6f5515e564aa7"
+      "textSha256": "8d139c48ee8fd8119bb8e92dd2053ac15a30e47074e6c652bd3a2348e326d931"
     },
     {
       "id": "R-ATTACHMENTCARD-001",
@@ -4600,10 +4489,10 @@
     },
     {
       "id": "R-DECISIONCARD-015",
-      "title": "TurnElapsed使用Core起始时间和终态durationMs，所有语言均为 Working for … ",
+      "title": "TurnElapsed使用Core起始时间和终态durationMs，所有语言运行中均为Working for …、完成",
       "owner": "clients/gui/renderer/src/DecisionCard.md#ask-user与过程展示",
       "strength": "default",
-      "textSha256": "7057a31438a14042314af3fc9d1cba7433e2bc5a7b7156594f628b57f3c7fed2"
+      "textSha256": "6ca21b7ec3ba4eff85638b9544ea23c047ad4477388d07203e273a7ee81a140d"
     },
     {
       "id": "R-MESSAGES-001",
@@ -4617,7 +4506,7 @@
       "title": "Messages.tsx 由 App.tsx 挂载，在主阅读区或嵌入上下文中展示传入的任务投影",
       "owner": "clients/gui/renderer/src/Messages.md#messages",
       "strength": "default",
-      "textSha256": "ad2027c0a26f5f71954740c39ddda5d1d663c4c8f53cf1fc9b3af97401f33ed6"
+      "textSha256": "4abc7a6e29e04ddcbae7f87f11a9ecd85f814f6f1980f657f5336265f9887c20"
     },
     {
       "id": "R-MESSAGES-003",
@@ -4631,7 +4520,7 @@
       "title": "Messages 继续拥有阅读状态",
       "owner": "clients/gui/renderer/src/Messages.md#同窗口-renderer-恢复阅读",
       "strength": "must",
-      "textSha256": "c824709108483ab784557901dd6e71df2eb9279399bb739de5eb22b7d4ca8dc2"
+      "textSha256": "f69b7ea1bb21ff57ea76f7988f325724cbb4635738c26ca7d98452944bcb3399"
     },
     {
       "id": "R-MESSAGES-005",
@@ -4729,21 +4618,22 @@
       "title": "对话时间线只有一种节奏",
       "owner": "clients/gui/renderer/src/Messages.md#对话信息流",
       "strength": "default",
-      "textSha256": "c53ada13ada9479caecde9fc94eb4775222b21b1a6518ec6338767c1ded5526f"
+      "textSha256": "8f9b6a96dd20752a0e6efbf2d59bc62c847abca8db6679d9a809702eeb439dda"
     },
     {
       "id": "CONV-ACTIVITY-01",
-      "title": "两条消息之间的工具活动按\"连续同一动作\"分段，不再把整段混合成一组",
+      "title": "两条可见文字消息之间的工具调用合成一组，不论读、改还是运行命令",
       "owner": "clients/gui/renderer/src/Messages.md#对话信息流",
-      "strength": "default",
-      "textSha256": "66bd075b26d72c60b2914121df51436c34086f51a157868d1cf8d0163592e8e5"
+      "strength": "must",
+      "textSha256": "13d5e7a15ce57a345c2df93fc3ac87d9dd638d0f7ca469823031365cebf22703",
+      "check": "clients/gui/scripts/activity-runs.test.mjs"
     },
     {
       "id": "CONV-PROCESS-01",
       "title": "对话时间线以 Core 的 commentary / final_answer 为边界，不按文字内容猜测思考或工具事件",
       "owner": "clients/gui/renderer/src/Messages.md#对话信息流",
       "strength": "default",
-      "textSha256": "222ec1145bc808d575fe9df9b423c96fd6be8c6025dda545a206e989febec7ed"
+      "textSha256": "4202b98eabf795e281fe40df66f860c4dbfed8edd71856b34552fbaa065fd41d"
     },
     {
       "id": "CONV-STATUS-01",
@@ -4817,10 +4707,10 @@
     },
     {
       "id": "R-CONTENT-033",
-      "title": "过程耗时跨语言统一显示 Working for 15m 29s ，作为可折叠的过程标题在运行中与完成后都显示",
+      "title": "过程耗时跨语言统一显示英文：运行中为Working for 15m 29s，完成后为Worked for 15m 29s",
       "owner": "clients/gui/renderer/src/Messages.md#混合内容与过程标题",
       "strength": "default",
-      "textSha256": "c1d59e08513f08327e164d47e2297ad2070191b0946e052413eb2ee457d2ad64"
+      "textSha256": "15032f8548102d5e2bf957586b0570ea1567569f2a0efaee47df115576aaa006"
     },
     {
       "id": "R-ACTIONBUTTON-005",
@@ -4859,10 +4749,10 @@
     },
     {
       "id": "R-FEEDBACK-001",
-      "title": "操作错误通过同一顶部Toast通知，状态正文仍在所属组件附近展示",
+      "title": "字段校验和局部操作错误在所属组件附近持续展示，状态正文沿用原位置",
       "owner": "clients/gui/renderer/src/components/ui/feedback.md#用途",
       "strength": "default",
-      "textSha256": "c74c521c76e2bab0582625feffb98b111822643a994dbdfb5c19a84552499d52"
+      "textSha256": "0bf2daf9c1c61e51b2d2635500c60e8be8825b0a7daeb476788b0e8e9fa2ca7e"
     },
     {
       "id": "R-FEEDBACK-002",
@@ -4873,17 +4763,17 @@
     },
     {
       "id": "R-FEEDBACK-003",
-      "title": "有 error 时经ToastHost显示error等级提示，默认5秒后消失",
+      "title": "有 error 时在原位置显示 alert 错误正文，并保留id供输入字段关联",
       "owner": "clients/gui/renderer/src/components/ui/feedback.md#状态",
       "strength": "default",
-      "textSha256": "05210bdedb5192baa6b358ba8f9ba615d73649f03cdcd9c29450a46d154ef51f"
+      "textSha256": "54bfefde915b827ed144725d240cf739e1ac6b7f6f7057b068b960a2013825d0"
     },
     {
       "id": "R-FEEDBACK-004",
-      "title": "Toast不主动移动焦点，关闭按钮可通过Tab到达",
+      "title": "反馈不主动移动焦点",
       "owner": "clients/gui/renderer/src/components/ui/feedback.md#键盘与焦点",
       "strength": "default",
-      "textSha256": "207e5e954092f7d8cb2e9cfaf5e916e4315af5a82f4502b7e3f79c87928b95e6"
+      "textSha256": "93c5b96c3e29538969228c85e260bf1cc7eef48d127c990d13c1937a60bd9224"
     },
     {
       "id": "R-FEEDBACK-005",
@@ -5874,10 +5764,10 @@
     },
     {
       "id": "R-RECOVERY-001",
-      "title": "先决定用户需要理解的事实，再选择样式、文案和合法动作",
+      "title": "只有需要用户决策或采取行动时才通知",
       "owner": "design/patterns/feedback-and-recovery.md#反馈与恢复",
       "strength": "default",
-      "textSha256": "41eb242f16752b9721c193984e83c31198bd82490f105e2f1228f5ea09eb3534"
+      "textSha256": "498e468515f54736d42f2d80ed6176f233e347563f28763b426d0a39b213973e"
     },
     {
       "id": "R-RECOVERY-002",
@@ -5930,10 +5820,10 @@
     },
     {
       "id": "R-RECOVERY-009",
-      "title": "操作提示采用顶部居中的Toast：info、success、warning、error分别使用语义颜色和图标，默认5秒后消失，支",
+      "title": "必须打断用户且有明确处理入口的提示采用顶部居中的Toast：info、success、warning、error分别使用",
       "owner": "design/patterns/feedback-and-recovery.md#短时通知",
       "strength": "default",
-      "textSha256": "5440a4be8c0ac3fa8bd6e0812027650467e2859884c21d996bd45f3fc381ba55"
+      "textSha256": "c9a70ee2129a88a4246aae56dbe5e34af25b0963a7016e2ef4431ae84ab0cc6d"
     },
     {
       "id": "R-RECOVERY-010",
@@ -5944,10 +5834,10 @@
     },
     {
       "id": "R-RECOVERY-012",
-      "title": "操作反馈统一采用顶部短时NotificationToast，包括带核对或设置动作的通知",
+      "title": "需要用户处理的短时通知采用NotificationToast，并提供核对或设置等必要动作",
       "owner": "design/patterns/feedback-and-recovery.md#统一短时反馈与待确认状态",
       "strength": "default",
-      "textSha256": "96825f23545d750496e68c9f764f33bda57ea6c21483f8f3c741b6a4dd60e05d"
+      "textSha256": "8789dc5d38b4835e66a489327a24f2e1871819c2743c2cb402f98302f6c7b8c7"
     },
     {
       "id": "R-RECOVERY-013",
@@ -6641,6 +6531,70 @@
       "strength": "must",
       "textSha256": "d802435001581809c89fec27d6e45ceb317ef03627f47c7188328bf871710d66",
       "locator": "json-pointer"
+    },
+    {
+      "id": "R-ACTIVITYROW-001",
+      "title": "动作完整显示，对象在宽度不够时先省略",
+      "owner": "clients/gui/packages/ui/src/conversation/activity-row/activity-row.md#行为",
+      "strength": "default",
+      "textSha256": "14809695c911e79d7edc6df82820fa1b696dcd0f707d8a4a0dce83cc85d85ab1",
+      "check": "review"
+    },
+    {
+      "id": "R-ACTIVITYROW-005",
+      "title": "读取和编辑行说明是哪个文件，打开文件、查看本次差异和查看原始记录是各自独立的按钮",
+      "owner": "clients/gui/packages/ui/src/conversation/activity-row/activity-row.md#内容",
+      "strength": "default",
+      "textSha256": "25cefb414782588787f7bab9a12ede28533fbc9276ffa225f0c61b6d766b7734",
+      "check": "review"
+    },
+    {
+      "id": "R-ACTIVITYROW-002",
+      "title": "箭头只在悬停、键盘焦点或展开时出现，方向表达开合",
+      "owner": "clients/gui/packages/ui/src/conversation/activity-row/activity-row.md#可访问性",
+      "strength": "must",
+      "textSha256": "c689624e88b19468738161d450e1f0795e9d3be1fc7bd98613d28bba0261d4c3",
+      "check": "clients/gui/scripts/design-system-conversation-system.mjs"
+    },
+    {
+      "id": "R-ACTIVITYROW-003",
+      "title": "尺寸、间距、字号和颜色只引用 Token（activity-*、text-conversation、conversati",
+      "owner": "clients/gui/packages/ui/src/conversation/activity-row/activity-row.md#规则",
+      "strength": "must",
+      "textSha256": "367e7b3dbdd47154956d02c75c9ff9cb6064a306983b3042e3f59581d814b800",
+      "check": "clients/gui/design-system/verified-components.json"
+    },
+    {
+      "id": "R-ACTIVITYROW-004",
+      "title": "宿主不覆盖 .areal-activity-* 内部样式",
+      "owner": "clients/gui/packages/ui/src/conversation/activity-row/activity-row.md#规则",
+      "strength": "must",
+      "textSha256": "8e0b2594fd9cd70c9f0ba7416aaa95da984f0d619f7319b88219bc3160a9baf3",
+      "check": "clients/gui/design-system/verified-components.json"
+    },
+    {
+      "id": "R-ACTIVITYROW-006",
+      "title": "文件和目录行只写末段名称，完整路径和完整命令放在 detailHint 悬停提示里",
+      "owner": "clients/gui/packages/ui/src/conversation/activity-row/activity-row.md#内容",
+      "strength": "must",
+      "textSha256": "53630dc6d6f0304d70c8c1485c96eb3cf906fdd8b671de9cf8a3ceb89d1d15a0",
+      "check": "clients/gui/scripts/design-system-conversation-system.mjs"
+    },
+    {
+      "id": "R-CHECK-017",
+      "title": "尺寸观察的静态约束与替代写法由 areal/no-raw-resize-observer 规则拥有",
+      "owner": "clients/gui/design-system/automation.md#仓库内-lint-规则",
+      "strength": "must",
+      "textSha256": "358f9b1e6ede3030d955d465fd94cc98d66cf234af39c823d59651c0a2a43c46",
+      "check": "clients/gui/oxlint-plugin-areal/rules/no-raw-resize-observer.ts"
+    },
+    {
+      "id": "R-CHECK-018",
+      "title": "lint 与类型检查豁免的原因要求由 areal/require-suppression-reason 规则拥有",
+      "owner": "clients/gui/design-system/automation.md#仓库内-lint-规则",
+      "strength": "must",
+      "textSha256": "394c716975c0b2fa5296b3eea3021b906857c711494cdaf3888a3faa72f434e6",
+      "check": "clients/gui/oxlint-plugin-areal/rules/require-suppression-reason.ts"
     }
   ]
 }

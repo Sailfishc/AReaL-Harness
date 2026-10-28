@@ -72,7 +72,10 @@ const exampleIds = {
   "task-matrix": "TASK-02",
 };
 async function startThread(client, prompt, extra = {}) {
+  const capabilities = await client.call("areal/capabilities", { apiVersion: "areal.core.v1" });
+  const binding = capabilities.features.threadCreationJournal?.binding;
   const created = await client.call("areal/thread/start", {
+    ...(binding ? { creationAdmission: binding } : {}),
     requestId: crypto.randomUUID(),
     cwd: workspace,
     ...extra,

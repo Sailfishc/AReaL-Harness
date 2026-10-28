@@ -31,30 +31,83 @@ impl Submission {
         })
     }
 }
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Journal {
+    version: u32,
+    epoch: String,
+    entries: BTreeMap<String, Submission>,
+}
+
 pub(super) struct Submissions {
     gate: Mutex<BTreeMap<String, std::sync::Weak<Mutex<()>>>>,
-    entries: Mutex<BTreeMap<String, Submission>>,
+    entries: Mutex<Journal>,
+    instance_id: String,
+    #[cfg(test)]
+    crash_point: std::sync::Mutex<Option<String>>,
 }
 impl Submissions {
+    #[cfg(test)]
+    pub(super) fn creation_checkpoint(&self, point: &str) {
+        if self.crash_point.lock().unwrap().as_deref() == Some(point) {
+            // 只供隔离子进程测试，在真实持久化边界模拟不执行清理的进程丢失。
+            #[cfg(unix)]
+            unsafe {
+                libc::raise(libc::SIGKILL);
+            }
+            std::process::exit(86);
+        }
+    }
     pub fn open(root: &Path) -> anyhow::Result<Self> {
         let path = root.join("desktop/submissions.json");
-        let mut entries: BTreeMap<String, Submission> = if path.exists() {
+        let mut journal = if path.exists() {
             anyhow::ensure!(
                 std::fs::metadata(&path)?.len() <= 8 * 1024 * 1024,
                 "submission journal exceeds 8 MiB"
             );
-            serde_json::from_slice(&std::fs::read(path)?)?
+            #[derive(Deserialize)]
+            #[serde(untagged)]
+            enum Stored {
+                Current(Journal),
+                Legacy(BTreeMap<String, Submission>),
+            }
+            match serde_json::from_slice(&std::fs::read(&path)?)? {
+                Stored::Current(journal) => journal,
+                Stored::Legacy(entries) => Journal {
+                    version: 1,
+                    epoch: uuid::Uuid::new_v4().to_string(),
+                    entries,
+                },
+            }
         } else {
-            BTreeMap::new()
+            Journal {
+                version: 1,
+                epoch: uuid::Uuid::new_v4().to_string(),
+                entries: BTreeMap::new(),
+            }
         };
-        for record in entries.values_mut() {
+        anyhow::ensure!(
+            journal.version == 1 && uuid::Uuid::parse_str(&journal.epoch).is_ok(),
+            "unsupported submission journal format"
+        );
+        for record in journal.entries.values_mut() {
             if record.state == "accepted" {
                 record.state = "unknown".into();
             }
         }
+        // 发布能力前持久化覆盖标识；日志丢失后只能生成新标识，旧请求仍为 UNKNOWN。
+        let bytes = serde_json::to_vec(&journal)?;
+        anyhow::ensure!(
+            bytes.len() <= 8 * 1024 * 1024,
+            "submission journal migration exceeds 8 MiB"
+        );
+        crate::store::write_metadata(&root.join("desktop"), "submissions", &bytes)?;
         Ok(Self {
             gate: Mutex::new(BTreeMap::new()),
-            entries: Mutex::new(entries),
+            entries: Mutex::new(journal),
+            instance_id: uuid::Uuid::new_v4().to_string(),
+            #[cfg(test)]
+            crash_point: Default::default(),
         })
     }
 }
@@ -74,6 +127,7 @@ impl Engine {
         let key = digest(&(identity, method, request_id))?;
         let entries = self.desktop.submissions.entries.lock().await;
         entries
+            .entries
             .get(&key)
             .map(|record| {
                 record.response(
@@ -116,27 +170,13 @@ impl Engine {
             let _request = serial.lock().await;
             let mut entries = engine.desktop.submissions.entries.lock().await;
             let operation = submission_operation(&request_id, &method, &parameters);
-            if let Some(record) = entries.get(&key) {
+            if let Some(record) = entries.entries.get(&key) {
                 return record.response(&hash, operation);
             }
-            if entries.len() >= 4096 {
-                return Err(Error::Rejected(Box::new(Error::Exhausted("management submission capacity reached; keys are retained for deployment lifetime".into()))));
-            }
-            entries.insert(key.clone(), Submission {
+            engine.reserve_submission(&mut entries, Submission {
                 identity, request_id, method, digest: hash, state: "accepted".into(), response: None,
                 target: Some(operation.target.clone()),
-            });
-            let reserved = entries.values().filter(|r| r.state == "accepted").count()
-                .saturating_mul(Self::MANAGEMENT_RECEIPT_MAX_BYTES + 512);
-            if serde_json::to_vec(&*entries).map_err(invalid)?.len().saturating_add(reserved) > 8 * 1024 * 1024 {
-                entries.remove(&key);
-                return Err(Error::Rejected(Box::new(Error::Exhausted("management receipt capacity cannot reserve this response".into()))));
-            }
-            if engine.store.save_metadata("submissions", &*entries).await.is_err() {
-                // 原子替换之后目录同步也可能失败，不能断言回执从未发布或允许再次执行。
-                entries.get_mut(&key).unwrap().state = "unconfirmed".into();
-                return Err(outcome_error(operation, false, "ADMISSION_UNCONFIRMED"));
-            }
+            }, operation.clone()).await?;
             drop(entries);
             let mut result = run(engine.clone()).await;
             let mut entries = engine.desktop.submissions.entries.lock().await;
@@ -153,11 +193,11 @@ impl Engine {
                     reason, outcome: FailureOutcome::Admitted { operation: operation.clone() }, recovery: Recovery::QueryOriginal,
                 }));
             }
-            let record = entries.get_mut(&key).unwrap();
+            let record = entries.entries.get_mut(&key).unwrap();
             record.state = "completed".into();
             record.response = Some(result.clone());
             if engine.store.save_metadata("submissions", &*entries).await.is_err() {
-                let record = entries.get_mut(&key).unwrap();
+                let record = entries.entries.get_mut(&key).unwrap();
                 record.state = "unknown".into();
                 record.response = None;
                 return Err(outcome_error(operation, true, "COMPLETION_UNCONFIRMED"));
@@ -165,9 +205,194 @@ impl Engine {
             Ok(result)
         }).await
     }
+    async fn reserve_submission(
+        &self,
+        journal: &mut Journal,
+        record: Submission,
+        operation: OperationRef,
+    ) -> Result<()> {
+        if journal.entries.len() >= 4096 {
+            return Err(Error::Rejected(Box::new(Error::Exhausted(
+                "submission journal capacity reached; keys are retained for deployment lifetime"
+                    .into(),
+            ))));
+        }
+        let key = digest(&(&record.identity, &record.method, &record.request_id))?;
+        journal.entries.insert(key.clone(), record);
+        let reserved = journal
+            .entries
+            .values()
+            .filter(|r| r.state == "accepted")
+            .count()
+            .saturating_mul(Self::MANAGEMENT_RECEIPT_MAX_BYTES + 512);
+        if serde_json::to_vec(journal)
+            .map_err(invalid)?
+            .len()
+            .saturating_add(reserved)
+            > 8 * 1024 * 1024
+        {
+            journal.entries.remove(&key);
+            return Err(Error::Rejected(Box::new(Error::Exhausted(
+                "submission journal cannot reserve this response".into(),
+            ))));
+        }
+        if self
+            .store
+            .save_metadata("submissions", journal)
+            .await
+            .is_err()
+        {
+            // 替换已完成而目录同步失败时，发布事实仍不确定；禁止在本代再次执行。
+            journal.entries.get_mut(&key).unwrap().state = "unconfirmed".into();
+            return Err(outcome_error(operation, false, "ADMISSION_UNCONFIRMED"));
+        }
+        Ok(())
+    }
+
+    pub async fn creation_admission(&self, identity: &str) -> CreationAdmission {
+        CreationAdmission {
+            identity: identity.into(),
+            journal_epoch: self.desktop.submissions.entries.lock().await.epoch.clone(),
+            core_instance_id: self.desktop.submissions.instance_id.clone(),
+        }
+    }
+
+    pub(super) async fn creation_result(
+        &self,
+        identity: &str,
+        request_id: &str,
+        hash: &str,
+    ) -> Result<Option<String>> {
+        let key = digest(&(identity, "areal/thread/start", request_id))?;
+        let journal = self.desktop.submissions.entries.lock().await;
+        journal
+            .entries
+            .get(&key)
+            .map(|record| {
+                let response = record.response(
+                    hash,
+                    submission_operation(request_id, "areal/thread/start", &json!({})),
+                )?;
+                response["result"]["threadId"]
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| invalid("invalid creation receipt"))
+            })
+            .transpose()
+    }
+
+    pub(super) async fn begin_creation(
+        &self,
+        identity: &str,
+        request: &ThreadStart,
+        hash: String,
+    ) -> Result<()> {
+        let operation = submission_operation(&request.request_id, "areal/thread/start", &json!({}));
+        let mut journal = self.desktop.submissions.entries.lock().await;
+        self.reserve_submission(
+            &mut journal,
+            Submission {
+                identity: identity.into(),
+                request_id: request.request_id.clone(),
+                method: "areal/thread/start".into(),
+                digest: hash,
+                state: "accepted".into(),
+                response: None,
+                target: Some(OperationTarget::Project),
+            },
+            operation,
+        )
+        .await
+    }
+
+    pub(super) fn creation_unconfirmed(&self, request_id: &str) -> Error {
+        outcome_error(
+            submission_operation(request_id, "areal/thread/start", &json!({})),
+            true,
+            "COMPLETION_UNCONFIRMED",
+        )
+    }
+
+    pub(super) async fn complete_creation(
+        &self,
+        identity: &str,
+        request_id: &str,
+        thread_id: &str,
+    ) -> Result<()> {
+        let key = digest(&(identity, "areal/thread/start", request_id))?;
+        let operation = submission_operation(
+            request_id,
+            "areal/thread/start",
+            &json!({"threadId":thread_id}),
+        );
+        let mut journal = self.desktop.submissions.entries.lock().await;
+        let record = journal.entries.get_mut(&key).unwrap();
+        record.state = "completed".into();
+        record.target = Some(operation.target.clone());
+        record.response = Some(json!({"result":{"threadId":thread_id}}));
+        if self
+            .store
+            .save_metadata("submissions", &*journal)
+            .await
+            .is_err()
+        {
+            let record = journal.entries.get_mut(&key).unwrap();
+            record.state = "unknown".into();
+            record.response = None;
+            return Err(outcome_error(operation, true, "COMPLETION_UNCONFIRMED"));
+        }
+        Ok(())
+    }
+
+    pub async fn resolve_creation_admission(
+        &self,
+        identity: &str,
+        request_id: &str,
+        original: CreationAdmission,
+    ) -> Result<Value> {
+        if !valid_id(request_id)
+            || uuid::Uuid::parse_str(&original.journal_epoch).is_err()
+            || uuid::Uuid::parse_str(&original.core_instance_id).is_err()
+        {
+            return Err(invalid("invalid creation admission lookup"));
+        }
+        let mut result = self.find_request(identity, request_id).await?;
+        let journal = self.desktop.submissions.entries.lock().await;
+        let admitted =
+            journal
+                .entries
+                .contains_key(&digest(&(identity, "areal/thread/start", request_id))?)
+                || result["data"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|r| r["method"] == "areal/thread/start");
+        // 只对已退役的原代际给负结论：迟到的绑定请求在新代际会被拒绝。
+        // 同代际可能仍有排队请求，覆盖不一致也无法证明日志连续，均保持 UNKNOWN。
+        let uncertain = journal
+            .entries
+            .get(&digest(&(identity, "areal/thread/start", request_id))?)
+            .is_some_and(|entry| entry.state == "unconfirmed");
+        let status = if original.identity != identity || uncertain {
+            "unconfirmed"
+        } else if admitted {
+            "admitted"
+        } else if original.journal_epoch == journal.epoch
+            && original.core_instance_id != self.desktop.submissions.instance_id
+        {
+            "notAdmitted"
+        } else {
+            "unconfirmed"
+        };
+        result["creationAdmission"] = json!({"status":status,"identity":original.identity,"requestId":request_id,
+            "method":"areal/thread/start","journalEpoch":original.journal_epoch,"coreInstanceId":original.core_instance_id});
+        Ok(result)
+    }
+
     pub async fn management_receipts(&self, identity: &str, request_id: &str) -> Value {
         let entries = self.desktop.submissions.entries.lock().await;
         let records: Vec<Value> = entries
+            .entries
             .values()
             .filter(|r| r.identity == identity && r.request_id == request_id)
             .map(|r| {
@@ -242,3 +467,6 @@ fn outcome_error(operation: OperationRef, admitted: bool, reason: &str) -> Error
         recovery: Recovery::QueryOriginal,
     }))
 }
+
+#[cfg(test)]
+mod tests;

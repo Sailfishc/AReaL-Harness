@@ -13,6 +13,28 @@ spec.loader.exec_module(fixture)
 
 
 class SessionTitleFixture(unittest.TestCase):
+    def test_audits_distinguish_received_requests_from_cancelled_attempts(self):
+        cancelled = {"toolCount": 0, "outcome": "interrupted_or_unfinished", "httpStatus": None}
+        completed = {"toolCount": 0, "outcome": "completed", "httpStatus": 200}
+        for audits, received in (([], 0), ([cancelled], 0), ([cancelled], 1), ([completed], 1)):
+            with self.subTest(audits=audits, received=received):
+                fixture.assert_session_title_audits(audits, received)
+
+    def test_missing_duplicate_or_unobserved_completed_audits_fail(self):
+        cancelled = {"toolCount": 0, "outcome": "interrupted_or_unfinished", "httpStatus": None}
+        completed = {"toolCount": 0, "outcome": "completed", "httpStatus": 200}
+        invalid = (
+            ([], 1),
+            ([cancelled, cancelled], 0),
+            ([completed], 0),
+            ([{**cancelled, "httpStatus": 200}], 0),
+            ([{**completed, "toolCount": 1}], 1),
+            ([{**completed, "outcome": "failed"}], 1),
+        )
+        for audits, received in invalid:
+            with self.subTest(audits=audits, received=received), self.assertRaises(AssertionError):
+                fixture.assert_session_title_audits(audits, received)
+
     def request(self):
         return {
             "messages": [

@@ -1,5 +1,13 @@
 export { Disclosure } from "./components/disclosure/disclosure.js";
 export { ActivityGroup } from "./conversation/activity-group/activity-group.js";
+export {
+  ActivityRow,
+  ActivityRowButton,
+  ActivityRowText,
+  ActivityRowStatus,
+  ActivityRowChevron,
+  ActivityRowHint,
+} from "./conversation/activity-row/activity-row.js";
 export { ImageDisclosure } from "./conversation/image-disclosure/image-disclosure.js";
 export { TaskContext } from "./conversation/task-context/task-context.js";
 export { SubagentPanel } from "./conversation/subagent-panel/subagent-panel.js";
@@ -43,19 +51,9 @@ export {
   CommandShortcut,
   CommandSeparator,
 } from "./components/command/command.js";
-export {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogOverlay,
-  DialogPortal,
-  DialogTitle,
-  DialogTrigger,
-} from "./components/dialog/dialog.js";
+
 export { Spinner } from "./components/spinner/spinner.js";
+export { HoverActions } from "./components/hover-actions/hover-actions.js";
 export {
   SettingsLockedValue,
   SettingsBadge,
