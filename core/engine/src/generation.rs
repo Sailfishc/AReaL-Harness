@@ -1310,7 +1310,7 @@ impl Engine {
                                 .await?
                             {
                                 completion_retries += 1;
-                                recovery_hint = Some("The previous model completion was discarded because its stream or tool format was incomplete. None of its requested tools executed. Continue from confirmed results; use smaller, complete tool calls, and do not replay earlier confirmed mutations.".to_owned());
+                                recovery_hint = Some("The previous model completion was discarded because its stream or tool format was incomplete. None of its requested tools executed. Continue from confirmed results; keep reasoning concise and split large writes into smaller, complete tool calls within the output limit. Do not replay earlier confirmed mutations.".to_owned());
                                 continue 'restart;
                             }
                             return Err(error);
@@ -1518,7 +1518,9 @@ impl Engine {
         };
         if retries >= limit
             || (error.downcast_ref::<model::ModelFailure>().is_none()
-                && error.downcast_ref::<model::ToolCallIndexError>().is_none())
+                && error.downcast_ref::<model::ToolCallIndexError>().is_none()
+                && !model::terminal_outcome(error)
+                    .is_some_and(|outcome| outcome.code == "LLM_OUTPUT_TOKEN_LIMIT_EXCEEDED"))
         {
             return Ok(false);
         }

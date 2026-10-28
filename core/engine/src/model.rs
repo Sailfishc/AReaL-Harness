@@ -74,6 +74,8 @@ pub enum ModelFailure {
     EmptyCompletion,
     #[error("verification process has not been observed to finish")]
     PendingVerification,
+    #[error("model completed with invalid tool arguments")]
+    InvalidToolArguments,
 }
 
 // 只有协议适配器确认终态和最终用量后才能添加；普通 Usage 增量不具备此保证。
@@ -272,6 +274,9 @@ pub(crate) fn terminal_outcome(error: &anyhow::Error) -> Option<areal_protocol::
         ),
         ModelFailure::ResponseTimeout => ("LLM_RESPONSE_TIMEOUT", "timeout", "response_timeout"),
         ModelFailure::EmptyCompletion => ("LLM_RESPONSE_FAILED", "agent", "empty_completion"),
+        ModelFailure::InvalidToolArguments => {
+            ("LLM_RESPONSE_FAILED", "agent", "invalid_tool_arguments")
+        }
         ModelFailure::PendingVerification => {
             ("LLM_RESPONSE_FAILED", "agent", "pending_verification")
         }
