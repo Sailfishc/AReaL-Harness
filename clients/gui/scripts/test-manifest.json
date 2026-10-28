@@ -320,6 +320,22 @@
     "notes": "Real React App in Chrome with isolated PlatformServices; counts directory derivations and checks snapshot invalidation."
   },
   {
+    "script": "test:message-derivation",
+    "layer": "e2e",
+    "platforms": ["darwin", "linux"],
+    "areas": ["conversation", "history", "design"],
+    "requires": ["browser", "gui-build", "git"],
+    "notes": "Chrome production Messages fixture checks live updates and reading continuity; development React profiling is diagnostic, not a latency budget."
+  },
+  {
+    "script": "test:reading-checkpoint",
+    "layer": "e2e",
+    "platforms": ["darwin", "linux"],
+    "areas": ["conversation", "history", "design"],
+    "requires": ["browser", "gui-build", "git"],
+    "notes": "Chrome production Messages and reading checkpoint persistence; counts synchronous encoding work and verifies reload anchors."
+  },
+  {
     "script": "test:history-recovery",
     "layer": "e2e",
     "platforms": ["darwin", "linux"],

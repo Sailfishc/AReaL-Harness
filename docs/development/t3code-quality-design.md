@@ -34,14 +34,14 @@ Design System 是这些旅程的交互合同：共享 primitive 负责外观与�
 | 优先级 | 有界工作 | 关闭条件 |
 | --- | --- | --- |
 | P0：集成基线 | 核对主 worktree、Claude 与专项分支的可达性，运行受影响的合同、类型和设计检查 | 当前基线与未集成工作明确；相关检查的失败及边界可审阅。受理记录已有集成不等于定时停放、lint 及其他分支修复均已集成 |
-| P0：可信反馈 | 修复已复现的快检空计划失效缺口：计划为空后源码/index 变化仍可能返回 `no-changes`；梳理历史失败反例留下测试进程的清理边界 | 两类结果均有独立失败证据；空计划也绑定当前输入；失败清理以本次实例退出为完成条件，不能把超时或强杀算正常清理通过 |
+| P0：可信反馈 | 快检空计划源码/index 漂移缺口已修复；继续梳理历史失败反例留下测试进程的清理边界 | 两类结果均有独立失败证据；空计划也绑定当前输入；失败清理以本次实例退出为完成条件，不能把超时或强杀算正常清理通过 |
 | P1：产品连续性 | 在合并后的 Messages 上建立真实输入的流式阅读/人工展开/导航基线，核查未知与未结算状态 | 语义锚点、聊天身份、展开选择、焦点和合法动作与合同一致；基线失败先分类，不靠降低断言使优化通过 |
 | P2：已证明热点 | 测量消息分组、阅读检查点序列化、CoreBackend→SharedCoreBackend→Renderer 的引用与通知扩散；只实施确有收益的最小切片 | 同工作负载有可归因收益，缓存失效、容量与交互合同通过；无法证明收益的候选保留为待测，不增加机制 |
 | 按影响触发：交付与模型接口 | 包/依赖/迁移变化执行最终产物路径；提示、工具或预算变化执行字节基线及相称行为评估 | 目标产物或模型配置的结果有证据；发布、签名凭据、付费模型及外部操作继续按授权边界执行 |
 
 性能基线按真实维度固定：项目/聊天数量、可见 Turn/条目数、流事件数量与频率、历史页/正文体积、阅读 owner 数、主题/字号/窗口及设备。冷/热路径分开，耗时分位值附样本数与失败尝试。先报告测量分布，再确定稳定预算；不直接采用 T3 的具体字节上限，也不把 JSON 编码量当成内存上限。
 
-当前消息分组重复调用和 32 个阅读检查点的重复序列化均为候选证据。消息派生的局部 CPU 样本约 1ms，原型阅读断言还在旧基线失败，因此不足以确认用户热点。两个 snapshot 层都会重建项目容器，单层模拟缓存收益也不足以证明真实传输改善。下一轮先校准真实链路与交互，再作实现选择。
+合并基线上的消息分组测量约占 Messages 子树渲染成本的 2–4%，本轮保留测量入口，暂不加入该缓存。阅读检查点采用逐项编码和精确长度累计，消除重复前缀编码。`CoreBackend.snapshot()` 重建项目、state/threads 与派生字段，`SharedCoreBackend.snapshot()` 再包装项目；只稳定后者引用的模拟收益不足以证明生产传输改善，跨层缓存仍需真实链路测量。
 
 ### 每轮闭环与停止条件
 
@@ -62,10 +62,10 @@ T3 参考源码固定为 `93a9e079b107a13b0c312920b917b5f61a8f720c`。AReaL 沿�
 | D. Provider 协议回放 | 版本化 JSON、真实 HTTP 字节、出站字段检查、暂停与断连 | D/E 的 HTTP、回放和超时合计 23 项通过；真实 Runtime 写入恢复固定槽 1 项通过 |
 | E. 可控时序 | 请求到达/放行里程碑、ResponseDeadline 虚拟时间测试 | 上述 23 项及 1 项虚拟时间测试通过；保留真实 HTTP 时间边界 |
 | F. 投影一致性 | 缺帧关闭、重连全量基线、旧连接隔离、历史释放 | 7 项 Desktop 本地传输测试通过；不覆盖手机或 Relay |
-| G. 本地影响范围快检 | CI 范围与 manifest 复用、计划说明、输入变化失效 | 11 项临时 Git 合同及 5 项 manifest 测试通过；完整快检结果依赖所选环境条件 |
+| G. 本地影响范围快检 | CI 范围与 manifest 复用、计划说明、输入变化失效 | 13 项临时 Git 合同及 5 项 manifest 测试通过；完整快检结果依赖所选环境条件 |
 | H. 代表性历史夹具 | 旧格式长历史、已结算子会话、三种终态及 profile 断言 | 真实 Electron/Core 验收通过；40 Turn 读取 1 个旧页，来源与读取中副本不变，模型请求为零 |
 | I. 模型输入体积基线 | 默认 Desktop 无 Runtime/插件 profile 的分项字节基线 | 1 项真实 Engine/HTTP 测试通过，包含独立实例对照及输入增减反例 |
-| J. GUI 派生与阅读缓存 | 不可变输入缓存、侧栏非原地排序、32 项内存上限 | Chrome 计算次数/新快照验证及 4 项阅读缓存测试通过；完整旧对话流场景仍有定位器失败 |
+| J. GUI 派生与阅读缓存 | 不可变输入缓存、侧栏非原地排序、32 项内存上限及单次条目编码 | Chrome 计算次数/新快照、消息连续性及 7 项阅读缓存测试通过；完整旧对话流场景仍有定位器失败 |
 
 D/F/H 补充协议故障、观察链和历史数据形态；E/G/I 深化时间控制、快检与上下文预算。J 以实际重算与容量证据选择最小修复。各项入口和证据不能互相替代，也不直接证明整体 Agent 能力、实际费用或用户感知延迟改善。
 
@@ -107,7 +107,7 @@ sequence 的重置仍绑定新 stream/reader，未照搬 T3 的低序号重置�
 
 `ciScopes` 原样复用 [ci-scope.py](../../scripts/ci-scope.py)；未知代码的本地扩大单列为 `conservativeFallback`，不冒充原 CI 已识别。GUI 通过 [test-manifest.mjs](../../clients/gui/scripts/test-manifest.mjs) 的 stdin JSON `--select-changed` 接口复用领域、平台和依赖条件，保留共享 unit 测试。共享 Rust/schema 保守执行 workspace 检查与 SDK 消费者检查，暂不推断精细 Rust 依赖图。
 
-执行为顺序运行，无整轮通过缓存。所选命令成功也只报告 `passed-selected-checks`；缺条件为 `partial`，输入变化为 `invalidated`，失败为 `failed`，没有改动为 `no-changes`。`partial`、`invalidated`、`failed` 返回非零；E2E、原生桌面、真实供应商与安装包仍列为 deferred。11 项临时 Git 合同与 5 项既有 manifest 测试通过；隔离反例去掉未知代码的 GUI 扩大后，选择合同按预期失败。
+执行为顺序运行，无整轮通过缓存。所选命令成功也只报告 `passed-selected-checks`；缺条件为 `partial`，输入变化为 `invalidated`，失败为 `failed`，没有改动为 `no-changes`；空计划返回前同样复核源码和 index 身份。`partial`、`invalidated`、`failed` 返回非零；E2E、原生桌面、真实供应商与安装包仍列为 deferred。13 项临时 Git 合同与 5 项既有 manifest 测试通过；隔离反例去掉未知代码的 GUI 扩大后，选择合同按预期失败。
 
 ## H. 将复杂历史做成可复用的开发与验收夹具
 
@@ -145,7 +145,9 @@ sequence 的重置仍绑定新 stream/reader，未照搬 T3 的低序号重置�
 
 `readingViews` 原有 sessionStorage 上限为 32 项、65,536 字符，内存 Map 却不淘汰。隔离复现访问 1024 个 owner 后内存为 1024 项、持久化为 32 项，每次保存仍复制全部 Map。选择在原保存所有者按相同 32 项边界裁剪，即使存储不可用也限制容量。保留语义锚点，不保存 DOM、正文或 Core 历史。
 
-后端历史已有视图、页数和字节限额。跨会话保留完整历史页会改变 release 与资源归属，当前证据不支持本轮引入。Messages 条目投影缓存保留为后续候选，需独立测量。
+保存时逐项 JSON 编码并累计外壳、逗号与条目的 UTF-16 长度，再拼接最终值；不再对每个候选反复编码整个前缀。格式、65,536 字符预算、最近访问顺序、过大项跳过后继续选取和同步 sessionStorage 保存语义一致。写入成功后才更新已保存值；存储失败时同内容仍可重试。
+
+后端历史已有视图、页数和字节限额。跨会话保留完整历史页会改变 release 与资源归属，当前证据不支持本轮引入。Messages 条目投影缓存经下述测量暂缓，后续候选必须有新的实际成本证据。
 
 交互分类为 I-NAV、I-READ、I-RECOVER，子对话返回涉及 I-RETURN。复用 App、Sidebar、Messages 和现有 Token。约束引用[交互模式](../../clients/gui/design-system/interactions.md)的 NAV-CONTEXT-01、READ-CONTINUITY-01、RECOVER-TRUTH-01、RETURN-CONTEXT-01，以及 [Messages 合同](../../clients/gui/renderer/src/Messages.md)的 R-MESSAGES-004/005；本轮不新增设计规则或视觉角色。
 
@@ -154,7 +156,19 @@ sequence 的重置仍绑定新 stream/reader，未照搬 T3 的低序号重置�
 
 **已运行证据。** `pnpm --dir clients/gui test:navigation-cache` 在真实 React App/Chrome、fixture PlatformServices 边界测量相同无关 UI 操作：优化前 catalog 重算增量 13、projectVisits 156、comparisons 38,805，优化后均为 0；重命名、未读、运行状态、排序和新权威快照五类刷新通过。计数说明该场景减少了派生计算，不是端到端耗时或用户感知延迟结论。
 
-`readingViews.test.ts` 的 4 项测试通过。Chrome 主题切换和重载检查的语义阅读锚点偏差为 1px；旧 `conversation-flow` 场景在 `.tool-summary-row .tool-failed` 定位器超时；生产折叠失败状态由 `ActivityRowStatus` 的 `data-tone="failed"` 表达。该 markup 与 `readingViews` 容量裁剪属于不同边界，本专项未修改旧 runner，完整对话流未计为通过。原生 Electron/Core 历史、平台输入和安装包仍保留各自验收边界。
+`readingViews.test.ts` 的 7 项测试通过，包含精确字符边界、Unicode 转义和存储失败重试。Chrome 主题切换和重载检查的语义阅读锚点偏差为 1px；旧 `conversation-flow` 场景在 `.tool-summary-row .tool-failed` 定位器超时；生产折叠失败状态由 `ActivityRowStatus` 的 `data-tone="failed"` 表达。该 markup 与 `readingViews` 容量裁剪属于不同边界，本专项未修改旧 runner，完整对话流未计为通过。原生 Electron/Core 历史、平台输入和安装包仍保留各自验收边界。
+
+### 合并后的消息阅读基线
+
+`pnpm --dir clients/gui test:message-derivation` 通过生产 Messages、CoreTaskModel 和真实 Chrome 输入检查人工展开、20 次流增量中的语义正文锚点、终态、历史 gap 插入/移除与同 Thread/Turn ID 的 owner 替换。字体就绪和连续六帧几何稳定后取证，锚点偏差容差仍为 1px；修正测量夹具后的通过不代表旧基线的产品缺陷已修复。失败也尝试关闭浏览器、Vite 并写报告。
+
+测量负载为 100 个终态 Turn 加 1 个活动 Turn，每 Turn 6 个条目，含两次文件读取与命令的生产活动组。三次开发 React/Chrome 基线中，12 次无关更新产生 1,313 次分组、7,878 个处理条目，分组 CPU 合计 13.7–15.5ms，Messages 子树 Profiler 合计 434.5–707ms；20 次输出产生 2,222 次分组、13,332 个条目，对应 25.8–30.7ms 和 745.3–868.3ms。分组占比约 2–4%，Long Tasks 有明显波动，因此本轮不增加消息派生缓存，也不将这些带测量开销的开发样本作为生产延迟预算。`--baseline` 额外检查当前重算次数；默认模式仅约束功能，允许未来减少重算。
+
+### 阅读检查点的序列化收益
+
+`pnpm --dir clients/gui test:reading-checkpoint` 在 Chrome 156、1100×800、浅色/14px 下使用生产 Messages/saveReadingViews，分别保存 1 和 32 个合法 owner 的检查点，执行 96 次 wheel 输入及 24 次输出追加。32 owner 前后均触发 193 次滚动阶段保存：JSON 编码字符总量从 24,459,855 降至 1,390,469（约减少 94.3%），同步 stringify 累计样本从 23.0ms 降至 4.2ms；流更新阶段从 3,041,640 降至 172,920 字符，对应 4.4ms 至 0.3ms。实际 scroll/resize 事件数和 CPU profile 分别保留；CPU 是单轮带探针样本，不能外推为端到端耗时、内存或用户感知提升。
+
+两种 owner 数量的同步存储和冷重载语义锚点均通过；阅读区下方输出追加时检查点内容不变，存储写入为零。默认 runner 拦截恢复前缀重复编码的回退，`--baseline` 允许测量旧实现。报告绑定源码哈希和浏览器版本，清理或源码漂移会将结果置为失败。消息测量中一次并发构建触发 HMR 的失败报告另行保留，稳定源码后复验通过；真实 Electron、供应商和安装包不在这两个 Chrome 夹具的证据范围内。
 
 ## 验证入口与完成边界
 

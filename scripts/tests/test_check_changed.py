@@ -150,6 +150,39 @@ class ChangedChecks(unittest.TestCase):
         self.assertEqual(result["status"], "no-changes")
         self.assertEqual(result["results"], [])
 
+    def test_empty_plan_is_invalidated_by_source_changes_before_execution(self):
+        key = checks.input_key(self.root, self.base)
+        plan = checks.plan_checks(checks.changed_paths(self.root, self.base), self.base)
+        self.assertEqual(plan["checks"], [])
+        (self.root / "source.rs").write_text("changed after planning\n")
+        result = checks.execute_plan(
+            plan, self.root, key, lambda *args, **kwargs: self.fail("must not execute")
+        )
+        self.assertEqual(result["status"], "invalidated")
+        self.assertEqual(result["results"], [])
+
+    def test_empty_plan_is_invalidated_by_index_only_changes_before_execution(self):
+        key = checks.input_key(self.root, self.base)
+        plan = checks.plan_checks(checks.changed_paths(self.root, self.base), self.base)
+        self.assertEqual(plan["checks"], [])
+        contents = (self.root / "source.rs").read_bytes()
+        blob = (
+            subprocess.check_output(
+                ["git", "hash-object", "-w", "--stdin"],
+                cwd=self.root,
+                input=b"staged after planning\n",
+            )
+            .decode()
+            .strip()
+        )
+        self.git("update-index", "--cacheinfo", f"100644,{blob},source.rs")
+        self.assertEqual((self.root / "source.rs").read_bytes(), contents)
+        result = checks.execute_plan(
+            plan, self.root, key, lambda *args, **kwargs: self.fail("must not execute")
+        )
+        self.assertEqual(result["status"], "invalidated")
+        self.assertEqual(result["results"], [])
+
     def test_manifest_cli_keeps_shared_units_and_reports_missing_conditions(self):
         gui = self.root / "clients/gui"
         (gui / "scripts").mkdir(parents=True)

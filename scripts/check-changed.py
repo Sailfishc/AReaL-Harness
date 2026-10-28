@@ -155,6 +155,8 @@ def execute_plan(plan, root, key, runner=subprocess.run):
             return {"status": "invalidated", "results": results, "reason": "inputs changed"}
         if code != 0:
             return {"status": "failed", "results": results}
+    if not plan["checks"] and input_key(root, plan["base"]) != key:
+        return {"status": "invalidated", "results": results, "reason": "inputs changed"}
     return {
         "status": "no-changes"
         if not plan["checks"]

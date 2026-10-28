@@ -96,19 +96,23 @@ export function saveReadingViews() {
     readingViews.delete(owner);
   }
   try {
-    const views: ReadingCheckpoint[] = [];
+    const start = '{"version":1,"views":[';
+    const end = "]}";
+    const views: string[] = [];
+    let characters = start.length + end.length;
     for (const [owner, view] of [...readingViews].reverse()) {
       const position: ReadingCheckpoint["position"] | undefined = view.following
         ? { kind: "latest" }
         : view.anchor && { kind: "reading", anchor: view.anchor };
       if (!position) continue;
-      const entry = { owner, position };
-      if (JSON.stringify({ version: 1, views: [...views, entry] }).length > readingCheckpointLimit)
-        continue;
+      const entry = JSON.stringify({ owner, position });
+      const added = entry.length + (views.length ? 1 : 0);
+      if (characters + added > readingCheckpointLimit) continue;
       views.push(entry);
+      characters += added;
       if (views.length === readingViewLimit) break;
     }
-    const serialized = JSON.stringify({ version: 1, views });
+    const serialized = start + views.join(",") + end;
     if (serialized === savedReadingCheckpoint) return;
     window.sessionStorage.setItem(readingCheckpointKey, serialized);
     savedReadingCheckpoint = serialized;
