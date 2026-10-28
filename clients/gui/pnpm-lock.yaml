@@ -141,6 +141,12 @@ importers:
         specifier: 1.57.0
         version: 1.57.0
 
+  oxlint-plugin-areal:
+    devDependencies:
+      '@oxlint/plugins':
+        specifier: 1.89.0
+        version: 1.89.0
+
   packages/browser-automation:
     dependencies:
       playwright-core:

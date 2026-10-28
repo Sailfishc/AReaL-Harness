@@ -70,3 +70,9 @@ pnpm --dir clients/gui verify:design
 `pnpm --dir clients/gui test:design -- --popup-anchors` 按 `popup-anchors.json` 的入口登记，在 UI 包预览中挂载生产项目侧栏与任务行。打开菜单后移出触发行并逐项悬停，检查菜单与触发按钮的 x/y 位移各不超过 1px、HoverActions opacity 为 1。报告逐项保存测量与截图，失败截图文件名包含入口 ID。此检查只覆盖浏览器预览。
 
 `popup-anchor-lint.mjs` 使用 TypeScript AST 扫描 `renderer/src` 和 `packages/ui/src` 中 HoverActions 内的 DropdownMenuTrigger、PopoverTrigger，按源码文件、Trigger 名称及同类序号与登记表逐一比对；新增入口的预览与登记共同维护。序号从 0 开始，单入口可省略。静态检查继续使用原有只减不增的存量 CSS baseline。
+
+## 仓库内 lint 规则
+
+`R-CHECK-017` 尺寸观察的静态约束与替代写法由 `areal/no-raw-resize-observer` 规则拥有；适用路径和共享实现例外由 `vite.config.mts` 指定。真实尺寸通知与卸载验证见 `test:resize-observer`。**检查：** `clients/gui/oxlint-plugin-areal/rules/no-raw-resize-observer.ts`
+
+`R-CHECK-018` lint 与类型检查豁免的原因要求由 `areal/require-suppression-reason` 规则拥有；新增规则及正反例的维护流程见[测试指南](../../../docs/development/testing.md#仓库内-lint-规则)。**检查：** `clients/gui/oxlint-plugin-areal/rules/require-suppression-reason.ts`

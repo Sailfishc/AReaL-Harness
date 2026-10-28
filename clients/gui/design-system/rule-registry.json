@@ -6579,6 +6579,22 @@
       "strength": "must",
       "textSha256": "53630dc6d6f0304d70c8c1485c96eb3cf906fdd8b671de9cf8a3ceb89d1d15a0",
       "check": "clients/gui/scripts/design-system-conversation-system.mjs"
+    },
+    {
+      "id": "R-CHECK-017",
+      "title": "尺寸观察的静态约束与替代写法由 areal/no-raw-resize-observer 规则拥有",
+      "owner": "clients/gui/design-system/automation.md#仓库内-lint-规则",
+      "strength": "must",
+      "textSha256": "358f9b1e6ede3030d955d465fd94cc98d66cf234af39c823d59651c0a2a43c46",
+      "check": "clients/gui/oxlint-plugin-areal/rules/no-raw-resize-observer.ts"
+    },
+    {
+      "id": "R-CHECK-018",
+      "title": "lint 与类型检查豁免的原因要求由 areal/require-suppression-reason 规则拥有",
+      "owner": "clients/gui/design-system/automation.md#仓库内-lint-规则",
+      "strength": "must",
+      "textSha256": "394c716975c0b2fa5296b3eea3021b906857c711494cdaf3888a3faa72f434e6",
+      "check": "clients/gui/oxlint-plugin-areal/rules/require-suppression-reason.ts"
     }
   ]
 }

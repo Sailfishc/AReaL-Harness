@@ -2,10 +2,23 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   test: {
-    include: ["renderer/src/**/*.test.{ts,tsx}", "packages/ui/src/**/*.test.{ts,tsx}"],
+    include: [
+      "renderer/src/**/*.test.{ts,tsx}",
+      "packages/ui/src/**/*.test.{ts,tsx}",
+      "oxlint-plugin-areal/**/*.test.ts",
+    ],
     environment: "node",
   },
   lint: {
+    jsPlugins: ["./oxlint-plugin-areal/index.ts"],
+    rules: { "areal/require-suppression-reason": "error" },
+    overrides: [
+      {
+        files: ["renderer/src/**/*.{js,jsx,ts,tsx}", "packages/ui/src/**/*.{js,jsx,ts,tsx}"],
+        excludeFiles: ["packages/ui/src/lib/observe-resize.ts"],
+        rules: { "areal/no-raw-resize-observer": "error" },
+      },
+    ],
     settings: {
       "jsx-a11y": {
         components: {

@@ -877,5 +877,12 @@
     "areas": ["browser"],
     "ciSmoke": "browser-navigation",
     "requires": ["electron", "core-binary", "git", "gui-build"]
+  },
+  {
+    "script": "test:resize-observer",
+    "layer": "e2e",
+    "platforms": ["darwin", "linux", "win32"],
+    "areas": ["design"],
+    "requires": ["chrome"]
   }
 ]

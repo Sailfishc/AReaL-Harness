@@ -1,3 +1,4 @@
+import { observeResize } from "@areal/ui/observe-resize";
 import { PendingMessageView } from "./UserMessageBody.js";
 import {
   readingViews,
@@ -851,11 +852,12 @@ export function Messages({
     // File summaries, disclosures and Markdown/media resize independently of
     // Core snapshots. Reuse this reading owner; no new store or execution loop.
     // Resize notifications run before paint; a new frame exposes the old tail.
-    const resize = new ResizeObserver(layout);
-    resize.observe(element);
-    if (element.firstElementChild) resize.observe(element.firstElementChild);
+    const stopObserving = observeResize(
+      element.firstElementChild ? [element, element.firstElementChild] : element,
+      layout,
+    );
     return () => {
-      resize.disconnect();
+      stopObserving();
       element.removeEventListener(progressAutoCollapse, autoCollapse);
       element.removeEventListener("wheel", wheel);
       element.removeEventListener("pointerdown", cancelPendingReading);

@@ -3,6 +3,7 @@ packages:
   - ../mobile
   - renderer
   - packages/*
+  - oxlint-plugin-areal
 
 verifyDepsBeforeRun: error
 # Keep installs and verification on the same layout in local shells and CI.

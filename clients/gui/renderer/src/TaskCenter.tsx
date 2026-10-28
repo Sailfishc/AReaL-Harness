@@ -1,3 +1,4 @@
+import { observeResize } from "@areal/ui/observe-resize";
 import { Input } from "@areal/ui";
 import { ScheduledWorkspace } from "@areal/ui/experimental";
 import { recoveredOutcome, recoveryMessage, type RecoveryFailure } from "./recoveryPresentation.js";
@@ -638,9 +639,7 @@ export function TaskCenter({
   const [narrow, setNarrow] = useState(false);
   useLayoutEffect(() => {
     if (!layout.current) return;
-    const observer = new ResizeObserver(([entry]) => setNarrow(entry.contentRect.width < 760));
-    observer.observe(layout.current);
-    return () => observer.disconnect();
+    return observeResize(layout.current, ([entry]) => setNarrow(entry.contentRect.width < 760));
   }, []);
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);

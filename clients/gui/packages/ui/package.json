@@ -82,6 +82,10 @@
     "./experimental": {
       "types": "./dist/experimental.d.ts",
       "default": "./dist/experimental.js"
+    },
+    "./observe-resize": {
+      "types": "./dist/lib/observe-resize.d.ts",
+      "default": "./dist/lib/observe-resize.js"
     }
   },
   "scripts": {

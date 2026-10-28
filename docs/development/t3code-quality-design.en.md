@@ -33,7 +33,7 @@ Design System supplies their interaction contracts: shared primitives own appear
 
 | Priority | Bounded work | Closure condition |
 | --- | --- | --- |
-| P0: integration baseline | Establish reachability of main-worktree, Claude, and specialist branches; run affected contracts, types, and design checks | Current baseline, unintegrated work, failures, and evidence limits are reviewable. Integrated admission work does not imply parked schedules, lint, or all specialist fixes are integrated |
+| P0: integration baseline | Establish reachability of main-worktree, Claude, and specialist branches; run affected contracts, types, and design checks | Current baseline, unintegrated work, failures, and evidence limits are reviewable. Admission work and C lint are integrated; parked schedules and other specialist fixes still require their own reachability checks |
 | P0: trustworthy feedback | The empty-plan source/index drift gap is fixed; continue investigating cleanup boundaries that left processes after a historical-data counterexample | Independent failure evidence for both; empty results bind current inputs; cleanup completes only when owned instances exit, without counting timeout or forced kill as normal cleanup |
 | P1: product continuity | Establish a real-input baseline for streaming reading, manual disclosure, and navigation on integrated Messages; check unknown and unsettled states | Semantic anchors, conversation identity, disclosure choices, focus, and valid actions match contracts; classify baseline failures before optimization instead of weakening assertions |
 | P2: demonstrated hotspots | Measure message grouping, reading-checkpoint serialization, and reference/notification propagation through CoreBackend→SharedCoreBackend→Renderer; implement only demonstrably useful small slices | Attributable gains on the same workload plus passing invalidation, capacity, and interaction contracts; candidates without benefit evidence remain unmeasured rather than adding mechanisms |
@@ -59,6 +59,7 @@ T3 reference sources are pinned to `93a9e079b107a13b0c312920b917b5f61a8f720c`. A
 
 | Package | Current implementation | Executed evidence and limits |
 | --- | --- | --- |
+| C. Repository lint plugin | Changed-file rules, shared observeResize, rule and browser counterexamples | Node 24.11.0: 80 GUI unit tests including 18 rule tests, real changed-file counterexamples, and Chrome resize probes pass; accessibility diagnostics are classified separately |
 | D. Provider protocol replay | Versioned JSON, real HTTP bytes, outbound-field checks, gates and disconnects | 23 HTTP/replay/timeout tests across D/E pass; one real Runtime write-recovery test passes from the fixed slot |
 | E. Controlled ordering | Request-arrival/release milestones and virtual-time ResponseDeadline coverage | The 23 tests above and one virtual-time test pass; real HTTP time boundaries remain |
 | F. Projection consistency | Close on missing base, reconnect with a full baseline, stale-connection isolation and history release | Seven Desktop local-transport tests pass; mobile and Relay are outside this evidence |

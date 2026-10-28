@@ -341,3 +341,13 @@ Verify 汇总要求 host、container 和独立依赖审计全部成功。GUI gat
 安装与更新改动：`make script-test` 包含合成完整包的安装事务回归、独立 Git 仓库的来源门禁和无 Electron 依赖的 GUI 更新控制器回归。覆盖下载中断、摘要/版本错误、运行服务保持、入口提交失败、安装互斥、数据不变、原生准备超时与受理未知不重发；模拟传输错误不代表真实签名替换。本地发行验收另运行 `scripts/install-smoke.py` 的真实共享服务保持。正式相邻版本的签名替换、重开及数据保持仍使用隔离包副本的 `test:update` 与合成 `test:history-compat`，按发行影响执行；Gatekeeper、Finder 启动和真人权限不由单元测试代替。
 
 网络回归同时覆盖 persistent 与 bounded 的摘要恢复、短暂断流后保留同一输入、五次上限不被通用响应恢复额度绕过、确认过的写操作只执行一次，以及显式关闭开关的独立配置和环境优先级。有限模式失败后保留全部已观测用量，不把达到重试上限视为成功。
+
+## 仓库内 lint 规则
+
+GUI 的仓库规则位于 `clients/gui/oxlint-plugin-areal`，由 `vite.config.mts` 的 lint.jsPlugins 加载。`pnpm --dir clients/gui check` 继续只检查本次改动文件；CI 或分支验收设置 `AREAL_CHECK_BASE=<base-sha>`。`check:all` 是显式全量检查，存量违规可能失败，不能据此批量豁免。
+
+新增规则：在 rules/ 使用 @oxlint/plugins 的 defineRule，提供原因与替代写法，在 index.ts 注册，并在 vite.config.mts 指定严重度和适用路径。每条规则在 rules.test.ts 增加合法与违规源码，通过真实 oxlint 子进程验证规则名和退出码；运行 `pnpm --dir clients/gui test:unit oxlint-plugin-areal/rules.test.ts`。不引入 ESLint 运行时。豁免写同行 `-- 原因` 或紧邻上方的独立说明注释。
+
+尺寸观察使用 `@areal/ui/observe-resize`，并将清理函数用于 effect 卸载。该工具拥有原生构造；增量门禁约束新增和修改的调用点，存量调用尚未批量迁移。运行 `pnpm --dir clients/gui test:resize-observer` 在隔离 Chrome 中对照原生回调与共享工具的提交时序，并验证 disconnect。该测试不证明所有布局抖动已修复。
+
+无障碍专项只收集四条 JSX-a11y 规则，仓库插件诊断交由常规增量检查；两类检查分别执行，避免存量仓库规则混入无障碍基线。规则正反例和增量检查仍必须通过。

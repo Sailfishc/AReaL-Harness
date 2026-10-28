@@ -149,7 +149,8 @@
     "test:mobile-workspace": "node scripts/mobile-workspace-smoke.mjs",
     "test:mobile-workspace-state": "node --test scripts/mobile-workspace.test.mjs",
     "test:mobile-command": "node scripts/mobile-command-smoke.mjs",
-    "test:mobile-commands": "node --test scripts/mobile-commands.test.mjs"
+    "test:mobile-commands": "node --test scripts/mobile-commands.test.mjs",
+    "test:resize-observer": "node scripts/resize-observer-smoke.mjs"
   },
   "devDependencies": {
     "@areal/remote-client": "workspace:*",
