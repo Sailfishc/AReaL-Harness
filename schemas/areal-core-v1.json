@@ -23162,6 +23162,28 @@
         {
           "additionalProperties": false,
           "properties": {
+            "creationAdmission": {
+              "additionalProperties": false,
+              "description": "新建会话绑定原 Core 代际；覆盖标识只证明本日志连续保留的受理范围。",
+              "properties": {
+                "coreInstanceId": {
+                  "type": "string"
+                },
+                "identity": {
+                  "type": "string"
+                },
+                "journalEpoch": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "identity",
+                "journalEpoch",
+                "coreInstanceId"
+              ],
+              "title": "CreationAdmission",
+              "type": "object"
+            },
             "requestId": {
               "type": "string"
             },
@@ -26257,6 +26279,27 @@
           },
           "type": "object"
         },
+        "CreationAdmission": {
+          "additionalProperties": false,
+          "description": "新建会话绑定原 Core 代际；覆盖标识只证明本日志连续保留的受理范围。",
+          "properties": {
+            "coreInstanceId": {
+              "type": "string"
+            },
+            "identity": {
+              "type": "string"
+            },
+            "journalEpoch": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "identity",
+            "journalEpoch",
+            "coreInstanceId"
+          ],
+          "type": "object"
+        },
         "InteractionMode": {
           "enum": [
             "interactive",
@@ -26395,6 +26438,16 @@
           "anyOf": [
             {
               "$ref": "#/$defs/VersionRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "creationAdmission": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CreationAdmission"
             },
             {
               "type": "null"
@@ -67733,6 +67786,44 @@
             "capacity": {
               "minimum": 0,
               "type": "integer"
+            },
+            "creationAdmission": {
+              "additionalProperties": false,
+              "properties": {
+                "coreInstanceId": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "identity": {
+                  "type": "string"
+                },
+                "journalEpoch": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "method": {
+                  "const": "areal/thread/start"
+                },
+                "requestId": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "admitted",
+                    "unconfirmed",
+                    "notAdmitted"
+                  ]
+                }
+              },
+              "required": [
+                "status",
+                "identity",
+                "requestId",
+                "method",
+                "journalEpoch",
+                "coreInstanceId"
+              ],
+              "type": "object"
             },
             "data": {
               "items": {

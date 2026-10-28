@@ -336,6 +336,10 @@ export const commonMessages = {
     "zh-CN": "在 {project} 中开始新聊天",
     en: "Start a new chat in {project}",
   },
+  "recovery.creationNotAdmitted": {
+    "zh-CN": "Core 已确认原会话创建未受理，草稿已保留。",
+    en: "Core confirmed that the original conversation creation was not admitted. Your draft is retained.",
+  },
   "recovery.creationRecords": {
     "zh-CN": "待核对的会话创建",
     en: "Unconfirmed conversation creation",

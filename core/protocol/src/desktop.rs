@@ -775,9 +775,20 @@ pub struct WorkflowRun {
     pub status: String,
 }
 
+/// 新建会话绑定原 Core 代际；覆盖标识只证明本日志连续保留的受理范围。
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreationAdmission {
+    pub identity: String,
+    pub journal_epoch: String,
+    pub core_instance_id: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ThreadStart {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creation_admission: Option<CreationAdmission>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub options: Option<ClientOptions>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

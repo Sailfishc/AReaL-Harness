@@ -481,10 +481,17 @@ pub fn projections() -> (Value, Value) {
             json!({"oneOf":[object(json!({"threadId":string,"turnId":string,"status":schema::<TurnStatus>(),"error":nullable(schema::<TurnError>()),"text":string,"truncated":boolean,"configuration":nullable(any_object.clone())})),object(json!({"agentId":string,"workspaceMode":{"const":"isolatedWrite"},"result":any_object}))]}),
         ),
     );
+    let mut request_receipts = object(
+        json!({"data":array(receipt),"retention":{"enum":["threadLifetime","deploymentLifetime","threadAndDeploymentLifetime"]},"capacity":number}),
+    );
+    request_receipts["properties"]["creationAdmission"] = json!({"type":"object","additionalProperties":false,
+        "required":["status","identity","requestId","method","journalEpoch","coreInstanceId"],
+        "properties":{"status":{"enum":["admitted","unconfirmed","notAdmitted"]},"identity":string,"requestId":string,
+            "method":{"const":"areal/thread/start"},"journalEpoch":{"type":"string","format":"uuid"},
+            "coreInstanceId":{"type":"string","format":"uuid"}}});
     insert(
         &["request/read"],
-        json!({"oneOf":[
-            object(json!({"data":array(receipt),"retention":{"enum":["threadLifetime","deploymentLifetime","threadAndDeploymentLifetime"]},"capacity":number})),
+        json!({"oneOf":[request_receipts,
             object(json!({"data":array(object(json!({"identity":string,"requestId":string,"method":{"const":"areal/task/runNow"},"digest":string,"result":run_now}))),"retention":{"const":"taskLifetime"}}))
         ]}),
     );

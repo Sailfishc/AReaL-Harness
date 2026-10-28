@@ -301,6 +301,7 @@ impl Engine {
                             .create_configured(
                                 owner.clone(),
                                 ThreadStart {
+                                    creation_admission: None,
                                     request_id: format!("anchor:{request_id}"),
                                     cwd: Some(cwd),
                                     agent_profile: None,

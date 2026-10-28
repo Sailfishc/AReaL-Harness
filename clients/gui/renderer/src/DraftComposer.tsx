@@ -263,7 +263,11 @@ export function DraftComposer({
         localStorage.removeItem(`${key}:pending-create`);
         localStorage.removeItem(`${key}:pending-create-request`);
         setUnknown(null);
-        setDraftError(creationOutcome.message || "创建对话未完成，草稿已保留，请检查后重试。");
+        setDraftError(
+          creationOutcome.admissionState === "notAdmitted"
+            ? t("recovery.creationNotAdmitted")
+            : creationOutcome.message || "创建对话未完成，草稿已保留，请检查后重试。",
+        );
         return;
       }
       const worktreeRecord = await readAction("workspace", {
@@ -352,7 +356,11 @@ export function DraftComposer({
       localStorage.removeItem(`${key}:pending-create`);
       localStorage.removeItem(`${key}:pending-create-request`);
       setUnknown(null);
-      setDraftError(outcome.message || "创建对话未完成，草稿已保留，请检查后重试。");
+      setDraftError(
+        outcome.admissionState === "notAdmitted"
+          ? t("recovery.creationNotAdmitted")
+          : outcome.message || "创建对话未完成，草稿已保留，请检查后重试。",
+      );
       return;
     }
     if (!outcome.threadId || outcome.accepted !== true) return;

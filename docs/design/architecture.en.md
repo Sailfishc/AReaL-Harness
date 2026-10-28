@@ -12,6 +12,8 @@ Renderer language belongs to existing application preferences and accepts zh-CN 
 
 GUI Renderer reads the preload object only in `main.tsx`. `createDesktopServices` injects the existing `PlatformServices` into the application. MCP Apps, native resource selection, and icon loading receive their capabilities through this interface. Missing capabilities do not create desktop subscriptions or native resource entry points. React components do not read the global bridge separately. Main continues to validate IPC senders and own windows, App tokens, and native grants. Core and Runtime retain execution and history authority.
 
+Core owns cross-restart creation admission evidence in the existing submissions journal. It persists admission before creation side effects and binds requests to journal coverage and the Engine boot. Only a retired original instance, continuous journal coverage, and absence of both admission and a Thread creation receipt establish non-admission. Desktop persists that result before removing pending; Renderer retains the draft. Legacy records, missing coverage, and admitted but unsettled records remain UNKNOWN without automatic replay. Retention, migration, and crash windows are specified in the [submission contract](../api/desktop.en.md#submissions).
+
 ## Responsibilities
 
 | Module | Responsibility |
