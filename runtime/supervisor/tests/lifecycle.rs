@@ -491,6 +491,79 @@ async fn file_responses_preserve_full_chunks_with_small_command_windows() {
 }
 
 #[tokio::test]
+async fn readonly_file_output_quota_is_known_but_mutation_acknowledgement_remains_unknown() {
+    for writes in [true, false] {
+        let directory = tempfile::tempdir().unwrap();
+        let executor = Executor::new(false);
+        let mut config = Config::read_only(directory.path().into());
+        config.writable = true;
+        config.file_helper = Some(std::env::current_exe().unwrap());
+        config.limits.output_bytes = 1024;
+        let runtime = Supervisor::new(config, executor.clone()).unwrap();
+        let root = runtime.connection_info().root_scope_id;
+        let request = FileRequest {
+            operation_id: op(&runtime),
+            scope_id: root.clone(),
+            command: if writes {
+                FileCommand::Write {
+                    path: "workspace://repo/file".into(),
+                    data_base64: STANDARD.encode("changed"),
+                    expected: ExpectedFile::Absent,
+                }
+            } else {
+                FileCommand::Read {
+                    path: "workspace://repo/file".into(),
+                    offset: 0,
+                    max_bytes: MAX_FILE_CHUNK,
+                }
+            },
+        };
+        let call = {
+            let runtime = runtime.clone();
+            let request = request.clone();
+            tokio::spawn(async move { runtime.filesystem(request).await })
+        };
+        bounded(executor.entered()).await;
+        let process_id = executor.executions.lock().unwrap()[0].process_id.clone();
+        executor
+            .finish(
+                &process_id,
+                &serde_json::to_vec(
+                    &serde_json::json!({"result":{"dataBase64":STANDARD.encode(vec![0xab;8192])}}),
+                )
+                .unwrap(),
+            )
+            .await;
+        let error = bounded(call).await.unwrap().unwrap_err();
+        assert_eq!(runtime.scope(&root).unwrap().output_bytes, 1024);
+        assert!(runtime.process(&process_id).unwrap().cleanup_confirmed);
+        assert_eq!(
+            error.code,
+            if writes {
+                ErrorCode::Unavailable
+            } else {
+                ErrorCode::ResourceExhausted
+            },
+            "{error}"
+        );
+        assert_eq!(
+            runtime.operation(&request.operation_id).unwrap().state,
+            if writes {
+                OperationState::Unknown
+            } else {
+                OperationState::Failed
+            }
+        );
+        assert_eq!(
+            runtime.filesystem(request).await.unwrap_err().code,
+            error.code
+        );
+        assert_eq!(executor.starts.load(Ordering::SeqCst), 1);
+        bounded(runtime.shutdown()).await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn queued_process_start_retains_identity_and_runs_once_after_capacity_is_freed() {
     let directory = tempfile::tempdir().unwrap();
     let executor = Executor::new(false);

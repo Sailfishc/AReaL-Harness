@@ -121,6 +121,8 @@ revoke 先关闭后代准入再请求取消；waitClosed 只能在 revoke 后调
 
 Linux native 每次执行由独立的可信 Rust 二进制 `areal-runtime-reaper` 托管；部署须将它与 Runtime 放在同一目录，并提供可读的 `/proc`。嵌入 `NativeBackend` 的宿主也须在宿主可执行文件旁部署该 helper。回收器不依赖 Python，项目 launcher 和自定义工具的解释器要求另行适用。helper 在启动命令前成为 subreaper，独占其子进程的 wait，持续回收被收养的孤儿。命令正常退出、取消或私有生命周期管道 EOF 时，它清退并回收该执行的残留后代，包括调用 `setsid` 改变进程组的后代。Runtime 只等待自己的 helper，实际命令退出状态与清理结果由私有回执传回；helper 退出本身不能替代该回执和输出关闭确认。
 
+Runtime 通过密封的匿名内存文件描述符传递实际命令参数，helper 的进程命令行仅含私有描述符编号和模式。helper 在启动 payload 前读入并关闭参数描述符，不让按工作负载命令行匹配的进程清理误杀回收器。该私有启动协议要求 daemon 与 helper 同版本部署；不防止 full-access 代码显式按 helper 身份发信号，原 UNKNOWN 与清理失败规则保持不变。
+
 启动握手最多等待 3 秒；确认未创建命令且 helper 已回收的启动失败，只拒绝本次执行并释放登记。后端启动返回 `UNAVAILABLE` 或 `CLEANUP_FAILED` 时，Supervisor 将执行及操作保留为 UNKNOWN、封闭连接准入，在可信后端清理回执前保留占额，不能按确定未启动释放资源。已启动执行的清理超时会报告失败；helper 继续收养并等待尚未退出的后代，Runtime 保留其 waiter，不以强杀回收器替代回收完成。
 
 macOS 保留进程组清理，并在执行期间使用 `libproc` 约每 10 ms 发现后代，最多跟踪 4096 个进程身份。已发现后代即使调用 `setsid` 或重新归属，仍按 PID 与内核唯一进程 ID 核对后清退；确认这些身份消失后才完成输出收尾。唯一身份查询也适用于执行 setuid 程序的后代，避免因读取受限 BSD 进程信息而错误关闭后端；父身份同样使用内核唯一 ID 校验。发现、信号或退出观察失败会报告清理失败。它不具备 Linux subreaper 的收养能力：两次观察之间快速 fork、父进程退出和重新归属仍可能漏掉后代；身份检查与发信号也不是内核原子操作。该跟踪不提供任意进程树的完整清理保证，也不覆盖 Runtime 被强杀后的清理。
@@ -159,6 +161,8 @@ list 每页最多 256 项/约 32 KiB，扫描最多 4096 UTF-8 名称；目录�
 `search` 是只读的原生 `FileCommand`，在当前 Scope 授权的文件或目录中按正则表达式 `pattern` 搜索，可选 `glob` 过滤路径。`context` 必填且为 0–20，`limit` 必填且为 1–1000，只计匹配行，不计上下文行。结果行的 `path` 是宿主文件路径，`line` 为行号或 null，`text` 为 UTF-8 文本或 null，`kind` 为 `match` 或 `context`。匹配超限、单行超过 64 KiB、返回行累计超过 8 MiB 或序列化结果行超过 13000 字节时，`limited=true`；此时应按 `guidance` 缩小路径或模式，只有 `limited=false` 时空结果才表示没有匹配。搜索遵循工作区内 ignore 规则，不读取宿主 rg 配置，不跟随符号链接。此分支扩展了既有 `fs.execute` 命令联合类型；旧 Runtime 不认识 `search` 时会拒绝请求，SDK 不自动降级或重试。
 
 默认 helper 按文件、命令按写根协调冲突（writeSerialization=conflictingPaths）；显式绕过命令协调为 filePaths。外部进程不参与，不保证外部 CAS/跨文件事务。helper 结果丢失或提交后清理失败为 UNKNOWN，不能重放。
+
+只读文件助手确定因输出额度截断、进程已退出且清理已确认时，返回 `RESOURCE_EXHAUSTED`，details.reason 为 `FILE_OUTPUT_LIMIT_EXCEEDED`，操作记为 Failed。它不表示写入未知，也不自动重放读取。写入可能发生而确认丢失、后端失联或清理未确认时仍保留 UNKNOWN；不改变累计输出硬上限。
 
 错误包括 INVALID_REQUEST、INVALID_ARGUMENT、UNAUTHENTICATED、PERMISSION_DENIED、SCOPE_CLOSED、STALE_HANDLE、NOT_FOUND、CONFLICT、RESOURCE_EXHAUSTED、UNSUPPORTED、UNAVAILABLE、CLEANUP_FAILED。signal 为 POSIX 数字字符串；sandboxDenied=false 不能证明无沙箱拒绝。
 

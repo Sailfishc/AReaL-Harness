@@ -151,6 +151,46 @@ async fn signal_exit_preserves_the_actual_termination_reason() {
     backend.shutdown().await.unwrap();
 }
 
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn matching_payload_command_line_does_not_kill_its_reaper() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let backend = NativeBackend::launch_with_profile(SandboxProfile::FullAccess)
+        .await
+        .unwrap();
+    let marker = format!("areal-payload-match-{}", std::process::id());
+    let mut exec = execution(&root, "unused");
+    exec.argv = vec![
+        "/usr/bin/python3".into(),
+        "-c".into(),
+        r#"import os,signal,sys
+from pathlib import Path
+for entry in Path('/proc').iterdir():
+ if not entry.name.isdecimal() or int(entry.name)==os.getpid():continue
+ try:command=(entry/'cmdline').read_bytes()
+ except OSError:continue
+ if sys.argv[1].encode() in command and b'areal-runtime-reaper' in command:
+  os.kill(int(entry.name),signal.SIGKILL)
+print('matching cleanup finished')
+"#
+        .into(),
+        marker,
+    ];
+    exec.process_id = "matched".into();
+    let mut rx = backend.start(exec).await.unwrap();
+    let (_, code) = collect(&mut rx, &backend).await;
+    assert_eq!(code, Some(0));
+    let mut rx = backend
+        .start(execution(&root, "printf reaper-survived"))
+        .await
+        .unwrap();
+    let (output, code) = collect(&mut rx, &backend).await;
+    assert_eq!(code, Some(0));
+    assert_eq!(output, b"reaper-survived");
+    backend.shutdown().await.unwrap();
+}
+
 #[tokio::test]
 async fn pipe_input_and_output_are_drained_before_completion() {
     let dir = tempfile::tempdir().unwrap();

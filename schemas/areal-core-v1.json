@@ -2614,7 +2614,8 @@
         "retryKind": {
           "enum": [
             "network",
-            "completion"
+            "completion",
+            "goalReport"
           ]
         },
         "threadId": {
@@ -109282,7 +109283,8 @@
                 "truncated",
                 "incomplete",
                 "emptyCompletion",
-                "pendingVerification"
+                "pendingVerification",
+                "invalidToolArguments"
               ],
               "type": "string"
             },
@@ -110151,7 +110153,8 @@
                 "truncated",
                 "incomplete",
                 "emptyCompletion",
-                "pendingVerification"
+                "pendingVerification",
+                "invalidToolArguments"
               ],
               "type": "string"
             },
@@ -111042,7 +111045,8 @@
                 "truncated",
                 "incomplete",
                 "emptyCompletion",
-                "pendingVerification"
+                "pendingVerification",
+                "invalidToolArguments"
               ],
               "type": "string"
             },
@@ -111792,7 +111796,8 @@
                 "truncated",
                 "incomplete",
                 "emptyCompletion",
-                "pendingVerification"
+                "pendingVerification",
+                "invalidToolArguments"
               ],
               "type": "string"
             },
@@ -112542,7 +112547,8 @@
                 "truncated",
                 "incomplete",
                 "emptyCompletion",
-                "pendingVerification"
+                "pendingVerification",
+                "invalidToolArguments"
               ],
               "type": "string"
             },
@@ -113292,7 +113298,8 @@
                 "truncated",
                 "incomplete",
                 "emptyCompletion",
-                "pendingVerification"
+                "pendingVerification",
+                "invalidToolArguments"
               ],
               "type": "string"
             },

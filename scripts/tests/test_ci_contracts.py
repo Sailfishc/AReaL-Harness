@@ -31,6 +31,22 @@ preflight = load("ci-preflight")
 
 
 class CiContracts(unittest.TestCase):
+    def test_dispatch_null_or_missing_inputs_preserves_the_full_release_plan(self):
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as directory:
+            event = Path(directory) / "event.json"
+            for payload in ({"inputs": None}, {}, {"inputs": {}}):
+                event.write_text(json.dumps(payload))
+                with patch.dict(os.environ, {"GITHUB_EVENT_PATH": str(event)}):
+                    plan = scope.repository_plan(ROOT)
+                self.assertEqual(
+                    plan["source"]["sourceRevision"],
+                    scope.git(ROOT, "rev-parse", "HEAD").decode().strip(),
+                )
+                self.assertIn("Cargo.toml", plan["paths"])
+                self.assertTrue(plan["items"])
+
     def test_mobile_environment_keeps_the_gui_runtime_and_passes_the_relay_runtime(self):
         with patch.dict(
             os.environ, {"PATH": "/gui-node/bin", "AREAL_RELAY_NODE_BIN": "/relay-node/bin/node"}

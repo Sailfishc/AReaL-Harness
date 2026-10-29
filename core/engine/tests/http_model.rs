@@ -761,6 +761,7 @@ async fn tool_schema_is_stable_when_http_calls_are_disabled() {
                     tools.clone(),
                     RequestPurpose::Solve,
                     ToolCallLimits {
+                        require_call: false,
                         max_calls: count,
                         ..Default::default()
                     },
@@ -777,6 +778,43 @@ async fn tool_schema_is_stable_when_http_calls_are_disabled() {
         assert_eq!(seen[0]["messages"], seen[1]["messages"]);
         assert_eq!(seen[0]["input"], seen[1]["input"]);
         assert_eq!(seen[1]["tool_choice"], "none");
+        let events = model
+            .chat_with_limits(
+                vec![Message::text("user", "report")],
+                tools.clone(),
+                RequestPurpose::Solve,
+                ToolCallLimits {
+                    require_call: true,
+                    max_calls: 1,
+                    ..Default::default()
+                },
+                None,
+            )
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+        assert!(events.iter().all(Result::is_ok));
+        let required = rx.recv().await.unwrap();
+        assert_eq!(required["tool_choice"], "required");
+        assert_eq!(required["parallel_tool_calls"], false);
+        assert_eq!(required["tools"], seen[0]["tools"]);
+        assert!(
+            model
+                .chat_with_limits(
+                    vec![Message::text("user", "contradictory budget")],
+                    tools.clone(),
+                    RequestPurpose::Solve,
+                    ToolCallLimits {
+                        require_call: true,
+                        max_calls: 0,
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .await
+                .is_err()
+        );
         let model = HttpModel::with_protocol(
             format!("http://{address}/"),
             "violates-choice".into(),
@@ -790,6 +828,7 @@ async fn tool_schema_is_stable_when_http_calls_are_disabled() {
                 tools.clone(),
                 RequestPurpose::Solve,
                 ToolCallLimits {
+                    require_call: false,
                     max_calls: 0,
                     ..Default::default()
                 },
@@ -1586,6 +1625,79 @@ async fn service_default_is_omitted_for_every_http_protocol_and_request_purpose(
             }
         }
     }
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
+async fn partial_responses_tool_recovery_keeps_usage_and_never_executes_partial_calls() {
+    let requests = Arc::new(AtomicUsize::new(0));
+    let count = requests.clone();
+    let app = Router::new().route("/", post(move |Json(request): Json<Value>| {
+        let n = count.fetch_add(1, Ordering::SeqCst);
+        async move {
+            let frames = if n == 0 {
+                let call = json!({"type":"function_call","id":"partial-item","call_id":"partial-call",
+                    "name":"fs_write","arguments":"{\"path\":\"unwritten.txt\"","status":"incomplete"});
+                vec![json!({"type":"response.output_item.done","item":call.clone()}),
+                    json!({"type":"response.incomplete","response":{"status":"incomplete","output":[call],
+                        "incomplete_details":{"reason":"max_output_tokens"},
+                        "usage":{"input_tokens":10,"output_tokens":32000}}})]
+            } else {
+                assert_eq!(n, 1, "recovery must remain bounded");
+                assert!(request.to_string().contains("smaller, complete tool calls"));
+                vec![json!({"type":"response.output_text.delta","delta":"Verified completion"}),
+                    json!({"type":"response.completed","response":{"status":"completed","output":[],
+                        "usage":{"input_tokens":12,"output_tokens":4}}})]
+            };
+            ([("content-type","text/event-stream")], frames.into_iter().map(|f|format!("data: {f}\n\n")).collect::<String>())
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let directory = tempfile::tempdir().unwrap();
+    let model = HttpModel::with_protocol(
+        format!("http://{address}/"),
+        "fixture".into(),
+        None,
+        ModelProtocol::Responses,
+    )
+    .unwrap();
+    let engine = Engine::open(
+        directory.path(),
+        Arc::new(SolveOnlyHttpModel(model)),
+        Limits {
+            max_completion_retries: 1,
+            ..Limits::default()
+        },
+    )
+    .unwrap();
+    let thread = engine
+        .create(directory.path().to_string_lossy().into())
+        .await
+        .unwrap();
+    engine
+        .start(
+            &thread.id,
+            vec![Input::text("Complete the requested operation")],
+        )
+        .await
+        .unwrap();
+    let done = engine.wait(&thread.id).await.unwrap();
+    let turn = done.turns.last().unwrap();
+    assert_eq!(turn.status, TurnStatus::Completed);
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+    assert_eq!(turn.usage.as_ref().unwrap().input_tokens, 22);
+    assert_eq!(turn.usage.as_ref().unwrap().output_tokens, 32004);
+    assert!(
+        !turn
+            .items
+            .iter()
+            .any(|item| matches!(item, Item::DynamicToolCall { .. }))
+    );
+    assert!(!directory.path().join("unwritten.txt").exists());
+    engine.shutdown().await;
     server.abort();
     let _ = server.await;
 }

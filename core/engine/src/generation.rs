@@ -290,6 +290,8 @@ impl Engine {
         let mut media_output_bytes = 0;
         let mut tool_count = 0;
         let mut completion_retries = 0;
+        let mut goal_report_only = false;
+        let mut goal_report_rounds = 0;
         let mut recovery_hint: Option<String> = None;
         let mut output_handoff = false;
         let mut previous_usage = None;
@@ -387,10 +389,42 @@ impl Engine {
                     state.thread.clone(),
                 )
             };
+            // 报告是否缺失与通用恢复额度无关；报告成功后由既有 Turn/Goal 提交链结算。
+            let goal_report_pending = thread.parent_thread_id.is_none()
+                && thread.goals.goal.as_ref().is_some_and(|goal| {
+                    goal.status == areal_protocol::goals::GoalStatus::Active
+                        && !goal.waiting_for_input
+                        && !goal.waiting_for_agents
+                        && goal.report_turn_id.as_deref()
+                            != thread.turns.last().map(|turn| turn.id.as_str())
+                });
+            if goal_report_only {
+                anyhow::ensure!(!cancel.is_cancelled(), "cancelled");
+                if !goal_report_pending {
+                    // 有效报告仍须经过正常的子任务/工作组结算、Stop hook 与最终答复封口。
+                    goal_report_only = false;
+                } else if goal_report_rounds >= self.limits.max_goal_report_rounds {
+                    return Err(crate::outcome::goal_report_missing(
+                        goal_report_rounds,
+                        self.limits.max_goal_report_rounds,
+                        "report_phase_exhausted",
+                    )
+                    .into());
+                }
+            }
             // 工具声明参与缓存前缀；收尾轮仅禁用调用，不移除 schema。
-            let tool_definitions = self
+            let mut tool_definitions = self
                 .visible_tools(cell, &configuration, thread.desktop.is_some(), &thread)
                 .await;
+            if goal_report_only {
+                let name = if thread.goals.goal.as_ref().is_some_and(|g| g.limits_pending) {
+                    "goal_set_limits"
+                } else {
+                    "goal_update"
+                };
+                // 只收窄已授权工具，不借报告阶段增加目录、权限或预算。
+                tool_definitions.retain(|tool| tool["function"]["name"] == name);
+            }
             // 使用现有请求上下文提供指引，保持持久工具定义及模型收到的声明不变。
             let browser_instructions = tool_definitions.iter()
                 .any(|tool| tool["function"]["name"] == "browser_v1")
@@ -663,7 +697,26 @@ impl Engine {
             // 本地重建未发送请求时不消费一次性恢复提示，也不增加求解轮数。
             recovery_hint = None;
             let tools_enabled = !final_round && !output_handoff && !tool_definitions.is_empty();
+            if goal_report_only {
+                if !tools_enabled
+                    || (tool_limit > 0 && tool_count >= tool_limit)
+                    || model
+                        .capabilities()
+                        .declared
+                        .as_ref()
+                        .is_some_and(|c| !c.tools)
+                {
+                    return Err(crate::outcome::goal_report_missing(
+                        goal_report_rounds,
+                        self.limits.max_goal_report_rounds,
+                        "report_tool_unavailable",
+                    )
+                    .into());
+                }
+                goal_report_rounds += 1;
+            }
             let tool_limits = model::ToolCallLimits {
+                require_call: goal_report_only,
                 max_calls: if tools_enabled {
                     (if tool_limit > 0 {
                         tool_limit.saturating_sub(tool_count)
@@ -671,6 +724,7 @@ impl Engine {
                         usize::MAX
                     })
                     .min(self.limits.max_response_tool_calls)
+                    .min(if goal_report_only { 1 } else { usize::MAX })
                 } else {
                     0
                 },
@@ -886,6 +940,33 @@ impl Engine {
                         ) => match next { Ok(next) => next, Err(_) => Some(Err(response_deadline.idle_error("model"))) },
                     };
                     let Some(delta) = next else {
+                        // 等待整个成功流结算 usage 后再拒绝非法报告工具，绝不执行其参数。
+                        if goal_report_only
+                            && calls.iter().any(|call| {
+                                !tool_definitions
+                                    .iter()
+                                    .any(|tool| tool["function"]["name"] == call.name)
+                            })
+                        {
+                            operation.finish(Some("unexpected_report_tool"));
+                            drop(operation);
+                            drop(model_span);
+                            drop(stream);
+                            let error = anyhow::Error::new(crate::outcome::goal_report_missing(
+                                goal_report_rounds,
+                                self.limits.max_goal_report_rounds,
+                                "unexpected_report_tool",
+                            ));
+                            self.discard_completion(
+                                cell,
+                                &completion_items,
+                                &calls,
+                                &error,
+                                (goal_report_rounds, "goalReport"),
+                            )
+                            .await?;
+                            return Err(error);
+                        }
                         let state = cell.state.lock().await;
                         let steered = !steer.is_empty();
                         let blocked_report = state.thread.goals.goal.as_ref().is_some_and(|g| {
@@ -904,14 +985,36 @@ impl Engine {
                                 .handles
                                 .pending_verifications
                                 .is_empty();
+                        let goal_report_missing = calls.is_empty()
+                            && !steered
+                            && !pending_verification
+                            && !final_round
+                            && !output_handoff
+                            && state.thread.parent_thread_id.is_none()
+                            && state.thread.goals.goal.as_ref().is_some_and(|goal| {
+                                goal.status == areal_protocol::goals::GoalStatus::Active
+                                    && !goal.waiting_for_input
+                                    && !goal.waiting_for_agents
+                                    && goal.report_turn_id.as_deref() != Some(turn_id.as_str())
+                            });
+                        let report_phase =
+                            goal_report_missing && self.limits.max_goal_report_rounds > 0;
+                        // 未启用报告阶段时保留旧恢复和默认暂停契约。
+                        let missing_goal_report = goal_report_missing
+                            && visible_output
+                            && completion_retries < self.limits.max_completion_retries;
                         drop(state);
                         // 明确拒收的响应仍保留观测内容，但不能成为可蒸馏的 accepted completion。
                         operation.finish(if steered {
                             Some("completion_steered")
+                        } else if report_phase {
+                            Some("missing_goal_report")
                         } else if calls.is_empty() && !visible_output {
                             Some("empty_completion")
                         } else if pending_verification {
                             Some("pending_verification")
+                        } else if missing_goal_report {
+                            Some("missing_goal_report")
                         } else {
                             None
                         });
@@ -925,6 +1028,25 @@ impl Engine {
                             drop(state);
                             complete_reasoning(cell, &thread_id, &turn_id, &reasoning_items).await;
                             complete_item(cell, &thread_id, &turn_id, &item_id).await;
+                            continue 'restart;
+                        }
+                        if report_phase {
+                            drop(state);
+                            let error = anyhow::Error::new(crate::outcome::goal_report_missing(
+                                goal_report_rounds,
+                                self.limits.max_goal_report_rounds,
+                                "report_required",
+                            ));
+                            self.discard_completion(
+                                cell,
+                                &completion_items,
+                                &[],
+                                &error,
+                                (goal_report_rounds, "goalReport"),
+                            )
+                            .await?;
+                            goal_report_only = true;
+                            recovery_hint = Some("This is a bounded Goal progress-report phase. Use the current authoritative Goal revision provided in context. If limitsPending is true, confirm only the user's explicit limits with goal_set_limits first. Otherwise call goal_update now: continue with concrete remaining work, complete only with verified evidence and no remaining work, or blocked with an actual blocker. Do not perform more task actions in this phase or replay confirmed work. A normal text answer is not a Goal report. After an accepted report, provide the final handoff without repeating task actions. A continue report starts the next Goal Turn after normal settlement, under the same remaining root budget.".to_owned());
                             continue 'restart;
                         }
                         if calls.is_empty() && !visible_output {
@@ -945,6 +1067,27 @@ impl Engine {
                                 continue 'restart;
                             }
                             return Err(error);
+                        }
+                        if missing_goal_report {
+                            drop(state);
+                            let error = anyhow::anyhow!(
+                                "active root Goal has no progress report for this Turn"
+                            );
+                            if self
+                                .discard_completion(
+                                    cell,
+                                    &completion_items,
+                                    &[],
+                                    &error,
+                                    (completion_retries, "completion"),
+                                )
+                                .await?
+                            {
+                                completion_retries += 1;
+                                recovery_hint = Some("A durable Goal is still active and this Turn has no goal_update report. Before ending this Turn, call goal_read for the current revision and goal_update: report continue with concrete remaining work, or complete only after the entire requested task is verified with no remaining work. A normal final reply ends one Turn and does not complete the Goal. Continue from confirmed results; do not replay completed operations or invent verification evidence.".to_owned());
+                                continue 'restart;
+                            }
+                            anyhow::bail!("cancelled");
                         }
                         if pending_verification {
                             let pending = state
@@ -1211,8 +1354,35 @@ impl Engine {
                             drop(stream);
                             drop(permit);
                             self.yield_settled_workspace_lease(cell).await;
-                            // Goal 的未知消费阻止重试，但不能覆盖导致请求失败的原始诊断。
+                            // 默认保持未知消费保护；显式实验仅在持久保留整次请求上界后有限续跑。
                             if let Err(blocker) = model.check_work() {
+                                if self.limits.goal_recover_unknown_model_usage
+                                    && completion_retries < self.limits.max_completion_retries
+                                    && side_thread_id.is_none()
+                                    && model::is_network_error(&error)
+                                    && self
+                                        .recover_goal_model_usage(
+                                            cell,
+                                            &model,
+                                            &completion_items,
+                                            &calls,
+                                            &error,
+                                            completion_retries,
+                                        )
+                                        .await?
+                                {
+                                    completion_retries += 1;
+                                    text_output_bytes = output_before.0;
+                                    media_output_bytes = output_before.1;
+                                    let delay =
+                                        Duration::from_millis(250u64 << completion_retries.min(4));
+                                    tokio::select! { biased;
+                                        _ = cancel.cancelled() => anyhow::bail!("cancelled"),
+                                        _ = steer.recv() => continue 'restart,
+                                        _ = tokio::time::sleep(delay) => {},
+                                    }
+                                    continue 'request;
+                                }
                                 let diagnostic = format!("{blocker}: {error}");
                                 return Err(error.context(diagnostic));
                             }
@@ -1310,7 +1480,7 @@ impl Engine {
                                 .await?
                             {
                                 completion_retries += 1;
-                                recovery_hint = Some("The previous model completion was discarded because its stream or tool format was incomplete. None of its requested tools executed. Continue from confirmed results; use smaller, complete tool calls, and do not replay earlier confirmed mutations.".to_owned());
+                                recovery_hint = Some("The previous model completion was discarded because its stream or tool format was incomplete. None of its requested tools executed. Continue from confirmed results; keep reasoning concise and split large writes into smaller, complete tool calls within the output limit. Do not replay earlier confirmed mutations.".to_owned());
                                 continue 'restart;
                             }
                             return Err(error);
@@ -1497,6 +1667,57 @@ impl Engine {
             }
         }
     }
+    async fn recover_goal_model_usage(
+        &self,
+        cell: &Cell,
+        model: &Arc<dyn model::Model>,
+        owned: &HashSet<String>,
+        calls: &[model::ToolCall],
+        error: &anyhow::Error,
+        retries: usize,
+    ) -> anyhow::Result<bool> {
+        let capabilities = model.capabilities();
+        let Some(bound) = capabilities
+            .context_window_tokens
+            .filter(|n| *n > 0)
+            .zip(capabilities.max_output_tokens.filter(|n| *n > 0))
+            .and_then(|(input, output)| input.checked_add(output))
+        else {
+            return Ok(false);
+        };
+        let Some(failure) = model::terminal_outcome(error) else {
+            return Ok(false);
+        };
+        let (budget, thread_id, turn_id) = {
+            let state = cell.state.lock().await;
+            let Some(budget) = self.goals.budget(&state.thread) else {
+                return Ok(false);
+            };
+            let Some(turn) = state.thread.turns.last() else {
+                return Ok(false);
+            };
+            (budget, state.thread.id.clone(), turn.id.clone())
+        };
+        if !self
+            .discard_completion(cell, owned, calls, error, (retries, "reservedUnknownUsage"))
+            .await?
+        {
+            return Ok(false);
+        }
+        let Some(receipt) = budget
+            .reserve_failed_model_recovery((&thread_id, &turn_id), bound as u64, &failure)
+            .await?
+        else {
+            return Ok(false);
+        };
+        self.store
+            .save_audit(json!({"kind":"unknownModelUsageRecovery","retry":retries+1,
+            "receipt":receipt}))
+            .await?;
+        cell.emit("areal/model/unknownUsageReserved", receipt);
+        Ok(true)
+    }
+
     async fn recover_completion(
         &self,
         cell: &Cell,
@@ -1518,7 +1739,9 @@ impl Engine {
         };
         if retries >= limit
             || (error.downcast_ref::<model::ModelFailure>().is_none()
-                && error.downcast_ref::<model::ToolCallIndexError>().is_none())
+                && error.downcast_ref::<model::ToolCallIndexError>().is_none()
+                && model::terminal_outcome(error)
+                    .is_none_or(|outcome| outcome.code != "LLM_OUTPUT_TOKEN_LIMIT_EXCEEDED"))
         {
             return Ok(false);
         }

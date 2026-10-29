@@ -167,6 +167,7 @@ impl Engine {
                     vec![],
                     RequestPurpose::PromptPrediction,
                     ToolCallLimits {
+                        require_call: false,
                         max_calls: 0,
                         ..Default::default()
                     },

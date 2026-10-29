@@ -253,7 +253,7 @@ pub async fn run(command: Command, runtime_bin: PathBuf) -> Result<()> {
             args.file_helper.unwrap_or_else(|| runtime_bin.join("areal-runtime-fs")).canonicalize()?, args.toolchain.map(|p| p.canonicalize()).transpose()?)?;
         executor.worker_limits = super::engine_limits(&config);
         executor.watchdog_disable = config.watchdog_disable;
-        executor.tool_call_limits = areal_engine::model::ToolCallLimits { max_calls: config.max_response_tool_calls, max_buffer_bytes: config.max_tool_buffer_bytes };
+        executor.tool_call_limits = areal_engine::model::ToolCallLimits { require_call: false, max_calls: config.max_response_tool_calls, max_buffer_bytes: config.max_tool_buffer_bytes };
         executor.context_bytes = args.worker_context_bytes;
         executor.max_unchanged_rounds = args.worker_stall_rounds;
         executor.command_tools_only = args.worker_tools == "command";
