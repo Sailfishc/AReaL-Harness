@@ -1061,6 +1061,8 @@ try {
           endpoint,
           "--auth-file",
           authFile,
+          "--agent",
+          "game-lite@v1",
           "--goal",
           "goal-native-fixture",
           "--goal-token-budget",

@@ -166,9 +166,13 @@ def prepare(root, output):
                 # 与原生 smoke 保持相同父进程边界，避免构建用 Python 触发 macOS 的执行拒绝。
                 version = subprocess.check_output(
                     [
-                        "/usr/bin/python3", "-I", "-S", "-c",
+                        "/usr/bin/python3",
+                        "-I",
+                        "-S",
+                        "-c",
                         "import subprocess,sys; sys.stdout.buffer.write(subprocess.check_output(sys.argv[1:]))",
-                        str(binary), "--version",
+                        str(binary),
+                        "--version",
                     ],
                     text=True,
                 ).splitlines()[0]
