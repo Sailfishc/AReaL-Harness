@@ -324,6 +324,8 @@ pnpm --dir clients/gui run dist --platform mac --arch arm64 --formats dmg --sign
 pnpm --dir clients/gui run dist --platform mac --arch arm64 --formats dmg,zip --signing developer-id --identity "$CSC_NAME" --keychain-profile "$APPLE_KEYCHAIN_PROFILE"
 ```
 
+内部 Relay 测试包可在打包时设置 `AREAL_GUI_RELAY_CA_CERT=/absolute/ca.pem`，将自签名 CA 公共证书内置到应用。仅 Relay 的 HTTPS 登记与 WSS 连接额外信任该 CA，仍校验证书链、有效期和主机名；登记码由用户在客户端填写。CA 私钥不得进入包。手机端仍需自行安装并信任同一 CA，再扫码并在电脑确认设备授权。
+
 `--formats` 可选 `dmg`、`zip` 或 `dmg,zip`；`--output` 指定全新目录，默认生成独立时间戳目录，拒绝覆盖。`none` 不新增签名，保留输入已有签名，不保证应用签名有效或可启动；DMG 仅对字节完全一致的双份 Framework 去重。`adhoc` 是本地签名，不做公证。`developer-id` 复用现有签名、公证及安装包验收，要求两种格式；最终产物位于输出的 `signed/`，Apple 尚在处理时退出 2，使用 `pnpm --dir clients/gui run sign:mac --resume --output /absolute/output/signed` 恢复，不能重新提交未知状态的请求。此命令不发布。
 
 仅需签名、公证和归档时，Developer ID 命令可加 `--skip-tests`；恢复同一公证时也可用 `sign:mac --resume --skip-tests --output ...`。它跳过签名后的桌面 smoke 与模型专项，回执标记为 `skipped-by-request`；签名、Apple 公证、stapling、Gatekeeper、Core 完整性及 DMG 体积检查仍执行。签名前的历史输入预检保留。此模式不能宣称功能验收通过，正式发布整理仍要求测试通过。
