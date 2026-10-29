@@ -235,8 +235,9 @@ jobs:
         run: python3 -m unittest discover -s scripts/tests -p test_release.py
       - name: Require applicable work
         env:
+          GATE_KIND: release
           SCOPE_RESULT: ${{ needs.scope.result }}
           WORK_RESULT: ${{ needs.bundle.result }}
-          HOMEBREW_RESULT: ${{ github.event_name == 'workflow_dispatch' && needs.scope.outputs.release == 'true' && needs.linux_homebrew.result || 'success' }}
+          HOMEBREW_RESULT: ${{ needs.linux_homebrew.result }}
           NEEDED: ${{ github.event_name == 'workflow_dispatch' && needs.scope.outputs.release || 'false' }}
         run: python3 scripts/ci-gate.py

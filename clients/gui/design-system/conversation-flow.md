@@ -37,21 +37,7 @@
 
 ## 主阅读列与活动层级
 
-组件专属合同由[R-ACTIVITYGROUP-011 等规则](../packages/ui/src/conversation/activity-group/activity-group.md#主阅读列与活动层级)维护。
-
-### 活动行的有限变体
-
-见[组件合同](../packages/ui/src/conversation/activity-group/activity-group.md#活动行的有限变体)。
-
-活动行视觉节奏与图标约定见 `R-ACTIVITYGROUP-032`、`R-ACTIVITYGROUP-033` 及[组件组成合同](../packages/ui/src/conversation/activity-group/activity-group.md#组成)。
-
-### 折叠与状态
-
-见[组件合同](../packages/ui/src/conversation/activity-group/activity-group.md#折叠与状态)。
-
-### 溢出与滚动
-
-见[组件合同](../packages/ui/src/conversation/activity-group/activity-group.md#溢出与滚动)。
+活动分段与标题由 [CONV-ACTIVITY-01](../renderer/src/Messages.md#对话信息流) 及其行为表决定；活动组呈现、折叠、状态和滚动见 [ActivityGroup 合同](../packages/ui/src/conversation/activity-group/activity-group.md)；单行结构见 [ActivityRow 合同](../packages/ui/src/conversation/activity-row/activity-row.md)。视觉节奏与图标约定见 `R-ACTIVITYGROUP-032`、`R-ACTIVITYGROUP-033`。
 
 ## 右侧任务上下文
 

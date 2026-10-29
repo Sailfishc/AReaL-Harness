@@ -50,6 +50,7 @@ fn key(id: &str, revision: &str) -> String {
 /// 可信启动配置的执行投影；文件路径、解析和写入不进入 Engine。
 #[derive(Clone, Default)]
 pub struct ConfiguredModels {
+    pub responses_prompt_cache: bool,
     pub providers: Vec<Provider>,
     pub provider_ids: BTreeSet<String>,
     pub parameters: BTreeMap<(String, String), ModelParameters>,
@@ -506,6 +507,13 @@ impl Engine {
             .map_err(invalid)?
             .with_audit_directory(self.store.root().join("model-requests"))
             .with_options(model::ModelOptions {
+                responses_prompt_cache: protocol == model::ModelProtocol::Responses
+                    && self
+                        .desktop
+                        .configured_models
+                        .read()
+                        .unwrap()
+                        .responses_prompt_cache,
                 capabilities: provider.model_capabilities.get(name).cloned(),
                 context_window: Some(context_window.cloned().unwrap_or_else(|| {
                     self.provider_context_window(provider, name, parameters.context_window_tokens)
@@ -531,9 +539,10 @@ impl Engine {
             .worker_model
             .load(std::sync::atomic::Ordering::Acquire)
         {
+            self.model.check_work().map_err(invalid)?;
             return Ok(self.model.clone());
         }
-        match (&configuration.model, &configuration.provider) {
+        let model = match (&configuration.model, &configuration.provider) {
             (Some(model), Some(provider)) => self.provider_model(
                 provider,
                 &model.model_id,
@@ -552,8 +561,20 @@ impl Engine {
                 }
             }
             _ => Err(invalid("MODEL_NOT_CONFIGURED")),
-        }
+        }?;
+        model.check_work().map_err(|error| {
+            invalid(format!(
+                "{}: {error}",
+                configuration
+                    .model
+                    .as_ref()
+                    .map(|model| model.provider_id.as_str())
+                    .unwrap_or("default")
+            ))
+        })?;
+        Ok(model)
     }
+
     pub(crate) fn resolve_config(
         &self,
         profile: Option<VersionRef>,

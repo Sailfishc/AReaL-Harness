@@ -1,10 +1,11 @@
-import type { ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { Button } from "../components/ui/button.js";
 import { useI18n } from "../i18n/IntlProvider.js";
 import type { Action, PlatformServices } from "../services.js";
 import { BrowserSettings } from "../settings/BrowserSettings.js";
 import { CloudSettings } from "../settings/CloudSettings.js";
 import { ComputerSettings } from "../settings/ComputerSettings.js";
+import { CreationRecoverySettings } from "../settings/CreationRecoverySettings.js";
 import { CoreCapabilitiesSettings } from "../settings/CoreCapabilitiesSettings.js";
 import { AppearanceSettings, GeneralSettings } from "../settings/DisplaySettings.js";
 import { HooksSettings } from "../settings/HooksSettings.js";
@@ -14,7 +15,6 @@ import { SessionSettings } from "../settings/ResourceSettings.js";
 import { ServiceStatusSettings } from "../settings/ServiceStatusSettings.js";
 import { SettingsPage } from "../settings/SettingsWorkspace.js";
 import { TrajectorySettings } from "../settings/TrajectorySettings.js";
-import { UsageDashboard } from "../settings/UsageDashboard.js";
 import { WorktreesSettings } from "../settings/WorktreesSettings.js";
 import { settingsLabel } from "../settings/settingsNavigation.js";
 import type { useTaskWorkspace } from "../state/taskWorkspace.js";
@@ -24,6 +24,10 @@ import type { useWorkbenchAppearance } from "../state/useWorkbenchAppearance.js"
 import type { useWorkbenchNavigation } from "../state/useWorkbenchNavigation.js";
 import type { useWorkbenchSurfaces } from "../state/useWorkbenchSurfaces.js";
 import type { useWorkspacePanels } from "../state/useWorkspacePanels.js";
+
+const UsageDashboard = lazy(() =>
+  import("../settings/UsageDashboard.js").then((module) => ({ default: module.UsageDashboard })),
+);
 
 type Props = {
   session: ReturnType<typeof useSessionNavigation>;
@@ -135,7 +139,11 @@ export function WorkbenchSettings({
           onConnect={reconnectService}
         />
       ) : settingsTab === "模型服务" ? (
-        <ModelSettings action={action} onOpenSessionSettings={() => setSettingsTab("会话配置")} />
+        <ModelSettings
+          action={action}
+          subscription={snapshot.subscription}
+          onOpenSessionSettings={() => setSettingsTab("会话配置")}
+        />
       ) : settingsTab === "会话配置" ? (
         <SessionSettings
           key={`${project?.id}:${thread?.id}`}
@@ -175,13 +183,20 @@ export function WorkbenchSettings({
             onTask={initialReleased ? onTask : undefined}
             onOpen={initialReleased ? onOpen : undefined}
           />
+          <CreationRecoverySettings
+            projects={snapshot.projects}
+            connected={snapshot.connection?.state === "ready"}
+            action={resourceAction}
+          />
           <CoreCapabilitiesSettings
             projects={snapshot.projects}
             connected={snapshot.connection?.state === "ready"}
           />
         </>
       ) : settingsTab === "用量" ? (
-        <UsageDashboard action={resourceAction} />
+        <Suspense fallback={<div className="settings-empty">{t("common.loading")}</div>}>
+          <UsageDashboard action={resourceAction} />
+        </Suspense>
       ) : !project ? (
         <div className="settings-empty">
           <p>{t("settings.chooseProject")}</p>

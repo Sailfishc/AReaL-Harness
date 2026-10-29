@@ -11,7 +11,7 @@ vi.mock("./i18n/IntlProvider.js", () => ({
 
 describe("TurnProgress heading", () => {
   it.each(["completed", "failed", "inProgress"])(
-    "keeps only Working duration and disclosure for %s",
+    "keeps only the duration and disclosure for %s",
     (status) => {
       const facts = { failures: 2, unfinished: true };
       const markup = renderToStaticMarkup(
@@ -29,7 +29,9 @@ describe("TurnProgress heading", () => {
           children: "Activity content",
         }),
       );
-      expect(markup).toContain("Working for 15m 29s");
+      expect(markup).toContain(
+        status === "inProgress" ? "Working for 15m 29s" : "Worked for 15m 29s",
+      );
       expect(markup).toContain("aria-expanded=");
       expect(markup).toContain("aria-controls=");
       expect(markup).not.toContain("turn-failure-indicator");

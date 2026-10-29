@@ -157,7 +157,9 @@ function createUpdater({
   }
   async function download() {
     if (downloaded) return install();
-    if (!enabled || !available || checking || downloading || installing) return state();
+    if (!enabled || checking || downloading || installing) return state();
+    // 首次检查失败时按钮仍走此入口；先恢复检查，发现版本后再由用户确认下载。
+    if (!available) return check();
     downloading = true;
     percent = 0;
     set("downloading");
@@ -218,6 +220,8 @@ function createUpdater({
         !newer(info.version, version) ||
         (info.version !== highWater && !newer(info.version, highWater))
       ) {
+        checking = false;
+        set("idle");
         if (manual && !available)
           await message("暂未发现新版本", `当前版本 ${version}，当前更新频道尚无可用的更高版本。`);
         return state();

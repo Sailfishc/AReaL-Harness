@@ -1,12 +1,8 @@
 {
   "name": "areal-gui-workspace",
-  "version": "0.1.12-beta.3",
+  "version": "0.1.12",
   "private": true,
   "license": "Apache-2.0",
-  "packageManager": "pnpm@11.7.0",
-  "engines": {
-    "node": "^22.19.0 || ^24.11.0 || >=26.0.0"
-  },
   "scripts": {
     "build:desktop": "vp run desktop-build",
     "build": "vp run build-suite",
@@ -62,9 +58,13 @@
     "test:context-usage": "node scripts/context-usage-smoke.mjs",
     "test:model-selection": "node scripts/model-selection-smoke.mjs",
     "test:history-compat": "node scripts/history-copy-smoke.mjs",
+    "test:history-cleanup": "node --test scripts/history-copy-smoke.test.mjs scripts/application-cleanup.test.mjs",
     "test:connection": "node scripts/connection-smoke.mjs",
     "test:cloud-lifecycle": "node scripts/cloud-lifecycle-smoke.mjs",
     "test:history-navigation-ui": "node scripts/history-navigation-ui-smoke.mjs",
+    "test:navigation-cache": "node scripts/navigation-cache-ui-smoke.mjs",
+    "test:message-derivation": "node scripts/message-derivation-ui-smoke.mjs",
+    "test:reading-checkpoint": "node scripts/reading-checkpoint-ui-smoke.mjs",
     "test:history-recovery": "node --test scripts/core-read-recovery.test.mjs scripts/bounded-history-client.test.mjs scripts/desktop-projection-transport.test.mjs scripts/lifecycle-bounded-history.test.mjs scripts/history-reobserve.test.mjs && node scripts/large-history-smoke.mjs && node scripts/bounded-history-ui-smoke.mjs && node scripts/thread-restoration-ui-smoke.mjs",
     "test:startup": "node scripts/startup-timing-smoke.mjs",
     "test:history": "node --test scripts/history.test.mjs && node scripts/history-smoke.mjs",
@@ -88,7 +88,8 @@
     "test:browser-annotations": "node scripts/browser-annotation-smoke.mjs",
     "test:browser-loading": "node scripts/browser-loading-smoke.mjs",
     "test:image-annotations": "node scripts/image-annotation-smoke.mjs",
-    "test:browser-contracts": "node --test scripts/browser-read-contract.test.mjs scripts/browser-network-policy.test.mjs scripts/browser-diagnostics-contract.test.cjs scripts/browser-evidence-contract.test.mjs scripts/browser-startup-contract.test.mjs scripts/browser-observation-privacy.test.cjs",
+    "test:browser-contracts": "node --test scripts/browser-read-contract.test.mjs scripts/browser-network-policy.test.mjs scripts/browser-navigation.test.cjs scripts/browser-diagnostics-contract.test.cjs scripts/browser-evidence-contract.test.mjs scripts/browser-startup-contract.test.mjs scripts/browser-observation-privacy.test.cjs",
+    "test:browser-navigation": "node scripts/browser-human-smoke.mjs navigation",
     "test:remote-command": "node scripts/remote-command-contract.mjs",
     "test:remote-command-e2e": "node scripts/remote-session-commands-e2e.mjs",
     "test:remote-session": "node scripts/remote-session-contract.mjs",
@@ -105,13 +106,14 @@
     "test:remote-review": "node scripts/remote-review-contract.mjs && node scripts/remote-raster-contract.mjs && node scripts/remote-review-dom-contract.mjs && node scripts/remote-review-transport-contract.mjs",
     "test:remote-network": "node scripts/remote-network-smoke.mjs && node --test scripts/remote-network-host.test.mjs scripts/remote-network-settings.test.mjs",
     "export:remote": "node scripts/export-remote-assets.mjs renderer/dist",
-    "test:remote-relay": "node --test scripts/remote-relay-host.test.mjs scripts/remote-relay-transport-contract.mjs scripts/remote-relay-export.test.mjs scripts/remote-relay-wire.test.mjs",
-    "test:remote-relay-contracts": "node --test scripts/remote-relay-host.test.mjs scripts/remote-relay-export.test.mjs scripts/remote-relay-wire.test.mjs",
+    "test:remote-relay": "node --test scripts/remote-relay-system-ca.test.mjs scripts/remote-relay-host.test.mjs scripts/remote-relay-transport-contract.mjs scripts/remote-relay-export.test.mjs scripts/remote-relay-wire.test.mjs scripts/remote-client-kind-host.test.mjs scripts/remote-device-management-host.test.mjs",
+    "test:remote-relay-contracts": "node --test scripts/remote-relay-host.test.mjs scripts/remote-relay-export.test.mjs scripts/remote-relay-wire.test.mjs scripts/remote-client-kind-host.test.mjs scripts/remote-device-management-host.test.mjs",
     "design:dev": "pnpm --filter @areal/ui build && pnpm --filter @areal/gui-renderer design:dev",
     "design:build": "vp run design-build",
     "test:design": "node scripts/design-system-smoke.mjs",
     "verify:design": "vp run design-suite",
-    "test:regressions": "node --test scripts/desktop-ipc-contract.test.cjs scripts/browser-observation-privacy.test.cjs scripts/trajectory-polling.test.mjs scripts/builder-download.test.mjs scripts/bundle-budget.test.mjs scripts/preview-pure.test.cjs scripts/preview-residency.test.cjs scripts/desktop-contract-types.test.cjs scripts/host-prerequisites.test.mjs scripts/design-system-baseline.test.mjs",
+    "test:ci-budget-counterexample": "node scripts/ci-budget-counterexample.mjs",
+    "test:regressions": "node --test scripts/verify-public.test.mjs scripts/desktop-ipc-contract.test.cjs scripts/browser-observation-privacy.test.cjs scripts/trajectory-polling.test.mjs scripts/builder-download.test.mjs scripts/bundle-budget.test.mjs scripts/preview-pure.test.cjs scripts/preview-residency.test.cjs scripts/desktop-contract-types.test.cjs scripts/host-prerequisites.test.mjs scripts/design-system-baseline.test.mjs scripts/core-read-recovery.test.mjs",
     "test:proxy": "node --test scripts/system-proxy.test.mjs",
     "test:desktop-settings": "node scripts/migration-smoke.mjs --desktop-settings",
     "test:desktop-network": "node scripts/desktop-network-smoke.mjs",
@@ -139,11 +141,29 @@
     "test:design-rules": "node --test scripts/design-rules.test.mjs",
     "measure:gui": "node scripts/gui-performance.mjs",
     "contracts:check": "python3 scripts/generate-management-contracts.py --check",
-    "test:cloud-contracts": "node --test scripts/cloud-*.test.cjs"
+    "test:cloud-contracts": "node --test scripts/cloud-*.test.cjs",
+    "mobile:build": "pnpm --filter @areal/gui-renderer exec vp build --config vite.mobile.config.ts",
+    "mobile:sync": "pnpm mobile:build && pnpm --filter @areal/mobile sync",
+    "test:mobile-handshake": "node scripts/mobile-handshake-smoke.mjs",
+    "mobile:typecheck": "pnpm --filter @areal/gui-renderer exec tsc --noEmit -p tsconfig.mobile.json",
+    "test:mobile-pairing": "node scripts/mobile-pairing-smoke.mjs",
+    "test:mobile-storage": "node --test scripts/mobile-device-store.test.mjs",
+    "test:remote-push": "node --test scripts/remote-push.test.mjs",
+    "test:remote-project-models": "node --test scripts/remote-project-models.test.mjs",
+    "test:mobile-workspace": "node scripts/mobile-workspace-smoke.mjs",
+    "test:mobile-workspace-state": "node --test scripts/mobile-workspace.test.mjs",
+    "test:mobile-command": "node scripts/mobile-command-smoke.mjs",
+    "test:mobile-commands": "node --test scripts/mobile-commands.test.mjs",
+    "test:resize-observer": "node scripts/resize-observer-smoke.mjs"
   },
   "devDependencies": {
+    "@areal/remote-client": "workspace:*",
     "@axe-core/playwright": "4.14.0",
     "fake-indexeddb": "6.2.4",
     "vite-plus": "1.4.0"
-  }
+  },
+  "engines": {
+    "node": "^22.19.0 || ^24.11.0 || >=26.0.0"
+  },
+  "packageManager": "pnpm@11.7.0"
 }

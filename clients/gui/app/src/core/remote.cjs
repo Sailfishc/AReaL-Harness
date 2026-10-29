@@ -3,12 +3,21 @@
 const { randomBytes, randomUUID, timingSafeEqual } = require("node:crypto");
 const { readFile } = require("node:fs/promises");
 const { join } = require("node:path");
-const { parseRemoteConfig } = require("./remote-config.cjs");
+const {
+  parseRemoteConfig,
+  migrateLegacyDevices,
+  strings,
+  failureCode,
+  enrollmentFailureMessage,
+} = require("./remote-config.cjs");
+const { RemotePush } = require("./remote-push.cjs");
 const { RelayTransport } = require("./remote-relay.cjs");
 const { request: httpsRequest } = require("node:https");
+const { desktopTlsOptions } = require("./desktop-network.cjs");
 const { createHash } = require("node:crypto");
 const QRCode = require("qrcode");
 const { SessionAcceptor } = require("./remote-session-acceptor.cjs");
+const { distinctName, forgetRevoked, renameDevice, revokeDevice } = require("./remote-devices.cjs");
 const { startDirect } = require("./remote-direct.cjs");
 const { createRemoteNetworkAdapter, validateHttpsOrigin } = require("./remote-network.cjs");
 const PRESETS = Object.freeze({
@@ -18,14 +27,12 @@ const PRESETS = Object.freeze({
 /** @param {string} code @param {string} message */
 const pairingError = (code, message) => Object.assign(new Error(message), { code });
 
-const {
-  isRemoteRequest,
-} = require("../../../packages/workbench/client/desktop-contract/desktop-control.cjs");
+const { isRemoteRequest } = require("@areal/workbench/desktop-contract/desktop-control");
 /** @typedef {import('./remote-config.cjs').RemoteConfig} RemoteConfig */
 /** @typedef {import('./remote-config.cjs').DeviceGrant} DeviceGrant */
 /** @typedef {import('./remote-network.cjs').NetworkMapping} NetworkMapping */
 /** @typedef {Awaited<ReturnType<typeof startDirect>>} DirectServer */
-/** @typedef {{name:string,expiresAt:number,connected:()=>boolean,accept:(grant:DeviceGrant)=>void,reject:(error:Error)=>void,arm:()=>void,timer?:NodeJS.Timeout,approving?:boolean}} PendingPair */
+/** @typedef {{name:string,clientKind?:'web'|'ios',expiresAt:number,connected:()=>boolean,accept:(grant:DeviceGrant)=>void,reject:(error:Error)=>void,arm:()=>void,timer?:NodeJS.Timeout,approving?:boolean}} PendingPair */
 /** @typedef {{backend:InstanceType<typeof import('./backend.cjs').CoreBackend>,schedule:()=>void}} RemoteService */
 /** @typedef {Pick<typeof import('electron').safeStorage,'isEncryptionAvailable'|'encryptString'|'decryptString'> & {getSelectedStorageBackend?:()=>string}} RemoteEncryption */
 class RemoteControl {
@@ -67,8 +74,12 @@ class RemoteControl {
     this.channels = new Map();
     /** @type {Map<string,PendingPair>} */
     this.pending = new Map();
+    // 最近连接时间只在本次运行内记录，避免每次连接都写加密配置。
+    /** @type {Map<string,number>} */
+    this.lastSeen = new Map();
     this.connected = false;
     this.sessions = new SessionAcceptor(this);
+    this.push = new RemotePush(this);
   }
   async init() {
     this.transportModule = await import("@areal/remote");
@@ -95,24 +106,7 @@ class RemoteControl {
     }
     this.config ??= { enabled: false, devices: [] };
     if (this.config.schemaVersion !== 2 && this.config.devices?.length) {
-      const grants = [...(this.config.deviceGrants ?? [])];
-      for (const device of this.config.devices)
-        if (!grants.some((grant) => grant.devicePeerId === device.id))
-          grants.push({
-            devicePeerId: device.id,
-            displayName: device.name,
-            projectIds: [...(device.projects ?? [])],
-            capabilities: [],
-            revision: 1,
-            status: "reviewRequired",
-          });
-      const migrated = {
-        ...this.config,
-        schemaVersion: 2,
-        enabled: false,
-        directEnabled: false,
-        deviceGrants: grants,
-      };
+      const migrated = migrateLegacyDevices(this.config);
       try {
         await this.save(migrated);
       } catch {
@@ -207,11 +201,18 @@ class RemoteControl {
           : "",
       directError: this.directError ?? "",
       migrationError: this.migrationError ?? "",
-      deviceGrants: this.config?.deviceGrants ?? [],
+      pushSupported: this.relayTransport?.pushSupported === true,
+      deviceGrants: (this.config?.deviceGrants ?? []).map(({ push, ...grant }) => ({
+        ...grant,
+        pushRegistered: !!push,
+        online: grant.status === "active" && this.sessions.online(grant.devicePeerId),
+        lastSeenAt: this.lastSeen.get(grant.devicePeerId) ?? null,
+      })),
       devices: [],
       pending: [...this.pending].map(([id, entry]) => ({
         id,
         name: entry.name,
+        ...(entry.clientKind ? { clientKind: entry.clientKind } : {}),
         fingerprint: id,
         expiresAt: entry.expiresAt,
       })),
@@ -360,16 +361,28 @@ class RemoteControl {
           throw new Error("请至少选择一个已有项目");
         if (request.preset !== "Observer" && request.preset !== "Operator")
           throw new Error("请选择 Observer 或 Operator");
-        const displayName = entry?.name ?? previous?.displayName;
+        const displayName =
+          request.operation === "approve" && entry
+            ? distinctName(this.config.deviceGrants ?? [], entry.name, request.id)
+            : previous?.displayName;
         if (displayName === undefined) throw new Error("设备未获授权");
+        const clientKind =
+          request.operation === "approve" ? entry?.clientKind : previous?.clientKind;
         /** @type {DeviceGrant} */
         const grant = {
           devicePeerId: request.id,
           displayName,
+          ...(clientKind ? { clientKind } : {}),
           projectIds: [...new Set(request.projects)],
           capabilities: [...PRESETS[request.preset]],
           revision: (previous?.revision ?? 0) + 1,
           status: "active",
+          ...(request.operation === "approve"
+            ? { pairedAt: Date.now() }
+            : previous?.pairedAt
+              ? { pairedAt: previous.pairedAt }
+              : {}),
+          ...(request.operation === "updateGrant" && previous?.push ? { push: previous.push } : {}),
         };
         // 本地确认是期限内的决定；持久写入期间不返回 ready，失败后仍可重试确认。
         if (entry) {
@@ -397,22 +410,15 @@ class RemoteControl {
         entry?.accept(grant);
         break;
       }
-      case "revoke": {
-        const previous = (this.config.deviceGrants ?? []).find(
-          (value) => value.devicePeerId === request.id,
-        );
-        if (!previous) throw new Error("设备未获授权");
-        await this.save({
-          ...this.config,
-          deviceGrants: (this.config.deviceGrants ?? []).map((value) =>
-            value !== previous
-              ? value
-              : { ...previous, status: "revoked", revision: previous.revision + 1 },
-          ),
-        });
-        this.closePeer(request.id);
+      case "revoke":
+        await revokeDevice(this, request.id);
         break;
-      }
+      case "renameDevice":
+        await renameDevice(this, request.id, request.name);
+        break;
+      case "forgetRevoked":
+        await forgetRevoked(this);
+        break;
       default:
         throw new Error("无效手机设置操作");
     }
@@ -435,6 +441,7 @@ class RemoteControl {
         const req = httpsRequest(
           `${relay}/enroll`,
           {
+            ...desktopTlsOptions(),
             method: "POST",
             headers: {
               "content-type": "application/json",
@@ -477,9 +484,9 @@ class RemoteControl {
         );
         const deadline = setTimeout(() => req.destroy(), 15000);
         req.once("close", () => clearTimeout(deadline));
-        req.once("error", () =>
-          reject(pairingError("enrollment-failed", "Relay 登记失败，请检查 HTTPS 和登记码")),
-        );
+        req.once("error", (error) => {
+          reject(pairingError("enrollment-failed", enrollmentFailureMessage(error)));
+        });
         req.end(body);
       });
     } else {
@@ -854,7 +861,7 @@ class RemoteControl {
     for (const entry of Array.from(this.pending.values()))
       entry.reject(pairingError("PAIRING_CANCELLED", "配对已取消"));
   }
-  /** @param {string} peer @param {{displayName:string,inviteSecret?:unknown}} hello @param {{readyState:number,once:(event:"close",listener:()=>void)=>unknown,removeListener:(event:"close",listener:()=>void)=>unknown}} socket @returns {Promise<DeviceGrant>} */
+  /** @param {string} peer @param {{displayName:string,clientKind?:'web'|'ios',inviteSecret?:unknown}} hello @param {{readyState:number,once:(event:"close",listener:()=>void)=>unknown,removeListener:(event:"close",listener:()=>void)=>unknown}} socket @returns {Promise<DeviceGrant>} */
   claim(peer, hello, socket) {
     const invite = this.invite;
     if (!invite) throw pairingError("PAIRING_USED", "邀请已使用或取消");
@@ -880,6 +887,7 @@ class RemoteControl {
       /** @type {PendingPair} */
       const entry = {
         name: hello.displayName.slice(0, 80),
+        ...(hello.clientKind ? { clientKind: hello.clientKind } : {}),
         expiresAt: invite.expiresAt,
         connected: () => socket.readyState === 1,
         accept: (grant) => {
@@ -916,7 +924,9 @@ class RemoteControl {
     this.relayTransport?.close();
     this.relayTransport = new RelayTransport(this);
   }
-  publish() {}
+  publish() {
+    this.push.start();
+  }
   clearChannels() {
     for (const endpoint of Array.from(this.channels.values())) endpoint.terminate();
   }
@@ -939,24 +949,11 @@ class RemoteControl {
     this.closed = true;
     this.disconnect();
     this.sessions.close();
+    this.push.close();
     this.direct?.close();
     this.direct = null;
   }
 }
 /** @typedef {Record<string,unknown>} RemoteSettingsFields */
-/** @typedef {import('../../../packages/workbench/client/desktop-contract/desktop-control.cjs').RemoteRequest} RemoteSettingsRequest */
-/** @param {unknown} value @returns {value is string[]} */
-function strings(value) {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-/** @param {unknown} error @param {string} fallback */
-function failureCode(error, fallback) {
-  return error &&
-    typeof error === "object" &&
-    "code" in error &&
-    typeof error.code === "string" &&
-    error.code
-    ? error.code
-    : fallback;
-}
+/** @typedef {import('@areal/workbench/desktop-contract/desktop-control').RemoteRequest} RemoteSettingsRequest */
 module.exports = { RemoteControl };

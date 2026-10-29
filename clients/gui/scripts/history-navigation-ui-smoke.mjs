@@ -1,5 +1,8 @@
+import { bundleAnalysis } from "./bundle-analysis.mjs";
 import { makeTempDir } from "./support/temp.mjs";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { build } from "vite-plus";
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { readFile, writeFile } from "node:fs/promises";
@@ -9,8 +12,47 @@ import { fileURLToPath } from "node:url";
 const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(join(gui, "app/package.json"));
 const { chromium } = require("playwright-core");
-const dist = process.env.AREAL_RENDERER_DIST || join(gui, "renderer/dist");
 const scratch = await makeTempDir("areal-history-navigation-");
+const root = resolve(gui, "../..");
+const dist = join(scratch, "renderer");
+await build({
+  configFile: false,
+  plugins: [bundleAnalysis()],
+  logLevel: "warn",
+  build: {
+    outDir: join(scratch, "bridge"),
+    lib: {
+      entry: join(gui, "renderer/test-fixtures/history-navigation.ts"),
+      formats: ["iife"],
+      name: "historyNavigationFixture",
+      fileName: () => "fixture.js",
+    },
+  },
+});
+const buildIdentity = JSON.parse(
+  execFileSync(
+    "python3",
+    [
+      join(root, "scripts/verification.py"),
+      "--root",
+      root,
+      "snapshot-renderer",
+      "--source-dir",
+      process.env.AREAL_RENDERER_DIST || join(gui, "renderer/dist"),
+      "--output-dir",
+      dist,
+    ],
+    { encoding: "utf8" },
+  ),
+);
+const bridgeIdentity = JSON.parse(
+  await readFile(join(scratch, "bridge/verification-build.json"), "utf8"),
+);
+assert.equal(
+  bridgeIdentity.inputHash,
+  buildIdentity.inputHash,
+  "Bridge and Renderer must share build inputs",
+);
 const server = createServer(async (request, response) => {
   try {
     const pathname = decodeURIComponent(new URL(request.url, "http://local").pathname);
@@ -51,136 +93,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 960 } });
   page.on("pageerror", (error) => errors.push(error.message));
   const origin = `http://127.0.0.1:${server.address().port}`;
-  await page.addInitScript(() => {
-    const threadId = "synthetic-history";
-    const project = {
-      id: "restore-fixture",
-      root: "/isolated/workspace",
-      state: { connected: false, threads: {}, queues: {}, interactions: {} },
-      models: [],
-      profiles: [],
-      pending: [],
-      summaries: [{ id: threadId, name: "Synthetic history restoration", status: "idle" }],
-      configurations: {},
-      outcomes: {},
-      core: {},
-    };
-    const second = {
-      ...structuredClone(project),
-      id: "second-fixture",
-      root: "/isolated/second",
-      summariesLoaded: false,
-      summaries: [],
-    };
-    const snapshot = {
-      revision: 1,
-      projects: [project, second],
-      connection: { state: "ready" },
-      library: {
-        projects: {
-          "second-fixture": {
-            navigationSummaries: [
-              { id: "second-history", preview: "Second cached history", status: "idle" },
-            ],
-          },
-        },
-        threads: {},
-        settings: {},
-        projectOrder: [],
-      },
-    };
-    let listener,
-      projectionListener,
-      sequence = 0;
-    const publish = () => {
-      snapshot.revision++;
-      listener(structuredClone(snapshot));
-    };
-    const history = (id) => ({
-      id,
-      status: "idle",
-      turns: [
-        {
-          id: id + "-turn",
-          status: "completed",
-          items: [
-            {
-              id: id + "-reply",
-              type: "agentMessage",
-              phase: "final_answer",
-              text: id === threadId ? "RESTORED_HISTORY_SENTINEL" : "SECOND_HISTORY_SENTINEL",
-            },
-          ],
-        },
-      ],
-    });
-    window.calls = [];
-    window.fixture = () => structuredClone(snapshot);
-    localStorage.setItem("areal-gui:project", project.id);
-    localStorage.removeItem("areal-gui:thread:" + project.id);
-    window.creationPending = (method, requestId) => {
-      project.pending.push({
-        method,
-        operation: { requestId, method, target: { kind: "project" } },
-        params: { requestId, sourceThreadId: threadId },
-      });
-      publish();
-    };
-    window.arealDesktop = {
-      snapshot: async () => structuredClone(snapshot),
-      onProjection: (callback) => {
-        projectionListener = callback;
-        listener = (value) =>
-          callback({
-            frame: {
-              projection: 1,
-              stream: "navigation-fixture",
-              sequence: ++sequence,
-              kind: "full",
-              snapshot: value,
-            },
-          });
-        return () => {};
-      },
-      requestProjection: (requestId) =>
-        projectionListener({
-          requestId,
-          frame: {
-            projection: 1,
-            stream: "navigation-fixture",
-            sequence: ++sequence,
-            kind: "full",
-            snapshot: structuredClone(snapshot),
-          },
-        }),
-      setInterfaceLocale: () => {},
-      theme: async () => ({ platform: "darwin", dark: false, id: "light" }),
-      onTheme: () => () => {},
-      onMcpAppEvent: () => () => {},
-      presentReady: async () => {},
-      preview: async () => ({}),
-      command: async (name, params) => {
-        window.calls.push({ name, params });
-        const owner = snapshot.projects.find((item) => item.id === params?.projectId);
-        if (name === "connect") {
-          owner.state.connected = true;
-          owner.core = { connectionGeneration: 1 };
-          publish();
-        }
-        if (name === "open") {
-          owner.state.threads[params.threadId] = history(params.threadId);
-          publish();
-        }
-        if (name === "reconcile")
-          return { ok: true, value: { outcomes: structuredClone(owner.outcomes) } };
-        if (name === "queue") return { ok: true, value: owner.state.queues[params.threadId] };
-        if (name === "workspace") return { ok: true, value: { git: true, branch: "main" } };
-        if (name === "trajectory")
-          return { ok: true, value: { enabled: false, state: "disabled", queue: {}, records: [] } };
-        return { ok: true, value: { data: [] } };
-      },
-    };
-  });
+  await page.addInitScript({ path: join(scratch, "bridge/fixture.js") });
   await page.goto(origin);
   await page.getByTestId("chat-input").waitFor();
   const history = page.getByTestId("task-item-synthetic-history").first();
@@ -227,12 +140,21 @@ try {
   assert.deepEqual(errors, []);
   assert.deepEqual(failures, []);
   passed = true;
+} catch (error) {
+  failures.push(error.stack ?? String(error));
+  throw error;
 } finally {
+  const cleanup = await Promise.allSettled([
+    browser?.close(),
+    new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
+  ]);
+  for (const result of cleanup)
+    if (result.status === "rejected") failures.push(String(result.reason));
+  passed = passed && failures.length === 0;
   await writeFile(
     join(scratch, "result.json"),
-    JSON.stringify({ passed, checks, errors, failures }, null, 2),
+    JSON.stringify({ passed, buildIdentity, checks, errors, failures }, null, 2),
   );
-  await browser?.close();
-  await new Promise((resolve) => server.close(resolve));
   console.log(JSON.stringify({ passed, scratch, checks, errors, failures }));
+  if (!passed) process.exitCode = 1;
 }

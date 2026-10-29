@@ -436,7 +436,7 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(remote.state().directEnabled, true);
   const invitationStarted = Date.now();
-  await desktop.getByRole("button", { name: "生成配对链接", exact: true }).click();
+  await desktop.getByRole("button", { name: "添加设备", exact: true }).click();
   const payload = await desktop
     .getByRole("textbox", { name: "配对链接", exact: true })
     .inputValue();
@@ -479,7 +479,7 @@ try {
     name === "remote.json"
       ? Promise.reject(new Error("fixture disk failure"))
       : originalSave(name, value);
-  await approval.getByRole("button", { name: "确认配对", exact: true }).click();
+  await approval.getByRole("button", { name: "允许连接", exact: true }).click();
   await desktop
     .getByRole("alert")
     .getByText(/fixture disk failure/)
@@ -488,7 +488,7 @@ try {
   assert.equal((await remote.control({ operation: "status" })).deviceGrants.length, 0);
   assert.match(await page.locator("#status").textContent(), /等待桌面确认/);
   backend.save = originalSave;
-  await approval.getByRole("button", { name: "确认配对", exact: true }).click();
+  await approval.getByRole("button", { name: "允许连接", exact: true }).click();
 
   await page
     .locator("#status")
@@ -507,23 +507,33 @@ try {
   );
   await desktop.screenshot({ path: join(scratch, "desktop-pairing.png") });
   await page.screenshot({ path: join(scratch, "remote-pairing.png") });
-  await desktop.locator(".remote-device-management > summary").click();
-  const grant = desktop.getByRole("group", { name: `授权设备 ${pending[0].id}` });
+  // 设备行的“更多”菜单承载修改权限与撤销；撤销需要在对话框里再确认一次。
+  const deviceMenu = desktop.getByRole("button", { name: /的更多操作$/ }).first();
+  const revokeFromMenu = async () => {
+    await deviceMenu.click();
+    await desktop.getByRole("menuitem", { name: "撤销访问" }).click();
+    await desktop.getByRole("dialog").getByRole("button", { name: "撤销访问" }).click();
+  };
   backend.save = (name, value) =>
     name === "remote.json"
       ? Promise.reject(new Error("fixture revoke failure"))
       : originalSave(name, value);
-  await grant.getByRole("button", { name: "撤销访问" }).click();
+  await revokeFromMenu();
   await desktop
+    .getByRole("dialog")
     .getByRole("alert")
     .getByText(/fixture revoke failure/)
     .waitFor();
+  await desktop.getByRole("dialog").getByRole("button", { name: "取消" }).click();
   assert.equal((await remote.control({ operation: "status" })).deviceGrants[0].status, "active");
   assert.equal(await page.locator("#projects li").count(), 2);
   backend.save = originalSave;
+  await deviceMenu.click();
+  await desktop.getByRole("menuitem", { name: "修改项目与权限" }).click();
+  const grant = desktop.getByRole("group", { name: `授权设备 ${pending[0].id}` });
   await grant.getByLabel("second-project", { exact: true }).uncheck();
   await grant.getByRole("radio", { name: "仅查看", exact: true }).check();
-  await grant.getByRole("button", { name: "保存授权" }).click();
+  await grant.getByRole("button", { name: "保存", exact: true }).click();
   await page
     .locator("#status")
     .getByText(/已断开/)
@@ -539,8 +549,7 @@ try {
   assert.deepEqual((await remote.control({ operation: "status" })).deviceGrants[0].projectIds, [
     projectId,
   ]);
-  await desktop.locator(".remote-device-management > summary").click();
-  await grant.getByRole("button", { name: "撤销访问" }).click();
+  await revokeFromMenu();
   await page
     .locator("#status")
     .getByText(/已断开/)
@@ -588,7 +597,7 @@ try {
   for (const target of racers) assert.equal(await target.locator("#projects li").count(), 0);
   await desktop
     .getByRole("group", { name: `确认设备 ${claims[0].id}` })
-    .getByRole("button", { name: "拒绝配对" })
+    .getByRole("button", { name: "拒绝", exact: true })
     .click();
   checks.push(
     "wrong pin does not consume invitation; concurrent browser claims have one winner and neither auto-authorizes",

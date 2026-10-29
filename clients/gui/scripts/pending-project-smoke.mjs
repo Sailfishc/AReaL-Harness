@@ -9,7 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applicationFixture } from "./application-fixture.mjs";
 import { assertApplicationStopped, closeSmokeApplication } from "./application-cleanup.mjs";
-import { captureSmokeFailure, createProjectConversation } from "./smoke-navigation.mjs";
+import { captureSmokeFailure } from "./smoke-navigation.mjs";
 import { respondToSessionName } from "./model-fixture.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -181,6 +181,16 @@ if (process.argv.includes('--areal-core-service')) {
   const submission = SubmissionRecovery.prototype.requestSubmission;
   SubmissionRecovery.prototype.requestSubmission = async function(project, method, params) {
     const control = loss();
+    if (${recoveryNotices} && control?.armed && control.beforeDispatch && control.method === method) {
+      if (project.root !== ${JSON.stringify(workspace)} || !Number.isSafeInteger(project.service?.corePid))
+        throw new Error('Fixture may kill only its own workspace Core');
+      fs.writeFileSync(${JSON.stringify(`${responseLossPath}.next`)}, JSON.stringify({ ...control, armed: false,
+        requestId: params.requestId, owner: project.id, originalBinding: params.creationAdmission }));
+      fs.renameSync(${JSON.stringify(`${responseLossPath}.next`)}, ${JSON.stringify(responseLossPath)});
+      trace({ kind: 'not-dispatched', owner: project.id, method, params });
+      process.kill(project.service.corePid, 'SIGKILL');
+      throw Object.assign(new Error('Fixture Core exited before dispatch'), { submissionUnknown: true, requestId: params.requestId });
+    }
     const result = await submission.call(this, project, method, params);
     if (${recoveryNotices} && control?.armed && control.method === method) {
       fs.writeFileSync(${JSON.stringify(`${responseLossPath}.next`)}, JSON.stringify({ ...control, armed: false, requestId: params.requestId, owner: project.id, result }));
@@ -202,23 +212,30 @@ if (process.argv.includes('--areal-core-service')) {
     trace({ kind: 'desktop-result', name, request });
     return result;
   };
+  const instrumentClient = (project, client) => {
+    if (!client || client.__pendingTrace) return;
+    const request = client.request.bind(client);
+    client.request = async (method, params, ...options) => {
+      trace({ owner: project.id, method, params });
+      const result = await request(method, params, ...options);
+      const control = loss();
+      if (method === 'areal/request/read' && control?.hold && control.requestId === params.requestId) {
+        trace({ kind: 'receipt-hidden', owner: project.id, method, params });
+        return { ...result, data: [] };
+      }
+      return result;
+    };
+    client.__pendingTrace = true;
+  };
+  const receipt = SubmissionRecovery.prototype.readReceipt;
+  SubmissionRecovery.prototype.readReceipt = function(project, entry, client, ...options) {
+    instrumentClient(project, client);
+    return receipt.call(this, project, entry, client, ...options);
+  };
   const connect = CoreBackend.prototype.connect;
   CoreBackend.prototype.connect = async function(project, ...args) {
     const result = await connect.call(this, project, ...args);
-    if (!project.client.__pendingTrace) {
-      const request = project.client.request.bind(project.client);
-      project.client.request = async (method, params, ...options) => {
-        trace({ owner: project.id, method, params });
-        const result = await request(method, params, ...options);
-        const control = loss();
-        if (method === 'areal/request/read' && control?.hold && control.requestId === params.requestId) {
-          trace({ kind: 'receipt-hidden', owner: project.id, method, params });
-          return { ...result, data: [] };
-        }
-        return result;
-      };
-      project.client.__pendingTrace = true;
-    }
+    instrumentClient(project, project.client);
     return result;
   };
 }
@@ -242,7 +259,7 @@ const manifest = {
   binary,
   coreSHA256: sha(await readFile(binary)),
   fixtureBoundary:
-    "Synthetic legacy pending journal, registered linked worktree owner, and binding seeded before startup; no original mutation was executed. Native project picker, retention confirmation and quit confirmation injected. Recovery-notices mode also drops one Desktop submission response after real Core admission and temporarily hides that exact request's real receipt, controlled by response-loss.json; all mutations reach real Core unchanged.",
+    "Synthetic legacy pending journal, registered linked worktree owner, and binding seeded before startup; no original mutation was executed. Native project picker, retention confirmation and quit confirmation injected. Recovery-notices mode also drops one Desktop submission response after real Core admission and temporarily hides that exact request's real receipt, controlled by response-loss.json; all dispatched mutations reach real Core unchanged. The retired-instance case kills only the fixture Core after Desktop pending persistence and before RPC dispatch.",
   scope:
     "Source Electron Renderer → preload/Main → Desktop → real Core with deterministic local model; no real provider, package, physical input or native picker acceptance",
 };
@@ -266,6 +283,16 @@ let app,
 const state = () => page.evaluate(() => window.arealDesktop.snapshot());
 const logical = (snapshot) => snapshot.projects.find((project) => project.id === projectId);
 const button = (name) => page.getByRole("button", { name, exact: true });
+// 本专项使用按钮的真实键盘入口；侧栏鼠标命中问题另留失败证据。
+const createProjectConversation = async (page, projectName) => {
+  const create = page.getByRole("button", {
+    name: `在项目 ${projectName} 中新建对话`,
+    exact: true,
+  });
+  await create.focus();
+  await create.press("Enter");
+  await page.getByTestId("chat-input").waitFor();
+};
 const call = async (name, params) => {
   const result = await page.evaluate(
     ({ name, params }) => window.arealDesktop.command(name, params),
@@ -343,7 +370,7 @@ try {
     );
     await button("定时任务").click();
     const checkStart = (await trace()).length;
-    await button("新建自动化").click();
+    await button("新建定时任务").click();
     await until(
       async () =>
         (await trace())
@@ -390,7 +417,7 @@ try {
         .some((call) => call.kind === "desktop-command" && call.name === "create"),
       "Leaving unknown creation never creates or replays a request",
     );
-    await button("新建自动化").click();
+    await button("新建定时任务").click();
     await page.getByTestId("chat-input").waitFor();
     await until(
       async () =>
@@ -472,13 +499,21 @@ try {
   manifest.skillEnabled = await skillSwitch.isEnabled();
   await capture("02-plugin-management");
   assert.equal(
-    await button("核对项目操作").isVisible(),
-    false,
-    "Unrelated historical creation recovery is collapsed in plugin management",
+    await page.getByText("历史会话创建记录（待核对）", { exact: true }).count(),
+    0,
+    "Unrelated creation records are absent from plugin management",
   );
-  await page.getByText("历史会话创建记录（待核对）", { exact: true }).click();
+  assert.equal(
+    await button("核对项目操作").count(),
+    0,
+    "Plugin management has no unrelated project recovery action",
+  );
+  await button("设置").click();
+  await button("后台服务").click();
+  await page.getByRole("heading", { name: "待核对的会话创建", exact: true }).waitFor();
+  await page.getByText(requestId, { exact: false }).waitFor();
   const beforeCheck = (await trace()).length;
-  await button("核对项目操作").click();
+  await button("检查操作状态").click();
   await until(
     async () =>
       (await trace())
@@ -487,6 +522,7 @@ try {
     "explicit GUI reconciliation complete",
   );
   await until(async () => !(await button("正在核对项目操作…").count()), "project check complete");
+  await button("检查操作状态").scrollIntoViewIfNeeded();
   await capture("03-checked-unknown");
   const checkCalls = (await trace()).slice(beforeCheck);
   await json(join(evidence, "project-check-calls.json"), checkCalls);
@@ -535,6 +571,16 @@ try {
       !manifest.checkOwners.includes(projectId),
       "Original receipt is never read from logical owner",
     );
+    await page
+      .getByRole("navigation", { name: "应用导航", exact: true })
+      .getByRole("button", { name: "插件", exact: true })
+      .click();
+    await page
+      .getByRole("tablist", { name: "市场范围", exact: true })
+      .getByRole("tab", { name: "个人", exact: true })
+      .click();
+    await button(`查看插件 ${pluginId}`).click();
+    await button("管理").click();
     await skillSwitch.click();
     await until(async () => !(await skillSwitch.isChecked()), "Skill disabled through GUI");
     let detail = await call("manage", { projectId, operation: "plugin", id: pluginId });
@@ -799,6 +845,71 @@ try {
       assert.equal(requests.length, 1, "Retaining live creation does not send its draft");
       checks.push(
         "Retaining live UNKNOWN releases the active creation owner while preserving original pending and unsent text",
+      );
+    }
+    if (recoveryNotices) {
+      await createProjectConversation(page, "workspace");
+      const stateDirectory = join(env.AREAL_CORE_HOME, projectId, "state");
+      const threadFiles = async () =>
+        (await readdir(stateDirectory)).filter((name) => /^[0-9a-f-]{36}\.json$/.test(name)).sort();
+      const before = await threadFiles();
+      const modelCount = requests.length;
+      const originalText = "Core exited before dispatch; keep this draft unsent";
+      await setResponseLoss({ armed: true, beforeDispatch: true, method: "areal/thread/start" });
+      await page.getByTestId("chat-input").fill(originalText);
+      await button("发送").click();
+      const lost = await until(async () => {
+        const loss = JSON.parse(await readFile(responseLossPath, "utf8"));
+        return !loss.armed && loss.beforeDispatch && loss;
+      }, "Core killed before original creation dispatch");
+      assert.ok(lost.originalBinding?.journalEpoch && lost.originalBinding?.coreInstanceId);
+      await until(
+        async () =>
+          logical(await state()).outcomes?.[lost.requestId]?.admissionState === "notAdmitted",
+        "retired original instance is proven not admitted after guarded Core replacement",
+      );
+      const current = logical(await state());
+      assert.equal(current.outcomes[lost.requestId].accepted, false);
+      assert.equal(
+        current.pending.some((item) => item.params.requestId === lost.requestId),
+        false,
+      );
+      await until(
+        async () => button("发送").isEnabled(),
+        "proven rejection unlocks retained draft",
+      );
+      assert.equal(await page.getByTestId("chat-input").innerText(), originalText);
+      assert.deepEqual(await threadFiles(), before, "recovery creates no new Thread");
+      assert.equal(requests.length, modelCount, "no automatic model request or draft send");
+      const calls = await trace();
+      assert.equal(
+        calls.filter(
+          (item) =>
+            item.owner === projectId &&
+            item.method === "areal/thread/start" &&
+            item.params?.requestId === lost.requestId &&
+            item.kind !== "not-dispatched",
+        ).length,
+        0,
+        "original request never reaches Core or gets replayed",
+      );
+      assert.ok(
+        calls.some(
+          (item) =>
+            item.method === "areal/request/read" &&
+            item.params?.requestId === lost.requestId &&
+            item.params?.creationAdmission?.coreInstanceId === lost.originalBinding.coreInstanceId,
+        ),
+      );
+      manifest.notAdmittedCreation = {
+        requestId: lost.requestId,
+        originalBinding: lost.originalBinding,
+        outcome: current.outcomes[lost.requestId],
+        modelCount,
+      };
+      await capture("09-retired-creation-not-admitted");
+      checks.push(
+        "Real Core SIGKILL before dispatch is reconciled as notAdmitted after guarded replacement; original text survives with no creation or model replay",
       );
     }
     await createProjectConversation(page, "workspace");

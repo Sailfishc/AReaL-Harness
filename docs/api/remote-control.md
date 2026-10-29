@@ -6,9 +6,9 @@
 
 ## 已实现边界：RC-01/RC-02/RC-03/RC-04/RC-05/RC-06/RC-07/RC-08/RC-10/RC-11/RC-13
 
-当前实现开发用的加密 Direct 与本地确认配对：默认关闭的独立 `127.0.0.1` 监听器、可选择记住的浏览器身份、Host pin 校验、v2 hello，以及 `host.describe` / `project.list` / `work.list` / `attention.list` / `session.open` / `session.history` / `subscription.close` / `session.create` / `session.send` / `turn.stop` / `attention.read` / `interaction.respond` / `task.question.read` / `task.question.reply` / `task.read` / `task.pause` / `review.read` / `artifact.read` / `command.read`。可信桌面已接入 Serve、可选 Funnel 范围切换和组织 HTTPS 来源配置（Funnel 公网能力未认证），具体见 C11；实际 Tailscale/组织代理、手机真机验收以及其余方法仍需后续证据；Relay 已接入同一 Host/PWA 协议，源码与本机严格 TLS 夹具覆盖见 C12。本页的完整 P0 契约不代表这些能力已经可用。
+当前实现开发用的加密 Direct 与本地确认配对：默认关闭的独立 `127.0.0.1` 监听器、可选择记住的浏览器身份、Host pin 校验、v2 hello，以及 `host.describe` / `project.list` / `project.models` / `work.list` / `attention.list` / `session.open` / `session.history` / `subscription.close` / `session.create` / `session.send` / `turn.stop` / `attention.read` / `interaction.respond` / `task.question.read` / `task.question.reply` / `task.read` / `task.pause` / `review.read` / `artifact.read` / `command.read` / `device.push.register` / `device.push.unregister`。可信桌面已接入 Serve、可选 Funnel 范围切换和组织 HTTPS 来源配置（Funnel 公网能力未认证），具体见 C11；实际 Tailscale/组织代理、手机真机验收以及其余方法仍需后续证据；Relay 已接入同一 Host/PWA 协议，源码与本机严格 TLS 夹具覆盖见 C12。本页的完整 P0 契约不代表这些能力已经可用。
 
-桌面生成 120 秒一次性链接（开发模式为 loopback HTTP），fragment 携带 `host` 和 `invite`。浏览器立即移除邀请，仅保留校验后的公开 `host` pin 和可选 Relay `room`，在 Noise 验证 Host 后才发送 `inviteSecret`，收到 `pairing` 后等待本地确认。可信本地 `remoteControl` 支持 `pair/cancelPair/approve/reject/updateGrant/revoke`；确认与更新提供设备 `id`、显式已有项目 `projects` 及 `preset: Observer|Operator`。桌面展示完整 Noise peer 指纹与项目选择，复制/粘贴链接可代替扫码。本地确认必须在截止前作出，确认后的持久写入成功才返回 ready；写入失败不授予新权限。传输建立的 15 秒期限在收到 pairing 后结束；人工确认继续由 Host 的 120 秒邀请期限及取消/拒绝结果约束。
+桌面生成 120 秒一次性链接（开发模式为 loopback HTTP），fragment 携带 `host` 和 `invite`。浏览器立即移除邀请，仅保留校验后的公开 `host` pin 和可选 Relay `room`，在 Noise 验证 Host 后才发送 `inviteSecret`，收到 `pairing` 后等待本地确认。可信本地 `remoteControl` 支持 `pair/cancelPair/approve/reject/updateGrant/revoke/renameDevice/forgetRevoked`；确认与更新提供设备 `id`、显式已有项目 `projects` 及 `preset: Observer|Operator`。桌面展示完整 Noise peer 指纹与项目选择，复制/粘贴链接可代替扫码。本地确认必须在截止前作出，确认后的持久写入成功才返回 ready；写入失败不授予新权限。传输建立的 15 秒期限在收到 pairing 后结束；人工确认继续由 Host 的 120 秒邀请期限及取消/拒绝结果约束。
 
 加密 `remote.json` 保存 Host identity 与 `deviceGrants`，包含 `devicePeerId/displayName/projectIds/capabilities/revision/status`。范围更新或撤销先持久保存，再关闭该设备旧连接。当前实现的能力为 `observe`、`review`、`submit`、`interrupt`、`answer` 和 `pauseTask`，ready 与 host.describe 只返回和当前授权的交集；Operator 的既有 `pauseTask` 与 `review` 一样按当前授权交集公告；Observer 或不含该能力的旧授权不会得到它。旧 `devices` 保留身份和项目并进入 `reviewRequired`，旧写客户端只能得到升级要求；迁移保存失败保留原文件并关闭入口。安全存储不可用或使用 `basic_text` 时拒绝启用。浏览器默认仅本次使用；配对前明确选择“记住此设备”后，在已验证 Host 的 ready 后将身份、Host pin 与校验后的公开 Relay room 原子保存到该 origin 的同一 IndexedDB 记录。缺少 room 的旧记录保持 Direct 语义；根页面或 manifest 启动先恢复该 room，再选择传输。相同 Host 重新登记到新 room 时，仅在再次验证 pin 并收到 ready 后原子更新公开 room 与 revision；失败不会替换原绑定，清除此设备同时清除此路由元数据。保存失败不会宣称记住成功。
 
@@ -112,7 +112,7 @@ Task Inbox 直接打开问题与 Core 选项，不要求选择协调 Session；�
 
 ## C1. 传输、身份与版本
 
-业务协议运行在既有 libp2p Noise 安全通道内。握手库负责身份、随机数、nonce、AEAD 和重放防护，不自行实现加密。保留现有安全通道的 `areal.remote.v1` prologue 兼容标记；**它不是本文应用版本**。加密后的首条 hello 明确提出 `apiVersion: "areal.remote.v2"`，不支持时返回 PROTOCOL_UNSUPPORTED，不回退旧写协议。
+业务协议运行在既有 libp2p Noise 安全通道内。握手库负责身份、随机数、nonce、AEAD 和重放防护，不自行实现加密。保留现有安全通道的 `areal.remote.v1` prologue 兼容标记；**它不是本文应用版本**。加密后的首条 hello 明确提出 `apiVersion: "areal.remote.v2"`，不支持时返回 PROTOCOL_UNSUPPORTED，不回退旧写协议。hello 接受可选 `clientKind: "web" | "ios"`，其他值返回 `INVALID_PARAMS`。这是客户端声明的展示元数据，只在本地批准配对时保存，不提供授权。设置将缺省值显示为 Web 浏览器，重连不更新已保存的类型。
 
 Direct 使用专用 WebSocket `/remote/socket`；同一低权限监听器只提供 PWA 静态文件、非敏感健康信息和该加密入口。Relay 复用 room/channel 的字节承载语义，外层 `areal.relay.v1` 不解释业务方法。生产只允许 HTTPS/WSS，开发仅允许 loopback HTTP/WS。
 
@@ -126,7 +126,7 @@ ready 返回 `hostId, gatewayGeneration, connectionId, apiVersion, grantRevision
 
 配对状态为 created → claimed → awaitingLocalApproval → approved，或 expired/rejected/cancelled。claim 原子消费邀请，攻击者抢先 claim 最多造成拒绝服务，不能自动获得授权。桌面确认设备名、指纹、已有项目与能力后，先持久保存授权再返回 ready。名称是用户可伪造的描述，指纹才用于身份核对。
 
-DeviceGrant 包含 `devicePeerId, displayName, projectIds, capabilities, revision, status`。projectIds 是当前已保存项目的显式集合，不默认包含未来项目。状态 active/reviewRequired/revoked。两个预设：
+DeviceGrant 包含 `devicePeerId, displayName, projectIds, capabilities, revision, status` 和可选 `clientKind: "web" | "ios"`、`pairedAt`、`revokedAt`（毫秒时间戳）。确认配对时，与其他未撤销设备同名的 displayName 会加序号（如 `Chrome · macOS (2)`）；浏览器默认上报“浏览器 · 系统”。`renameDevice` 只改桌面展示名，不增加 revision、不断开连接；`forgetRevoked` 删除全部已撤销设备记录及其推送命令。状态接口另给出运行时字段 `online` 与 `lastSeenAt`（本次运行内的最近连接时间，不持久化）。projectIds 是当前已保存项目的显式集合，不默认包含未来项目。状态 active/reviewRequired/revoked。两个预设：
 
 | 预设 | 能力 |
 |---|---|
@@ -176,6 +176,7 @@ Host 的远程管理、配对批准、配置、终端与权限记忆不属于这
 |---|---|---|---|
 | host.describe | observe | 无敏感 Host 信息与连接能力 | Gateway 元数据 |
 | project.list | observe | cursor?, limit?；仅授权已有项目 | 桌面 Project 登记投影 |
+| project.models | observe | 空 params；context.projectId | 已在线项目的模型目录投影，不创建会话或订阅 |
 | work.list | observe | filter: all/active/attention, cursor?, limit? | 新只读 areal/work/overview |
 | attention.list | observe | cursor?, limit?；不带完整工具参数 | overview attention 投影 |
 | attention.read | observe | threadId, turnId, interactionId, cursor?；原同步交互 | 有界 interaction/list 与审阅凭据 |
@@ -191,7 +192,9 @@ Host 的远程管理、配对批准、配置、终端与权限记忆不属于这
 | task.pause | pauseTask | taskId, expectedRunId, expectedRevision | areal/task/pause，增加可选 expectedRunId 原子校验 |
 | review.read | review | threadId, turnId, itemId?, cursor?, limit? | 专用 thread/read + 既有历史 Runtime 写入重建 |
 | artifact.read | review | artifactRef, offset, length | 只读取已授权所属 Thread/Turn 的 blob |
-| command.read | 原命令能力 | commandId | 已有关联 + 原生收据；observeOnly |
+| device.push.register | observe | platform: apns, token, environment；无 context | Host 加密设备授权中的推送注册 |
+| device.push.unregister | observe | 空 params；无 context | 删除本设备推送注册 |
+| command.read | 原命令能力；设备推送为 observe | commandId；项目操作带 context，设备推送不带 | 已有关联 + 原生收据；设备推送读 Host 收据 |
 | subscription.close | observe | subscriptionId | 仅释放本客户端观察 |
 
 所有写方法必须 commandId。session.create 默认创建空闲普通会话；Host 默认 Profile 绑定 Workflow 时不自动启动该 Workflow，应返回 UNSUPPORTED_PROFILE 并提示本地选择可用普通 Profile。项目未在线/不兼容时不通过远程 create 隐式启动服务。
@@ -201,6 +204,18 @@ Host 的远程管理、配对批准、配置、终端与权限记忆不属于这
 Task-owned Thread 的普通 send 和 turn.stop 均拒绝，返回 TASK_CONTROL_REQUIRED，避免 Task 的下一轮自动续跑被当作停止失败。Task 暂停走明确的 task.pause。
 
 普通发送新增可选原生 `admissionGuard: {configRevision, ordinarySession: true}`；Core 在同一Thread准入锁内检查配置版本及当前执行所有权，再冻结本轮配置。ordinarySession按现有引擎所有权判断，不按“历史上是否出现过Task”判断；历史已结算Task本身不是新的执行所有者。旧本地调用可省略。新Remote使用该guard，Core声明 `features.turnStartAdmissionGuard`；缺失时禁止新Remote发送，不用Gateway预读冒充原子条件。既有busy、队列、权限、归档与UNKNOWN检查照常执行。
+
+`project.models` 为加法只读方法，由 `ready.methods` 与 `host.describe.methods` 声明。返回 `{projectId,gatewayGeneration,grantRevision,serviceGeneration,models}`，只使用现有在线项目与 provider 目录，复用 `session.open` 的模型裁剪。最多返回 200 项，仅包含 `providerId,modelId,displayName,reasoningEffortOptions,available,unavailableReason`，不含 provider 配置或凭据，响应超过 128 KiB 返回 `LIMIT_EXCEEDED`。离线返回 `CORE_UNAVAILABLE`，不启动 Core、不创建 Thread、不改变订阅。读取与发布时均检查当前项目授权和服务代际；该目录不代表新会话的默认配置，创建后仍须 `session.open` 获取配置 revision。旧 Host 不声明此方法，客户端不能自行推断模型目录。
+
+### 设备推送注册与通知
+
+`device.push.register` 与 `device.push.unregister` 是 Host 范围写入，必须带 UUID `commandId`，不能带项目 context。注册参数为 `{platform:"apns",token,environment:"production"|"development"}`；token 为 64 至 200 位十六进制。注册要求当前 Relay 公告推送能力，否则返回 `RESOURCE_UNAVAILABLE`。注销使用空 `params:{}`。结果为 `{registered:true|false}`。注册不改变 grantRevision，更新授权保留 token，撤销设备删除 token。token 随既有 `remote.json` 加密保存，公开 Host 状态显示 `pushSupported`，设备投影只显示 `pushRegistered`。
+
+Host 将注册结果与设备授权在同一次加密保存中提交，并以设备身份、commandId 和语义摘要保存推送收据。同键同语义返回原结果，异语义返回 `COMMAND_CONFLICT`。无 context 的 `command.read {params:{commandId}}` 仅查询当前认证设备的推送收据，并重新检查当前 observe 授权。已知结果返回 `{commandId,method,admissionState:"accepted",submissionUnknown:false,receipt:{registered}}`，未找到返回 `{commandId,admissionState:"notFound",submissionUnknown:true}`。丢失响应或本地清理失败只核对原命令，不重发；notFound 不证明未执行。Host 最多保留 4096 条收据，容量满拒绝新的设备推送写入，包括注销，不驱逐待核对记录。项目操作继续使用带 context 的既有 Core journal。
+
+通知发送器复用 RemoteControl 与原生会话观察。只为已注册推送设备获授权的在线项目工作，每 5 秒扫描 attention，每项目每轮最多 8 次有界读取，每次最多读取 4 页原生概览。第一次完整扫描只建立基线，原生 attentionRef 去重上限 4096。仅审批、同步问题、Task 异步问题触发通知；不完整基线、容量耗尽或不可用读取可能遗漏通知。第一条立即投递，同项目 30 秒内继续使用相同 collapse ID 并更新计数。发送时重新核对项目、能力、token 和连接状态，设备有活动 Direct 或 Relay 连接时不推送。
+
+轮次通知只跟踪本设备既有 session.send journal 中精确的 threadId/turnId 或 queueItemId。最多 16 个推送观察占用既有原生订阅预算，UI 观察关闭后仍可等待原轮次终态，重开 UI 重新取得基线。队列只按同一 queueItemId 绑定的 turnId 跟踪，不推断最新轮次。已经终态的启动基线不补发，旧轮次不在有界基线、队列项已移除、观察容量满或服务代际改变时可能遗漏。撤销、离线或关闭会释放观察。Relay 不可用、限流或发送预算不足时丢弃本次通知，不排队重试。真实 APNs 与锁屏投递尚需设备验收，Relay 边界见 C12。
 
 ## C5. 概览的最小 Core 扩展
 
@@ -323,20 +338,36 @@ HTTP 仅接受当前 loopback 或已配置 HTTPS 来源的精确 Host；WebSocke
 
 `pair` 可选 `transport: "direct" | "relay"`（默认 Direct）；Relay 需要已连接。链接只包含公开 origin、Host pin、room 和 120 秒邀请。生产 PWA 先通过统一 wire 工厂完成 Relay client 注册与 ready-channel，再进入相同 Noise、hello、授权和业务路径。Host 只拥有一个 session acceptor、观察器和设备/握手预算；撤销与缩小范围同时关闭两种传输。共享上限为 16 个连接、8 个未完成握手、每设备 2 个连接，以及各 8 MiB 的 Host 收发积压；Relay 每通道发送积压 1 MiB、每块原始字节最多 49152，含 base64 的外层 JSON 不超过 512 KiB。通道公平排出，慢设备只关闭自身通道。
 
-Host 的 Relay `ready` 必须携带精确 `limits: {framesPerSecond, bytesPerSecond, maxFrameBytes, heartbeatIntervalMs}`；Client 的 ready-channel 格式不变。旧服务缺少该声明、声明无效或额度不足以保留心跳并承载数据时，Host 停止自动重试并报告限额/协议不可用，不猜测默认上限；管理员调整服务后在桌面显式重新启用。服务仍接受原有低额度配置，不为 Host 自动放宽运营策略。
+Host 的 Relay `ready` 必须携带精确 `limits: {framesPerSecond, bytesPerSecond, maxFrameBytes, heartbeatIntervalMs}`，并可加 `push:boolean` 表示 APNs 能力。缺少 `push` 的旧服务按不支持处理；Client 的 ready-channel 格式不变。旧服务缺少 limits、限额声明无效或额度不足以保留心跳并承载数据时，Host 停止自动重试并报告限额/协议不可用，不猜测默认上限；管理员调整服务后在桌面显式重新启用。服务仍接受原有低额度配置，不为 Host 自动放宽运营策略。
 
-Host 在登记后跨过一秒窗口，再由同一有界队列按实际 JSON/base64 字节平滑排出 data 与 close；每块不超过服务字节额度的四分之一、总发送速率至多其四分之三，帧速率额外保留自动 pong 和窗口边界余量。通道轮转与 close 交替，缓冲计数包含关闭中的已接受字节和待发送 close。正常 close 只排出已接受的有界字节并在 15 秒内结束；撤销、授权缩小、网络来源/连接代际变化、积压超限和非法入站数据立即 terminate 丢弃，不能在失效后发送队列。
+Host 在登记后跨过一秒窗口，再由同一有界队列按实际 JSON/base64 字节平滑排出 data 与 close；每块不超过服务字节额度的四分之一、总发送速率至多其四分之三，帧速率额外保留自动 pong 和窗口边界余量。通道轮转与 close 交替，缓冲计数包含关闭中的已接受字节和待发送 close。正常 close 只排出已接受的有界字节并在 15 秒内结束；接收端先按序交付已接收的有界字节，再报告读取结束，确保与 close 同批到达的拒绝响应仍可读取；撤销、授权缩小、网络来源/连接代际变化、积压超限和非法入站数据立即 terminate 丢弃，不能在失效后发送队列。
 
 Relay 或 Host 重连关闭旧通道，重新建立应用 connection 与读取基线，不重放业务命令。同一登记被新 Host 连接替换时，旧连接停止自动重试，必须在可信桌面显式重新启用。Relay 只承载字节与存活/背压，Direct 继续拥有 HTTP、静态资源、精确 Host/Origin 和 heartbeat。
 
 
 单实例 Relay 配置公开 origin、允许 Web origins、数据卷与本地管理入口。管理命令在服务器本地生成 256 位一次性 Host enrollment code，10 分钟过期，服务端只存 hash；不存在公开无认证的管理 HTTP 页面。Host 用 HTTPS 登记一次，获得/登记自己的 capability；长期凭据保留 Host 安全存储，不进入 QR。
 
+Relay 的 `allowedClientOrigins` 继续只接受 Web origin。可选 `allowedAppOrigins` 默认为 `[]`；原生 App 部署可显式设为 `["capacitor://localhost"]`。每项必须是精确的 `scheme://host`，scheme 不能是 `http`、`https`、`ws`、`wss`；拒绝空 host、凭据、端口、路径（含结尾斜杠）、查询、fragment、空白与百分号编码。WebSocket upgrade 和 client 注册都要求 Origin 精确命中两份列表之一；无 Origin 只允许证明登记凭据的 Host，不能注册为 Client。自定义 scheme 的 `URL.origin` 可以是 `null`，因此按已验证的完整字符串比较。原生 App 可以伪造 Origin，Origin 不提供身份或执行授权；Host 身份仍由 Noise pin 验证，权限仍由 Host DeviceGrant 决定。
+
 保留既有 room = SHA-256(capability) 方案。Relay 数据库存允许 room、登记状态与限额；Host 出站连接以 capability 证明可占有该 room，新连接必须替换同一合法 Host 的旧连接而非允许其他 room 劫持。Client 仅提供不可枚举的 room，Relay 不把它当执行授权。Noise pin 和 Host DeviceGrant 决定最终权限。
 
-Relay 外层只处理 host/client 注册、ready/open/data/close/error。Host 的 data 必须属于该 Host 的 room/channel；Client 只能收发自身 channel。Host 离线返回明确不可用，不排队保存业务命令。并发/字节/握手限流同样作用于尚未完成 Noise 的连接；错误不泄露其他 room 是否存在。
+Relay 外层处理 host/client 注册、ready/open/data/close/error，以及可选的 Host push/pushResult。Host 的 data 必须属于该 Host 的 room/channel；Client 只能收发自身 channel。Host 离线返回明确不可用，不排队保存业务命令。并发/字节/握手限流同样作用于尚未完成 Noise 的连接；错误不泄露其他 room 是否存在。
 
 SQLite 只保存登记元数据和消费过的 enrollment hash；连接映射在内存，正常重启由端点重连恢复。备份恢复流程则默认禁用所有恢复的Host登记，要求管理员重新登记/复核，不把过旧撤销记录当最新授权。TLS 反向代理、Relay 和静态 PWA均提供源码和可重建发布物；P0 不需要 Redis、集群、SSO 或计费服务。日志只留时间、随机 route ID、字节计数、错误类型，不记录 payload、token、邀请、项目名或 prompt。
+
+### Relay APNs 转发
+
+支持推送的 Host 在 WebSocket upgrade 中发送 `X-Areal-Relay-Capabilities: push`。只有这些 Host 收到可选 ready `push` 字段与 `pushResult`，旧 Host 保持原消息结构。旧 Relay 忽略请求头并省略 `push`，表示不可用。请求头仅声明解码能力，不替代已登记的 Host capability。
+
+可选 `apns` 配置包含 `teamId`、`keyId`、`keyFile`、`bundleId` 和 `maxPerHostPerMinute`。team/key ID 为 10 位大写字母或数字，Bundle ID 为最多 255 字符的点分标识。服务启动从配置路径读取 P-256 `.p8` 密钥；管理命令不读取密钥。省略 `apns` 时，已声明推送能力的 Host ready 返回 `push:false`，不发起 APNs 连接。配置示例和密钥只读挂载见 [Relay README](../../services/remote-relay/README.md)。
+
+已证明登记凭据并拥有当前 room 的 Host 可以发送 `{"type":"push","token":"…","environment":"production","collapseId":"…","kind":"attention","count":1,"target":{"projectId":"…","threadId":"…","attentionRef":"…"}}`。token 为 64 至 200 位十六进制，environment 只接受 `production` 或 `development`，collapseId 非空且最多 64 UTF-8 字节，count 为正安全整数。kind 只接受 `attention`、`turnCompleted`、`turnFailed`。可选 target 只含可选 projectId、threadId、attentionRef，各为非空且最多 256 UTF-8 字节的不透明字符串。未知字段、非法参数和 Client push 按 `INVALID_FRAME` 关闭连接。既有帧大小、字节与速率预算先于 push 路由执行。
+
+Relay 生成标题 `AReaL`，attention 正文为“电脑上有 N 项需要你确认”，完成为“你在手机上发起的会话已完成”，失败为“你在手机上发起的会话没有完成”。Host 不能提供通知文案。APNs JSON 只含固定 `aps.alert`、默认提示音和可选顶层 target，不含项目名、会话标题、提示词或工具参数。配置的 bundleId 成为 `apns-topic`，请求使用 `apns-push-type:alert`、优先级 10 和 collapse ID。生产端点为 `https://api.push.apple.com`，开发端点为 `https://api.sandbox.push.apple.com`；TestFlight 使用生产端点。ES256 JWT 缓存 50 分钟。
+
+每个已登记 room 每分钟默认最多 60 条推送，可配置 1 至 600，Host 重连不重置当前分钟计数。最多同时 32 个请求，每个请求有 10 秒绝对截止。Relay 不排队或重试。超额返回已有 `error LIMIT_EXCEEDED`，未配置返回 `error UNAVAILABLE`，均保留健康 Host 连接。APNs `410 Unregistered` 回给当前 Host `{"type":"pushResult","token":"…","status":"unregistered"}`；其余投递状态仅记脱敏日志。日志只含时间、随机 route ID、kind 与状态码，不含 token、target、原始请求或 APNs 错误正文。关闭服务会关闭所有 APNs 会话。
+
+`services/remote-relay` 的 `npm test` 使用临时生成密钥、本机 TLS HTTP/2、真实 WebSocket 和 CLI 登记验证转发边界。真实 APNs 投递与 iOS 锁屏行为需另外验收。
 
 ## C13. Web 信任与存储
 

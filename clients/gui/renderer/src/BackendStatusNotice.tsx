@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Button } from "./components/ui/button.js";
 import { FeedbackNotice } from "./FeedbackNotice.js";
-import { toast, type ToastTone } from "./components/ui/toast.js";
+import { dismissToast, toast, type ToastTone } from "./components/ui/toast.js";
 import { useI18n, type MessageId } from "./i18n/IntlProvider.js";
 import type { Snapshot } from "./services.js";
 
@@ -19,7 +19,15 @@ export type BackendStatusProps = {
   onAction: (action: BackendStatusAction) => void;
 };
 
-function backendPresentation({ connection, update, lifecycle, summary, currentCommands, error, detail }: BackendStatusProps) {
+function backendPresentation({
+  connection,
+  update,
+  lifecycle,
+  summary,
+  currentCommands,
+  error,
+  detail,
+}: BackendStatusProps) {
   let message: Extract<MessageId, `backend.${string}`>;
   let diagnostic: string | undefined;
   let tone: ToastTone = "warning";
@@ -32,16 +40,27 @@ function backendPresentation({ connection, update, lifecycle, summary, currentCo
   } else if (lifecycle?.recovery) {
     message = "backend.operationUnconfirmed";
     diagnostic = error || lifecycle.recovery.message;
-    action = 'check';
-  } else if (lifecycle?.phase === "completed" && lifecycle.desktopExit === "requested"
-    && ["updateDesktop", "stopDesktop"].includes(lifecycle.kind ?? "")) {
+    action = "check";
+  } else if (
+    lifecycle?.phase === "completed" &&
+    lifecycle.desktopExit === "requested" &&
+    ["updateDesktop", "stopDesktop"].includes(lifecycle.kind ?? "")
+  ) {
     const updateCompleted = lifecycle.kind === "updateDesktop";
     message = updateCompleted ? "backend.updateStopped" : "backend.stoppedConfirmed";
     diagnostic = error;
     tone = "info";
     action = updateCompleted ? "update" : "reconnect";
-  } else if (lifecycle?.phase && ["acceptedPending", "admissionUnconfirmed", "partial", "settlementIncomplete"].includes(lifecycle.phase)) {
-    message = lifecycle.phase === "acceptedPending" ? "backend.operationPending" : "backend.operationUnconfirmed";
+  } else if (
+    lifecycle?.phase &&
+    ["acceptedPending", "admissionUnconfirmed", "partial", "settlementIncomplete"].includes(
+      lifecycle.phase,
+    )
+  ) {
+    message =
+      lifecycle.phase === "acceptedPending"
+        ? "backend.operationPending"
+        : "backend.operationUnconfirmed";
     diagnostic = error || lifecycle.message;
     action = "check";
   } else if (connection?.recovery === "check") {
@@ -81,11 +100,26 @@ function backendPresentation({ connection, update, lifecycle, summary, currentCo
     diagnostic = error || detail;
     action = "status";
   }
-  const retryUpdate = action === "check" && lifecycle?.kind === "updateDesktop"
-    && lifecycle.desktopExit !== "requested" && lifecycle.targets !== undefined
-    && lifecycle.targets.every(target => ["completed", "blocked", "settlementIncomplete"].includes(target.phase))
-    && ["partial", "settlementIncomplete", "acceptedPending"].includes(lifecycle.phase ?? "");
-  const notify = message !== "backend.reconnecting" && message !== "backend.updatePending" && message !== "backend.checkState" && message !== "backend.stopped";
+  const retryUpdate =
+    action === "check" &&
+    lifecycle?.kind === "updateDesktop" &&
+    lifecycle.desktopExit !== "requested" &&
+    lifecycle.targets !== undefined &&
+    lifecycle.targets.every((target) =>
+      ["completed", "blocked", "settlementIncomplete"].includes(target.phase),
+    ) &&
+    ["partial", "settlementIncomplete", "acceptedPending"].includes(lifecycle.phase ?? "");
+  const notify =
+    !!action &&
+    ![
+      "backend.reconnecting",
+      "backend.updatePending",
+      "backend.checkState",
+      "backend.stopped",
+      "backend.stoppedConfirmed",
+      "backend.updating",
+      "backend.operationPending",
+    ].includes(message);
   return { message, diagnostic, tone, action, retryUpdate, notify };
 }
 
@@ -94,20 +128,32 @@ export function BackendStatusNotice(props: BackendStatusProps) {
   const presentation = backendPresentation(props);
   const message = presentation?.message;
   const tone = presentation?.tone;
-  const key = presentation?.notify ? `${props.lifecycle?.requestId ?? ""}:${presentation.message}` : "";
-  const last = useRef("");
+  const key = presentation?.notify
+    ? `${props.lifecycle?.requestId ?? ""}:${presentation.message}`
+    : "";
+  const onAction = useRef(props.onAction);
+  onAction.current = props.onAction;
   useEffect(() => {
-    if (!key || !message || !tone) { last.current = ""; return; }
-    if (last.current === key) return;
+    if (!key || !message || !tone) return;
     const announce = () => {
-      last.current = key;
-      toast(t(message), tone);
+      toast(t(message), tone, {
+        key: `backend:${key}`,
+        actions: (
+          <Button variant="ghost" size="sm" onClick={() => onAction.current("status")}>
+            {t("recovery.checkSettings")}
+          </Button>
+        ),
+      });
     };
     if (message === "backend.unavailable") {
       const timer = window.setTimeout(announce, 1200);
-      return () => window.clearTimeout(timer);
+      return () => {
+        window.clearTimeout(timer);
+        dismissToast(`backend:${key}`);
+      };
     }
     announce();
+    return () => dismissToast(`backend:${key}`);
   }, [key, message, tone, t]);
   return null;
 }
@@ -120,16 +166,59 @@ export function BackendServiceStatus(props: BackendStatusProps) {
   const { lifecycle, pending, update, onAction } = props;
   const applying = action === "update" && (pending || update?.state === "applying");
   // 后台设置页的操作状态和控件属于页面内容，不能随操作通知消失。
-  return <div data-testid="backend-service-status"><FeedbackNotice transient={false} tone={tone} message={t(applying ? "backend.updating" : message)}
-    detail={diagnostic} actions={<>
-    {lifecycle?.recovery && <Button type="button" variant="outline" size="sm" disabled={pending} onClick={() => onAction("recover")}>
-      {t("backend.recover")}
-    </Button>}
-    {retryUpdate && <Button type="button" variant="outline" size="sm" disabled={pending || update?.state === "applying"} onClick={() => onAction("update")}>
-      {t("backend.update")}
-    </Button>}
-    {action && action !== "status" && <Button type="button" variant="outline" size="sm" disabled={pending || update?.state === "applying"} onClick={() => onAction(action)}>
-      {t(applying ? "backend.updatingAction" : action === "update" ? "backend.update" : action === "check" ? "backend.check" : "backend.reconnect")}
-    </Button>}
-  </>} /></div>;
+  return (
+    <div data-testid="backend-service-status">
+      <FeedbackNotice
+        transient={false}
+        tone={tone}
+        message={t(applying ? "backend.updating" : message)}
+        detail={diagnostic}
+        actions={
+          <>
+            {lifecycle?.recovery && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                onClick={() => onAction("recover")}
+              >
+                {t("backend.recover")}
+              </Button>
+            )}
+            {retryUpdate && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={pending || update?.state === "applying"}
+                onClick={() => onAction("update")}
+              >
+                {t("backend.update")}
+              </Button>
+            )}
+            {action && action !== "status" && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={pending || update?.state === "applying"}
+                onClick={() => onAction(action)}
+              >
+                {t(
+                  applying
+                    ? "backend.updatingAction"
+                    : action === "update"
+                      ? "backend.update"
+                      : action === "check"
+                        ? "backend.check"
+                        : "backend.reconnect",
+                )}
+              </Button>
+            )}
+          </>
+        }
+      />
+    </div>
+  );
 }

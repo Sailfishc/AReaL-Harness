@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import { resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,6 +15,21 @@ const anchor = (text) =>
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\p{M}_\-\s]/gu, "")
     .replace(/\s/g, "-");
+
+// 规则正文末尾的“**检查：**”声明它由哪个测试或脚本保证；登记表的 check 字段由 --write 从这里生成。
+export function declaredCheck(text) {
+  const match = /\*\*检查：\*\*\s*(?:`([^`]+)`|(人工 review))/.exec(text);
+  return match ? (match[1] ?? "review") : undefined;
+}
+const ruleTitle = (text) =>
+  text
+    .replace(/\*\*[^*]+\*\*[\s\S]*$/, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/`/g, "")
+    .replace(/^[A-Z]+(?:-[A-Z]+)+-\d{2}[：:]\s*/, "")
+    .split(/[。；]/)[0]
+    .trim()
+    .slice(0, 60);
 
 export function ruleBlocks(document) {
   const blocks = [];
@@ -73,6 +88,7 @@ export function validateRuleDocuments({
   inventory,
   registry,
   structuredSources = new Map(),
+  refresh = false,
 }) {
   assert.equal(registry.schemaVersion, 1, "unsupported rule registry version");
   const index = new Map(inventory.map((item) => [item.path, item]));
@@ -112,6 +128,18 @@ export function validateRuleDocuments({
     if (["archived", "generated", "redirect"].includes(item.status)) continue;
     for (const block of ruleBlocks(document)) {
       if (block.id) {
+        if (refresh && !rules.has(block.id)) {
+          // 新规则由脚本登记；强度默认 default，需要 must 时在登记表里改强度。
+          const rule = {
+            id: block.id,
+            title: ruleTitle(block.text),
+            owner: `${path}#${block.section}`,
+            strength: "default",
+            textSha256: digest(block.text),
+          };
+          registry.rules.push(rule);
+          rules.set(rule.id, rule);
+        }
         assert.ok(rules.has(block.id), `unknown rule definition: ${block.id}`);
         definitions.set(block.id, [...(definitions.get(block.id) ?? []), { ...block, path }]);
       }
@@ -158,12 +186,37 @@ export function validateRuleDocuments({
             .map((block) => ({ ...block, path }))
         : (definitions.get(rule.id) ?? []);
     assert.equal(found.length, 1, `definition count for ${rule.id}: ${found.length}`);
-    assert.equal(found[0].path, path, `wrong owner for ${rule.id}`);
+    // 规则 ID 在正文里唯一定义，owner 跟随定义所在的文件与章节，由 --write 同步。
+    if (
+      refresh &&
+      rule.locator !== "paragraph" &&
+      !documents.get(found[0].path).includes(`<a id="${fragment}"></a>`)
+    )
+      rule.owner = `${found[0].path}#${found[0].section}`;
+    const [ownerPath, ownerFragment] = rule.owner.split("#");
+    assert.equal(found[0].path, ownerPath, `wrong owner for ${rule.id}`);
     assert.ok(
-      found[0].section === fragment || documents.get(path).includes(`<a id="${fragment}"></a>`),
+      found[0].section === ownerFragment ||
+        documents.get(ownerPath).includes(`<a id="${ownerFragment}"></a>`),
       `owner anchor mismatch: ${rule.owner}`,
     );
-    assert.equal(digest(found[0].text), rule.textSha256, `wording hash mismatch: ${rule.id}`);
+    const check = declaredCheck(found[0].text);
+    if (refresh) {
+      if (rule.textSha256 !== digest(found[0].text)) rule.title = ruleTitle(found[0].text);
+      rule.textSha256 = digest(found[0].text);
+      if (check) rule.check = check;
+      else delete rule.check;
+    }
+    assert.equal(
+      rule.check,
+      check,
+      `check mismatch: ${rule.id}; 正文的“检查：”改动后运行 node scripts/design-rules.mjs --write`,
+    );
+    assert.equal(
+      digest(found[0].text),
+      rule.textSha256,
+      `wording hash mismatch: ${rule.id}; 正文改动后运行 node scripts/design-rules.mjs --write`,
+    );
   }
   const entryBytes = registry.entryDocuments.reduce((total, path) => {
     assert.ok(documents.has(path), `missing entry document: ${path}`);
@@ -224,7 +277,7 @@ export async function collectDesignRuleMetrics({ root = repository } = {}) {
   };
 }
 
-export async function verifyDesignRules({ root = repository } = {}) {
+export async function verifyDesignRules({ root = repository, write = false } = {}) {
   const registry = JSON.parse(
     await readFile(resolve(root, "clients/gui/design-system/rule-registry.json"), "utf8"),
   );
@@ -265,8 +318,29 @@ export async function verifyDesignRules({ root = repository } = {}) {
       ].map(async (path) => [path, JSON.parse(await readFile(resolve(root, path), "utf8"))]),
     ),
   );
-  return validateRuleDocuments({ documents, inventory, registry, structuredSources });
+  // 规则 ID 定义的正文摘要由本脚本生成，不手算；--write 只刷新已能唯一定位的定义。
+  const result = validateRuleDocuments({
+    documents,
+    inventory,
+    registry,
+    structuredSources,
+    refresh: write,
+  });
+  // 声明的检查必须真实存在，并在文件里写明规则 ID，让规则与测试可以互相追溯。
+  for (const rule of registry.rules.filter((rule) => rule.check && rule.check !== "review")) {
+    const target = await readFile(resolve(root, rule.check), "utf8").catch(() => null);
+    assert.ok(target !== null, `missing check for ${rule.id}: ${rule.check}`);
+    assert.ok(target.includes(rule.id), `${rule.check} does not mention ${rule.id}`);
+  }
+  if (write)
+    await writeFile(
+      resolve(root, "clients/gui/design-system/rule-registry.json"),
+      JSON.stringify(registry, null, 2) + "\n",
+    );
+  return result;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url))
-  console.log(JSON.stringify(await verifyDesignRules(), null, 2));
+  console.log(
+    JSON.stringify(await verifyDesignRules({ write: process.argv.includes("--write") }), null, 2),
+  );

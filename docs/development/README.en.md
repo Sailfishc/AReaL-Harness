@@ -4,6 +4,14 @@
 
 Read the [architecture](../design/architecture.en.md), [repository instructions](../../AGENTS.md) and [agent improvement goals and method](agent-improvement.en.md) first. Run commands from the repository root.
 
+The [T3 Code quality design](t3code-quality-design.en.md) describes implemented protocol replay, controlled ordering, projection consistency, local checks, and GUI derivation caching with their acceptance boundaries. See the [testing guide](testing.en.md) for commands.
+
+## Concurrent changes and final acceptance
+
+Before editing, check `git status --short`, the current branch, and ownership of existing worktrees. If another writing task is active in the checkout, reuse this task's isolated worktree or create a `codex/` worktree from an explicit committed base. The owning task must commit or explicitly hand off uncommitted changes; a momentarily clean checkout does not establish that no writer is active.
+
+Build in the selected worktree before final acceptance. Keep the instance's sources, dependencies, and output fixed until it exits; use another worktree for further development or builds. Browser acceptance should consume private static artifacts. Measurements that require Vite development mode run serially in an isolated, frozen worktree so type generation or builds cannot trigger HMR. See [verification artifacts and startup diagnostics](testing.en.md#local-verification-artifacts-and-startup-diagnostics) for commands and evidence.
+
 ## Environment
 
 | Dependency | Requirement |
@@ -47,6 +55,7 @@ GUI acceptance cleanup checks reuse the product's native Core launcher and query
 |---|---|
 | Formatting | `make fmt` / `make fmt-check` |
 | Static analysis | `make lint` |
+| Change-scoped local checks | `make check-changed CI_BASE=<ref>`; `ARGS=--plan` prints the plan, with selected-check outcomes and unavailable prerequisites reported separately |
 | Rust / SDK / scripts | `make test` / `make sdk-test` / `make script-test` |
 | Regular regression | `make verify` |
 | Native integration | `make verify-harness`, including regular regression |

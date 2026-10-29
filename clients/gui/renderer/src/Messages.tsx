@@ -1,3 +1,13 @@
+import { observeResize } from "@areal/ui/observe-resize";
+import { PendingMessageView } from "./UserMessageBody.js";
+import {
+  readingViews,
+  hydrateReadingViews,
+  saveReadingViews,
+  type ResponseSpace,
+  type ReadingAnchor,
+} from "./readingViews.js";
+import { usePendingMessage } from "./pendingMessage.js";
 import type {
   ConversationSelectionReference,
   ConversationSelectionContentType,
@@ -14,6 +24,7 @@ import { McpContentLabel } from "./McpComposerAttachments.js";
 import { useForkHistory } from "./ForkHistory.js";
 import { DeferredHistoryItem, useConversationHistory } from "./ConversationHistory.js";
 import { UnknownToolInspection } from "./UnknownToolInspection.js";
+import { showTurnStatus } from "./toolInspection.js";
 import { TurnNavigation } from "./TurnNavigation.js";
 import {
   executionOutcome,
@@ -55,7 +66,7 @@ import { ImageAnnotationList } from "./ImageAnnotationViews.js";
 import { sentBrowserAnnotations } from "./browserAnnotations.js";
 import { SentReviewComments } from "./ReviewCommentViews.js";
 import { ScheduledTaskCards } from "./ScheduledTasks.js";
-import { TurnFileSummary } from "./TurnFileSummary.js";
+import { TurnChangesPill, TurnFileSummary } from "./TurnFileSummary.js";
 import type { Data, Action } from "./services.js";
 type TranscriptSelectionSnapshot = {
   owner: string;
@@ -67,111 +78,6 @@ type TranscriptSelectionSnapshot = {
   rect: DOMRect;
   provenance: { kind: "userQuote" } | { kind: "itemRange"; startUtf8: number; endUtf8: number };
 };
-type ResponseSpace = { turnId: string; height: number; contentHeight: number };
-type ReadingAnchor = { turnId: string; itemId: string; blockIndex: number | null; offset: number };
-type ReadingView = {
-  top: number;
-  following: boolean;
-  atTail: boolean;
-  responseSpace?: ResponseSpace;
-  anchor?: ReadingAnchor;
-};
-type ReadingCheckpoint = {
-  owner: string;
-  position: { kind: "latest" } | { kind: "reading"; anchor: ReadingAnchor };
-};
-const readingCheckpointKey = "areal-gui:reading-views:v1";
-const readingCheckpointLimit = 64 * 1024;
-const readingViews = new Map<string, ReadingView>();
-let readingViewsHydrated = false;
-let savedReadingCheckpoint: string | null = null;
-function checkpointRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function checkpointId(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && value.length <= 1024;
-}
-function hydrateReadingViews() {
-  if (readingViewsHydrated) return;
-  readingViewsHydrated = true;
-  try {
-    const raw = window.sessionStorage.getItem(readingCheckpointKey);
-    if (!raw || raw.length > readingCheckpointLimit) return;
-    const checkpoint: unknown = JSON.parse(raw);
-    if (
-      !checkpointRecord(checkpoint) ||
-      checkpoint.version !== 1 ||
-      !Array.isArray(checkpoint.views) ||
-      checkpoint.views.length > 32
-    )
-      return;
-    for (const entry of [...checkpoint.views].reverse()) {
-      if (
-        !checkpointRecord(entry) ||
-        typeof entry.owner !== "string" ||
-        entry.owner.length > 4096 ||
-        !checkpointRecord(entry.position)
-      )
-        continue;
-      const identity: unknown = JSON.parse(entry.owner);
-      if (
-        !Array.isArray(identity) ||
-        identity.length !== 3 ||
-        !checkpointId(identity[0]) ||
-        !checkpointId(identity[1]) ||
-        identity[2] !== false
-      )
-        continue;
-      const owner = JSON.stringify(identity);
-      const position = entry.position;
-      if (position.kind === "latest")
-        readingViews.set(owner, { top: 0, following: true, atTail: true });
-      else if (position.kind === "reading" && checkpointRecord(position.anchor)) {
-        const { turnId, itemId, blockIndex, offset } = position.anchor;
-        if (
-          !checkpointId(turnId) ||
-          !checkpointId(itemId) ||
-          typeof offset !== "number" ||
-          !Number.isFinite(offset) ||
-          Math.abs(offset) > 1_000_000 ||
-          (blockIndex !== null &&
-            (typeof blockIndex !== "number" ||
-              !Number.isInteger(blockIndex) ||
-              blockIndex < 0 ||
-              blockIndex > 1_000_000))
-        )
-          continue;
-        readingViews.set(owner, {
-          top: 0,
-          following: false,
-          atTail: false,
-          anchor: { turnId, itemId, blockIndex, offset },
-        });
-      }
-    }
-    savedReadingCheckpoint = raw;
-  } catch {}
-}
-function saveReadingViews() {
-  try {
-    const views: ReadingCheckpoint[] = [];
-    for (const [owner, view] of [...readingViews].reverse()) {
-      const position: ReadingCheckpoint["position"] | undefined = view.following
-        ? { kind: "latest" }
-        : view.anchor && { kind: "reading", anchor: view.anchor };
-      if (!position) continue;
-      const entry = { owner, position };
-      if (JSON.stringify({ version: 1, views: [...views, entry] }).length > readingCheckpointLimit)
-        continue;
-      views.push(entry);
-      if (views.length === 32) break;
-    }
-    const serialized = JSON.stringify({ version: 1, views });
-    if (serialized === savedReadingCheckpoint) return;
-    window.sessionStorage.setItem(readingCheckpointKey, serialized);
-    savedReadingCheckpoint = serialized;
-  } catch {}
-}
 function readingBlocks(item: HTMLElement) {
   return [...(item.querySelector<HTMLElement>(".conversation-markdown")?.children ?? [])].filter(
     (element): element is HTMLElement => element instanceof HTMLElement,
@@ -243,6 +149,7 @@ export function Messages({
   onAddSelection,
   responseActions,
   embedded = false,
+  showTurnNavigation = true,
   readOnly = false,
   decisionShown = false,
   afterTurns,
@@ -255,6 +162,7 @@ export function Messages({
   onOpenResult?: (source: McpResultSource) => Promise<void>;
   resultStates?: Record<string, McpResultState>;
   embedded?: boolean;
+  showTurnNavigation?: boolean;
   readOnly?: boolean;
   /** The host renders this thread's pending decision cards (Composer); the transcript tail then does not repeat the wait. */
   decisionShown?: boolean;
@@ -281,6 +189,15 @@ export function Messages({
   readTurnReview: (turnId: string, itemId?: string) => Promise<Data>;
 }) {
   const { t } = useI18n();
+  const outgoing = usePendingMessage(`areal-gui:draft:${project.id}:${localThread.id}`);
+  const outgoingVisible =
+    !readOnly &&
+    outgoing &&
+    !(localThread.turns ?? []).some((turn: Data) =>
+      (turn.items ?? []).some(
+        (item: Data) => item.type === "userMessage" && !outgoing.previousUserIds.includes(item.id),
+      ),
+    );
   hydrateReadingViews();
   const inherited = useForkHistory(project.id, localThread, action);
   const history = useConversationHistory(project.id, localThread, action);
@@ -935,11 +852,12 @@ export function Messages({
     // File summaries, disclosures and Markdown/media resize independently of
     // Core snapshots. Reuse this reading owner; no new store or execution loop.
     // Resize notifications run before paint; a new frame exposes the old tail.
-    const resize = new ResizeObserver(layout);
-    resize.observe(element);
-    if (element.firstElementChild) resize.observe(element.firstElementChild);
+    const stopObserving = observeResize(
+      element.firstElementChild ? [element, element.firstElementChild] : element,
+      layout,
+    );
     return () => {
-      resize.disconnect();
+      stopObserving();
       element.removeEventListener(progressAutoCollapse, autoCollapse);
       element.removeEventListener("wheel", wheel);
       element.removeEventListener("pointerdown", cancelPendingReading);
@@ -970,7 +888,7 @@ export function Messages({
   });
   return (
     <div className={embedded ? "messages-embedded" : "messages-shell"}>
-      {!embedded && (
+      {!embedded && showTurnNavigation && (
         <TurnNavigation
           key={owner}
           turns={thread.turns ?? []}
@@ -1029,7 +947,10 @@ export function Messages({
           embedded
             ? undefined
             : (event) => {
-                if (event.clientX >= event.currentTarget.getBoundingClientRect().right - 16)
+                if (
+                  event.pointerType === "touch" ||
+                  event.clientX >= event.currentTarget.getBoundingClientRect().right - 16
+                )
                   scrollbarReading.current = event.currentTarget.scrollTop;
               }
         }
@@ -1086,17 +1007,15 @@ export function Messages({
           {history.failure && !history.failure.itemId && (
             <div>
               <p role="alert">{history.failure.message}</p>
-              {localThread.displayHistory?.latestTurnComplete === false && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={localThread.displayHistory.loadingLatest}
-                  onClick={() => void history.load()}
-                >
-                  {t("recovery.retryView")}
-                </Button>
-              )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={localThread.displayHistory.loadingLatest}
+                onClick={() => void history.load()}
+              >
+                {t("recovery.retryView")}
+              </Button>
             </div>
           )}
           {thread.desktop?.archived && (
@@ -1465,7 +1384,6 @@ export function Messages({
                       <TurnExecution
                         key={item.id}
                         items={item.items}
-                        live={turn.status === "inProgress" && item === segments.at(-1)}
                         turn={turn}
                         project={project}
                         threadId={thread.id}
@@ -1631,16 +1549,14 @@ export function Messages({
                   </p>
                 )}
                 {hasInterruption && stopHeaderIndex < 0 && stopHeading}
-                {turn.status !== "inProgress" &&
-                  !hasInterruption &&
-                  !(turn.status === "completed" && hasReadingSummary) && (
-                    <div className="turn-status">
-                      {({ completed: "已完成", interrupted: "已停止", failed: "执行失败" } as Data)[
-                        turn.status
-                      ] ?? turn.status}
-                      {turn.error ? `：${turnFailureMessage(turn)}` : ""}
-                    </div>
-                  )}
+                {showTurnStatus(turn, hasInterruption, hasReadingSummary) && (
+                  <div className="turn-status">
+                    {({ completed: "已完成", interrupted: "已停止", failed: "执行失败" } as Data)[
+                      turn.status
+                    ] ?? turn.status}
+                    {turn.error ? `：${turnFailureMessage(turn)}` : ""}
+                  </div>
+                )}
                 {!finalMessage &&
                   turn.status !== "inProgress" &&
                   turn.items?.some(
@@ -1660,6 +1576,7 @@ export function Messages({
               </section>
             );
           })}
+          {outgoingVisible && <PendingMessageView message={outgoing} />}
           {afterTurns}
         </div>
         {!embedded && (
@@ -1712,7 +1629,20 @@ export function Messages({
           </PopoverContent>
         </Popover>
       )}
-      {!embedded && readingHistory && <TimelineBottomButton onClick={returnToBottom} />}
+      {!embedded && (
+        <>
+          {/* 时间线在 Composer 上沿渐隐，提示上方还有内容；不拦截指针（CONV-PROCESS-01）。 */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-1 h-(--conversation-fade) bg-linear-to-b from-transparent to-background"
+          />
+          {/* 运行中的改动小条与“滚动到底部”并排居中；空时不占位也不拦截指针。 */}
+          <div className="timeline-float pointer-events-none absolute bottom-3 left-1/2 z-3 flex -translate-x-1/2 items-center gap-(--spacing-inline) *:pointer-events-auto">
+            <TurnChangesPill turn={thread.turns?.at(-1)} onReview={onReview} />
+            {readingHistory && <TimelineBottomButton onClick={returnToBottom} />}
+          </div>
+        </>
+      )}
     </div>
   );
 }

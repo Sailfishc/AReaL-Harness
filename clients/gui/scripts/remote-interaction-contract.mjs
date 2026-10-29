@@ -10,6 +10,7 @@ const { InteractionReviews } = require("../app/src/core/remote-interactions.cjs"
 const { SessionObservers } = require("../app/src/core/remote-session-observer.cjs");
 const { CoreBackend } = require("../app/src/core/backend.cjs");
 const { sessionCommand } = require("../app/src/core/remote-session-commands.cjs");
+const { RemotePush } = require("../app/src/core/remote-push.cjs");
 const home = await makeTempDir("rc07-contract-");
 const checks = [];
 const defer = () => {
@@ -78,6 +79,7 @@ async function fixture(name) {
     crypto: { identityId: () => "h" },
     gatewayGeneration: "gw",
   };
+  remote.push = new RemotePush(remote);
   const connection = {
     connectionId: "c",
     peer: "a",
@@ -176,6 +178,7 @@ async function check(name, test) {
     checks.push(name);
   } finally {
     f.observers.close();
+    f.remote.push.close();
   }
 }
 await check("bounded-authoritative-detail-preserves-session", async (f) => {

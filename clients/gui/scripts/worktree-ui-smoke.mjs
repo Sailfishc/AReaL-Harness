@@ -51,6 +51,7 @@ const action=async(name,params={})=>{
  window.fixtureCalls.push({name,params});
  if(name==='manage'&&params.operation==='inheritedHistory')return {snapshotId:'fixture-snapshot',complete:true,data:fixtureTurn('ancestor','Inherited ancestor prompt').items.map(item=>({sourceTurnId:'ancestor',sourceTurnStatus:'completed',sourceItemId:item.id,item}))};
  if(name==='create'&&params.requestId&&window.fixturePending)return {threadId:'fresh-created'};
+ if(window.fixtureRecovery&&name==='reconcile')return {outcomes:{}};
  if(window.fixtureRecovery)throw Object.assign(new Error('Original request still uncertain'),{submissionUnknown:true,requestId:params.requestId});
  if(window.fixtureFail)throw new Error('Fixture directory unavailable');
  if(params.operation==='worktreeOptions'&&window.fixtureHoldOptions)await new Promise(resolve=>{window.fixtureResolveOptions=resolve;});
@@ -69,8 +70,8 @@ function Fixture(){
  window.setFixtureAppearance=({dark,size,reducedMotion})=>{setDark(dark);document.documentElement.classList.toggle('dark',dark);document.documentElement.style.setProperty('--ui-font-size',size+'px');document.documentElement.style.fontSize=size+'px';setApplicationPreferences({contentSize:size,reducedMotion:reducedMotion?'on':'off'});};
  if(params.has('messages')){const kind=params.get('messages');const thread={id:'worktree-thread',conversation:kind==='inherited'?{kind:'fork',historySeed:{snapshotId:'fixture-snapshot'}}:undefined,turns:[fixtureTurn('local-own',kind==='partial'?'Later paginated local prompt':'First own local prompt')],displayHistory:{supported:kind==='partial',complete:kind!=='partial',latestTurnComplete:true},worktree:{state:'ready',directory:'/fixture/new-trees/task-proof',branch:'areal/gui-proof'}};return <main className='h-full bg-background p-6 text-foreground'><Messages project={project} thread={thread} action={action} dark={dark} embedded readOnly onLink={()=>{}} onFile={()=>{}} onReview={()=>{}} readTurnReview={async()=>({})}/></main>;}
  if(params.has('toast'))return <main className='p-6'><button onClick={()=>setEvents(events=>[...events,{}])}>更新快照</button><FeedbackNotice requestId='same-request' tone={events.length>2?'error':'warning'} message='正在核对操作' actions={<button onClick={()=>window.fixtureCalls.push({name:'check'})}>核对通知</button>}/><FeedbackNotice requestId='same-request' tone={events.length>2?'error':'warning'} message='正在核对操作' actions={<button onClick={()=>window.fixtureCalls.push({name:'check'})}>核对通知</button>}/></main>;
- if(params.has('unrelated-pending'))return <main className='p-6'><DraftComposer project={project} backendReady draftKey='fixture-draft' action={action} onOpen={async()=>{}} onPanel={()=>{}} /></main>;
- if(window.fixtureRecovery)return <main className='p-6'><DraftComposer project={{...project,state:{connected:false}}} draftKey='fixture-draft' action={action} onOpen={async(pid,tid)=>window.fixtureCalls.push({name:'opened',params:{projectId:pid,threadId:tid}})} onPanel={()=>{}} /></main>;
+ if(params.has('unrelated-pending'))return <main className='p-6'><DraftComposer project={project} backendReady draftKey='fixture-draft' action={action} readAction={action} onOpen={async()=>{}} onPanel={()=>{}} /></main>;
+ if(window.fixtureRecovery)return <main className='p-6'><DraftComposer project={{...project,state:{connected:false}}} draftKey='fixture-draft' action={action} readAction={action} onOpen={async(pid,tid)=>window.fixtureCalls.push({name:'opened',params:{projectId:pid,threadId:tid}})} onPanel={()=>{}} /></main>;
  if(params.has('settings'))return <main className='h-full bg-background text-foreground'><UnsavedChangesProvider><SettingsPage title='Worktrees'><WorktreesSettings action={action} projects={listing.projects} onAddProject={async()=>{window.fixtureCalls.push({name:'addProject',params:{}});return undefined;}}/></SettingsPage></UnsavedChangesProvider></main>;
  if(params.has('sidebar'))return <main className='w-80 max-w-full p-3'><ul><MemoTaskItem id='ordinary' title='Ordinary conversation' active={false} pinned={false} running={false} attention={false} archived={false} disabled={false} onSelect={()=>{}} onRename={()=>{}} onPin={()=>{}} onArchive={()=>{}}/><MemoTaskItem id='bound' title='A long conversation title remains the primary sidebar content' worktree={{branch:'areal/a-very-long-branch-name',directory:'/fixture/new-trees/task-proof',state:'ready'}} active={true} pinned={false} unread={true} running={false} attention={false} archived={false} disabled={false} onSelect={()=>{}} onRename={()=>{}} onPin={()=>{}} onArchive={()=>{}}/><MemoTaskItem id='running' title='Running worktree conversation' worktree={{branch:'areal/gui-proof',directory:'/fixture/new-trees/task-proof',state:'settingUp'}} active={false} pinned={false} running={true} attention={false} archived={false} disabled={false} onSelect={()=>{}} onRename={()=>{}} onPin={()=>{}} onArchive={()=>{}}/></ul></main>;
  if(params.has('actions'))return <main className='p-6'><WorktreeActions projectId='logical' threadId='bound' worktree={{branch:'areal/gui-proof',directory:'/fixture/new-trees/task-proof'}} action={action}/></main>;
@@ -83,7 +84,15 @@ const vite = await createServer({
   root: join(gui, "renderer"),
   configFile: join(gui, "renderer/vite.config.ts"),
   mode: "design-system",
-  server: { host: "127.0.0.1", port: 0 },
+  // 虚拟夹具入口不在 HTML 扫描范围内，显式预构建它使用的 CommonJS 契约子路径。
+  optimizeDeps: {
+    include: Object.keys(
+      JSON.parse(await readFile(join(gui, "packages/workbench/package.json"), "utf8")).exports,
+    )
+      .filter((name) => name.startsWith("./desktop-contract/"))
+      .map((name) => `@areal/workbench/${name.slice(2)}`),
+  },
+  server: { host: "127.0.0.1", port: 0, hmr: false, watch: null },
   plugins: [
     {
       name: "worktree-production-fixture",
@@ -148,8 +157,8 @@ try {
       "page must not overflow horizontally",
     );
   const trigger = () => page.getByRole("button", { name: "新会话工作区", exact: true });
-  const branch = () => page.getByRole("button", { name: "起始分支", exact: true });
-  const environment = () => page.getByRole("button", { name: "项目环境", exact: true });
+  const branch = () => page.getByRole("button", { name: /^起始分支/ });
+  const environment = () => page.getByRole("button", { name: /项目环境/ });
   const messagesAcceptance = async () => {
     await page.goto(base + "?messages=inherited");
     const inherited = page.locator('[data-turn-id="ancestor"]');
@@ -504,14 +513,14 @@ try {
     await settings.getByRole("tab", { name: "环境", exact: true }).click();
     await settings
       .getByRole("button", {
-        name: "配置环境 AReaL Harness long project title with production components",
+        name: "配置环境 AReaL Harness long project title with production components /fixture/source",
         exact: true,
       })
       .waitFor();
     await capture("settings-environment-projects");
     await settings
       .getByRole("button", {
-        name: "配置环境 AReaL Harness long project title with production components",
+        name: "配置环境 AReaL Harness long project title with production components /fixture/source",
         exact: true,
       })
       .click();
@@ -569,6 +578,11 @@ try {
     assert.equal(saved.params.environment.setup.macos, "echo unsaved mac setup");
     assert.equal(saved.params.environment.cleanup.linux, "echo unsaved linux cleanup");
     assert.equal(saved.params.environment.setup.default, "echo default setup");
+    assert.equal(
+      await page.getByTestId("toast").count(),
+      0,
+      "A successful save updates the view without a notification.",
+    );
     await settings.getByRole("button", { name: "编辑环境 Quality", exact: true }).click();
     await settings
       .getByRole("button", { name: "编辑操作 Build", exact: true })
@@ -680,7 +694,7 @@ try {
       await settings.getByRole("tab", { name: "环境", exact: true }).click();
       await settings
         .getByRole("button", {
-          name: "配置环境 AReaL Harness long project title with production components",
+          name: "配置环境 AReaL Harness long project title with production components /fixture/source",
           exact: true,
         })
         .click();
@@ -712,13 +726,18 @@ try {
       await page.evaluate(() => window.resolveFixtureAction());
       await page.getByLabel("操作输出", { exact: true }).waitFor();
       if (result !== "succeeded") {
-        const notice = page.getByTestId("toast");
-        await notice.getByRole(result === "unknown" ? "status" : "alert").waitFor();
-        assert.equal(
-          await notice.getAttribute("data-tone"),
-          result === "unknown" ? "warning" : "error",
-        );
+        await page
+          .getByText(
+            result === "unknown" ? "Fixture action result needs checking" : "Fixture action failed",
+            { exact: true },
+          )
+          .waitFor();
       }
+      assert.equal(
+        await page.getByTestId("toast").count(),
+        0,
+        "Action results stay beside their output without a duplicate global notification.",
+      );
       await capture("workspace-action-" + result);
     }
     checks.push(
@@ -820,6 +839,10 @@ try {
   errors.push(cause.stack || String(cause));
   if (page && !page.isClosed()) {
     await page.screenshot({ path: join(evidence, "failure.png"), fullPage: true }).catch(() => {});
+    await writeFile(
+      join(evidence, "failure.calls.json"),
+      JSON.stringify(await page.evaluate(() => window.fixtureCalls ?? []), null, 2),
+    );
     await writeFile(
       join(evidence, "failure.aria.txt"),
       await page

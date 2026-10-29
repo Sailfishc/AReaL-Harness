@@ -381,7 +381,7 @@ fn desktop_schema() -> Value {
     methods.insert(
         "areal/request/read".into(),
         json!({"oneOf":[
-            object(json!({"threadId":string,"requestId":string}),vec!["requestId"]),
+            object(json!({"threadId":string,"requestId":string,"creationAdmission":schemars::schema_for!(CreationAdmission)}),vec!["requestId"]),
             schemars::schema_for!(areal_protocol::tasks::TaskRunNow)
         ]}),
     );

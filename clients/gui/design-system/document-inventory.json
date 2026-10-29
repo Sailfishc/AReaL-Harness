@@ -351,6 +351,11 @@
     "status": "active"
   },
   {
+    "path": "clients/gui/packages/ui/src/components/hover-actions/hover-actions.md",
+    "role": "consumer",
+    "status": "active"
+  },
+  {
     "path": "clients/gui/packages/ui/src/components/input/input.md",
     "role": "consumer",
     "status": "active"
@@ -408,6 +413,11 @@
     "nonNormativeNotes": {
       "788d50409774c8d55a3bfb5a93b4cd493a66a466f1ed9036f86a6aafc07ed878": "导航或已有生成实例的说明，事实由链接所有者定义"
     }
+  },
+  {
+    "path": "clients/gui/packages/ui/src/conversation/activity-row/activity-row.md",
+    "role": "consumer",
+    "status": "active"
   },
   {
     "path": "clients/gui/packages/ui/src/conversation/attachment-card/attachment-card.md",

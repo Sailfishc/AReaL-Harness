@@ -21,7 +21,7 @@ endif
 	cordis-pin update-cordis sdk-test harness harness-smoke verify-harness \
 	setup setup-node sdk-build script-test launcher-test workgroup-smoke unified-execution-smoke delegation-permissions-smoke capacity-workgroup local-service-smoke upgrade-smoke tui-upgrade-smoke \
 	verify-native integration-boundaries ci-preflight ci-gui-static ci-gui-health \
-	ci-gui-portable ci-core-contracts workflow-lint hooks-install
+	ci-gui-portable ci-core-contracts workflow-lint hooks-install check-changed
 
 help: ## 显示常用操作（默认目标）
 	@printf '%s\n' '用法：make <target> [ARGS="..."]' ''
@@ -42,10 +42,12 @@ fetch: ## 下载 Cargo.lock 中的依赖
 build: ## 构建整个 workspace（debug）
 	python3 scripts/prepare-runtime-shell.py --profile debug
 	cargo build --locked --workspace
+	python3 scripts/verification.py record-core --profile debug
 
 release: ## 构建整个 workspace（release）
 	python3 scripts/prepare-runtime-shell.py --profile release
 	cargo build --locked --workspace --release
+	python3 scripts/verification.py record-core --profile release
 
 check: ## 类型检查整个 workspace 和测试目标
 	cargo check --locked --workspace --all-targets
@@ -65,9 +67,8 @@ lint: ## Rust / Python 静态检查和 Web 语法检查
 	uv run --locked --only-group dev ruff check $(PYTHON_SOURCES)
 	node --check clients/web/app.js
 
-test: ## 运行 workspace 测试（不含显式容量测试）
-	python3 scripts/prepare-runtime-shell.py --profile debug
-	cargo test --locked --workspace --no-fail-fast $(CARGO_TEST_ARGS)
+test: build ## 构建匹配 Runtime 后运行 workspace 测试（不含显式容量测试）
+	AREAL_TEST_BIN_DIR="$${AREAL_TEST_BIN_DIR:-$(CURDIR)/target/debug}" cargo test --locked --workspace --no-fail-fast $(CARGO_TEST_ARGS)
 
 test-core: ## 运行 Core 模型、会话和并发测试
 	cargo test --locked -p areal-engine
@@ -115,18 +116,12 @@ workflow-lint: ## 校验 GitHub Actions workflow
 hooks-install: ## 显式安装仓库的推送前门禁
 	python3 scripts/git-hooks.py install --base "$(CI_BASE)"
 
-ci-gui-static: ## GUI 可移植静态检查；CI_BASE 必须为实际比较引用
-	@set -eu; \
-	test -n "$(CI_BASE)" || { echo 'CI_BASE is required' >&2; exit 1; }; \
-	base="$$(git merge-base "$(CI_BASE)" HEAD)"; \
-	export AREAL_DESIGN_BASE="$$base"; \
-	pnpm --dir clients/gui build:desktop; \
-	pnpm --dir clients/gui --filter @areal/ui build; \
-	pnpm --dir clients/gui check; \
-	pnpm --dir clients/gui verify:design; \
-	pnpm --dir clients/gui typecheck; \
-	pnpm --dir clients/gui run verify; \
-	pnpm --dir clients/gui test:regressions
+check-changed: ## 本地影响范围快检；显式 CI_BASE，ARGS=--plan 仅输出计划
+	python3 scripts/check-changed.py --base "$(CI_BASE)" $(ARGS)
+
+ci-gui-static: ## 共享计划的 GUI 提交前静态、类型、生产构建与预算检查
+	@test -n "$(CI_BASE)" || { echo 'CI_BASE is required' >&2; exit 1; }
+	python3 scripts/ci-preflight.py --base "$(CI_BASE)" --groups gui-portable --phase commit
 
 ci-gui-health: ## 无依赖安装的 GUI 健康合同与基线检查
 	@set -eu; \
@@ -142,38 +137,17 @@ ci-gui-health: ## 无依赖安装的 GUI 健康合同与基线检查
 	fi; \
 	node clients/gui/scripts/gui-health.mjs > target/ci/gui/health.json
 
-ci-gui-portable: ## 独立构建输入并运行不依赖 Core 的 portable 合同
-	pnpm --dir clients/gui build:desktop
-	pnpm --dir clients/gui --filter @areal/ui build
-	pnpm --dir clients/gui --filter @areal/gui-renderer build
-	cd clients/gui && node scripts/test-manifest.mjs
-	cd clients/gui && AREAL_CORE_BIN= node scripts/run-portable-tests.mjs
+ci-gui-portable: ## 共享计划的 portable 全集；缺能力明确阻塞
+	@test -n "$(CI_BASE)" || { echo 'CI_BASE is required' >&2; exit 1; }
+	python3 scripts/ci-preflight.py --base "$(CI_BASE)" --groups gui-portable
 
-ci-core-contracts: ## 必须显式提供匹配且可执行的 AREAL_CORE_BIN；不允许跳过
-	@test -n "$(AREAL_CORE_BIN)" && test -x "$(AREAL_CORE_BIN)" || { echo 'AREAL_CORE_BIN must name the matching executable' >&2; exit 1; }
-	cd clients/gui && AREAL_CORE_BIN="$(AREAL_CORE_BIN)" node scripts/run-portable-tests.mjs --core-contracts
+ci-core-contracts: ## 构建匹配输入并执行全部 Core 合同；固定 Core 必须哈希匹配
+	@test -n "$(CI_BASE)" || { echo 'CI_BASE is required' >&2; exit 1; }
+	python3 scripts/ci-preflight.py --base "$(CI_BASE)" --groups core-contracts --with-dependencies
 
-ci-preflight: ## 推送前门禁；显式 CI_BASE，包含本机 Core 合同，不替代完整 CI
-	@set -eu; \
-	test -n "$(CI_BASE)" || { echo 'CI_BASE is required' >&2; exit 1; }; \
-	base="$$(git merge-base "$(CI_BASE)" HEAD)"; \
-	$(MAKE) fmt-check workflow-lint; \
-	$(MAKE) lint; \
-	python3 scripts/check-docs.py; \
-	python3 -m unittest scripts.tests.test_ci_contracts scripts.tests.test_git_hooks; \
-	$(MAKE) ci-gui-health ci-gui-static CI_BASE="$$base"; \
-	pnpm --dir clients/gui test:browser-contracts; \
-	pnpm --dir clients/gui audit; \
-	$(MAKE) ci-gui-portable; \
-	$(MAKE) build; \
-	core="$(if $(AREAL_CORE_BIN),$(AREAL_CORE_BIN),$(CURDIR)/target/debug/areal)"; \
-	if [ -n "$(AREAL_CORE_BIN)" ]; then \
-		test -x "$$core" || { echo 'AREAL_CORE_BIN must name the matching executable' >&2; exit 1; }; \
-		built_sha="$$(shasum -a 256 "$(CURDIR)/target/debug/areal" | cut -d ' ' -f 1)"; \
-		fixed_sha="$$(shasum -a 256 "$$core" | cut -d ' ' -f 1)"; \
-		test -n "$$built_sha" && test "$$built_sha" = "$$fixed_sha" || { echo 'AREAL_CORE_BIN SHA-256 differs from the fresh build; deploy the new artifact to the fixed path first' >&2; exit 1; }; \
-	fi; \
-	$(MAKE) ci-core-contracts AREAL_CORE_BIN="$$core"
+ci-preflight: ## 推送前完整门禁与逐阶段报告；显式 CI_BASE，不替代完整 CI
+	@test -n "$(CI_BASE)" || { echo 'CI_BASE is required' >&2; exit 1; }
+	python3 scripts/ci-preflight.py --base "$(CI_BASE)"
 
 sdk-build: ## 编译两套 TypeScript SDK
 	npm --prefix runtime/sdk-typescript run build
@@ -242,6 +216,8 @@ verify-harness: ## 全部常规与原生集成验收（容量测试单独运行�
 	$(MAKE) runtime-smoke harness-smoke examples-desktop-api workgroup-smoke
 
 verify-native: build ## macOS 原生后端与 Harness 集成验收（通用回归由 Linux CI 执行）
+	AREAL_TEST_BIN_DIR="$(CURDIR)/target/debug" cargo test --locked -p areal-engine --features native-tests --test provider_replay
+	cargo test --locked -p areal-app-server --test side_workspace_read -- --ignored
 	cargo test --locked -p areal-runtime-exec-native
 	cargo test --locked -p areal-runtime --features native-tests --test native_transport
 	$(MAKE) -j4 launcher-test runtime-smoke harness-smoke examples-desktop-api workgroup-smoke

@@ -2,7 +2,9 @@
 
 /** @typedef {{effect:'read'|'subscription'|'mutation',receipt?:'thread'|'task'|'management'}} MethodSemantics */
 /** @typedef {{workspaceModes?:string[],sideWorkspaceAccess?:string[],[key:string]:unknown}} ConversationDerivation */
-/** @typedef {{conversationDerivationV1?:ConversationDerivation|null,[key:string]:unknown}} CoreFeatures */
+/** @typedef {{identity:string,journalEpoch:string,coreInstanceId:string}} CreationAdmission */
+/** @typedef {{version:1,binding:CreationAdmission}} ThreadCreationJournal */
+/** @typedef {{threadCreationJournal?:ThreadCreationJournal,conversationDerivationV1?:ConversationDerivation|null,[key:string]:unknown}} CoreFeatures */
 /** @typedef {{bundleId:string,[key:string]:unknown}} ToolBundle */
 /** @typedef {{methods:string[],apiVersion?:string,methodSemantics?:Record<string,MethodSemantics>,features?:CoreFeatures,runtime?:{epoch?:string,[key:string]:unknown}|null,browserToolBundles?:ToolBundle[],desktopToolBundles?:ToolBundle[],[key:string]:unknown}} CoreCapabilities */
 
@@ -42,6 +44,12 @@ function semantics(value) {
 /** @param {unknown} value @returns {value is CoreFeatures} */
 function features(value) {
   if (!record(value)) return false;
+  const journal = value.threadCreationJournal;
+  if (
+    journal !== undefined &&
+    (!record(journal) || journal.version !== 1 || !isCreationAdmission(journal.binding))
+  )
+    return false;
   const derivation = value.conversationDerivationV1;
   return (
     derivation == null ||
@@ -64,4 +72,17 @@ function strings(value) {
 /** @param {unknown} value @returns {value is Record<string,unknown>} */
 function record(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/** @param {unknown} value @returns {value is CreationAdmission} */
+export function isCreationAdmission(value) {
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return (
+    record(value) &&
+    typeof value.identity === "string" &&
+    typeof value.journalEpoch === "string" &&
+    uuid.test(value.journalEpoch) &&
+    typeof value.coreInstanceId === "string" &&
+    uuid.test(value.coreInstanceId)
+  );
 }

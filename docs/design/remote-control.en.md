@@ -30,6 +30,14 @@ Direct and Relay share pairing, authorization, commands and observations. Method
 
 All remote access crosses the Gateway. Direct does not proxy the existing privileged desktop socket or make the Core loopback endpoint public. Thin UI does not move security or execution recovery into the browser.
 
+## Shared client implementation
+
+PWA and native shells share `@areal/remote-client`. `RemoteConnection` owns the Direct/Relay wire, Noise Host pin, hello/ready, RPC timeouts and cleanup. The page presents handshake events. The `ready` hook persists identity before requests become available. A `session.open` result callback synchronously publishes its baseline before the RPC Promise resolves, with subsequent updates handled on the same message stream.
+
+`CommandState` keeps command and draft maps. `acceptSessionMessage` checks subscription identity and sequence. `SessionBodyReader` holds disposable body-page caches. `ClientState` owns identity epochs, remembered-device revisions and UNKNOWN command locators. Its injected atomic storage transaction compares and commits `{ schema: 1, revision, credential, locators }` without resending unconfirmed commands. The synchronous transaction callback returns the record and result; the adapter resolves the result only after the commit completes.
+
+Web `BrowserState` supplies IndexedDB, BroadcastChannel and sessionStorage adapters. A successful IndexedDB request is not a committed transaction. Cross-tab invalidation and aborts after a put remain protected by that transaction boundary. PWA owns the DOM, page lifecycle and reconnect scheduling. The shared package does not access the DOM, IndexedDB or Capacitor.
+
 ## Connectivity
 
 **A — no self-built cloud backend.** The browser reaches a dedicated low-privilege Host service through organizational HTTPS/VPN or Tailscale Serve. The service hosts the static PWA and encrypted WebSocket on one origin. No AReaL Relay or vendor registration is needed. Private access is the default. Explicit Funnel enablement can provide a public browser endpoint while retaining device pairing. Existing organizational HTTPS proxies are also supported; the protocol is provider independent. See [deployment](../guides/remote-control.en.md).

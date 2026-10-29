@@ -39,7 +39,7 @@ exports: ["FeedbackNotice"]
 
 ## 规则
 
-`R-FEEDBACKNOTICE-002` 这是底层纯展示表面，不用于新的操作通知。生产renderer适配默认经ToastHost显示统一短时NotificationToast，包含核对动作；真正的任务事实由原专用状态组件呈现。组件不核对请求、不重试未知操作。
+`R-FEEDBACKNOTICE-002` 这是底层纯展示表面，不用于新的操作通知。生产renderer适配经ToastHost显示短时NotificationToast；调用方须先确认用户需要决策或采取行动，并提供原流程中可用的恢复入口，不能仅凭错误等级决定通知。系统自行处理的进度和普通成功不调用通知。真正的任务事实由原专用状态组件呈现。组件不核对请求、不重试未知操作。
 
 ## 示例
 

@@ -1,12 +1,11 @@
+import type { DraftComposerProps } from "./draftComposerTypes.js";
+import { PendingMessageView } from "./UserMessageBody.js";
+import { setPendingMessage, usePendingMessage } from "./pendingMessage.js";
 import { Input } from "@areal/ui";
 import { validateWorkspaceFileReference } from "./lib/workspaceFileComposer.js";
-import {
-  imageAnnotationBlocked,
-  useImageAnnotationRevision,
-  type ImageAnnotationTarget,
-} from "./imageAnnotations.js";
+import { imageAnnotationBlocked, useImageAnnotationRevision } from "./imageAnnotations.js";
 import { resolveDraftProfile } from "./ProfileDetails.js";
-import { resolveNewConversationModel, resolveModelEffort } from "@areal/workbench/model-selection";
+import { draftModelSelection, modelValue } from "./lib/draftModelSelection.js";
 import {
   setApplicationPreferences,
   useApplicationPreferences,
@@ -16,7 +15,7 @@ import { ComposerPermissionMenu } from "./ComposerPermissionMenu.js";
 import { permissionOptions, planModeOptions, type PermissionPreset } from "./permissions.js";
 import { ComposerPlanMode } from "./ComposerPlanMode.js";
 import { FileTree, AttachmentIcon, GoalIcon, PlanModeIcon as Lightbulb } from "./interfaceIcons.js";
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ChatPromptEditor } from "./prompt-editor/ChatPromptEditor.js";
 import {
   ComposerAttachment,
@@ -50,12 +49,8 @@ import {
 import { FeedbackNotice } from "./FeedbackNotice.js";
 import { Button } from "./components/ui/button.js";
 import type { LexicalChatInputHandle } from "./LexicalChatInput.js";
-import type { Action, Data } from "./services.js";
-import type { ComposerCatalogEntry } from "./prompt-editor/ComposerCatalog.js";
-import {
-  conversationReferenceEntries,
-  type ConversationReference,
-} from "./ConversationReferences.js";
+import type { Data } from "./services.js";
+import { conversationReferenceEntries } from "./ConversationReferences.js";
 import {
   isIndependentCreation,
   isTechnicalErrorMessage,
@@ -71,7 +66,6 @@ import {
   useReviewComments,
 } from "./reviewComments.js";
 import { ReviewCommentAttachment } from "./ReviewCommentViews.js";
-import type { WorktreeSelection } from "./WorktreeStarter.js";
 import { WorktreeStatus } from "./WorktreeStatus.js";
 import {
   attachmentDrafts,
@@ -100,24 +94,7 @@ export function DraftComposer({
   surfaceLayout = "default",
   worktree,
   onWorktreeCreated,
-}: {
-  surfaceLayout?: "default" | "compact";
-  project: Data;
-  backendReady?: boolean;
-  action: Action;
-  readAction: Action;
-  onOpen: (pid: string, tid: string) => Promise<void>;
-  onPanel: (panel: string) => void;
-  appEntries?: readonly ComposerCatalogEntry[];
-  conversationReferences?: readonly ConversationReference[];
-  draftKey?: string;
-  prepareProject?: () => Promise<Data>;
-  preparationStatus?: ReactNode;
-  modelCatalogReady?: boolean;
-  onAnnotate?: (target: ImageAnnotationTarget) => void;
-  worktree?: WorktreeSelection;
-  onWorktreeCreated?: () => void;
-}) {
+}: DraftComposerProps) {
   const { t } = useI18n();
   const referenceEntries = conversationReferenceEntries(
     conversationReferences,
@@ -191,34 +168,13 @@ export function DraftComposer({
     localStorage.setItem(`${key}:plan`, String(enabled));
   };
   const [model, setModel] = useState<string | null>(() => localStorage.getItem(`${key}:model`));
-  const modelValue = (item: Data) => `${item.providerId ?? ""}/${item.modelId}`;
-  const initialSelection = resolveNewConversationModel(project.models, project.lastAcceptedModel);
-  const initialModel = chosenProfile?.model
-    ? project.models.find(
-        (item: Data) =>
-          item.providerId === chosenProfile.model.providerId &&
-          item.modelId === chosenProfile.model.modelId,
-      )
-    : initialSelection.candidate;
-  const effectiveModel =
-    model ??
-    (chosenProfile?.model
-      ? `${chosenProfile.model.providerId}/${chosenProfile.model.modelId}`
-      : initialModel
-        ? modelValue(initialModel)
-        : "");
-  const currentModel = project.models.find((item: Data) => modelValue(item) === effectiveModel);
-  const rememberedEffort =
-    !chosenProfile?.model && model === null ? initialSelection.rememberedEffort : undefined;
-  const effort = resolveModelEffort(currentModel, efforts[effectiveModel] ?? rememberedEffort);
-  const preferenceNotice =
-    model === null && !chosenProfile?.model
-      ? initialSelection.notice === "model-unavailable"
-        ? t("chat.composer.previousModelUnavailable")
-        : initialSelection.notice === "effort-unsupported"
-          ? t("chat.composer.previousEffortUnsupported")
-          : ""
-      : "";
+  const { effectiveModel, currentModel, effort, notice } = draftModelSelection(
+    project,
+    chosenProfile,
+    model,
+    efforts,
+  );
+  const preferenceNotice = notice ? t("chat.composer.previousEffortUnsupported") : "";
   const [unknown, setUnknown] = useState(() => localStorage.getItem(`${key}:pending-create`));
   const [checkingCreation, setCheckingCreation] = useState(false);
   const [creationChecked, setCreationChecked] = useState(false);
@@ -232,6 +188,7 @@ export function DraftComposer({
   const [cancellingCreation, setCancellingCreation] = useState(false);
   const [sourceRetry, setSourceRetry] = useState<string>();
   const busy = useSyncExternalStore(subscribeSending, () => sending.has(key));
+  const outgoing = usePendingMessage(key);
   const editLocked = busy || !!unknown || !!reviewDraft.error;
   const executionReady = backendReady && !!project.state?.connected;
   const modelReady = executionReady || (backendReady && !!prepareProject && modelCatalogReady);
@@ -239,11 +196,7 @@ export function DraftComposer({
   const blockingPending = project.pending.filter(
     (entry: Data) => !isIndependentCreation(entry, [unknown, activeCreation?.requestId]),
   );
-  const submitDisabled =
-    modelSelectionDisabled ||
-    !!blockingPending.length ||
-    !currentModel ||
-    currentModel.available === false;
+  const submitDisabled = modelSelectionDisabled || !!blockingPending.length || !effectiveModel;
   const desktopUnsupported = project.desktopCapabilities?.currentCommands === false;
   const skills = useComposerSkills({
     project: executionReady
@@ -310,7 +263,11 @@ export function DraftComposer({
         localStorage.removeItem(`${key}:pending-create`);
         localStorage.removeItem(`${key}:pending-create-request`);
         setUnknown(null);
-        setDraftError(creationOutcome.message || "创建对话未完成，草稿已保留，请检查后重试。");
+        setDraftError(
+          creationOutcome.admissionState === "notAdmitted"
+            ? t("recovery.creationNotAdmitted")
+            : creationOutcome.message || "创建对话未完成，草稿已保留，请检查后重试。",
+        );
         return;
       }
       const worktreeRecord = await readAction("workspace", {
@@ -399,7 +356,11 @@ export function DraftComposer({
       localStorage.removeItem(`${key}:pending-create`);
       localStorage.removeItem(`${key}:pending-create-request`);
       setUnknown(null);
-      setDraftError(outcome.message || "创建对话未完成，草稿已保留，请检查后重试。");
+      setDraftError(
+        outcome.admissionState === "notAdmitted"
+          ? t("recovery.creationNotAdmitted")
+          : outcome.message || "创建对话未完成，草稿已保留，请检查后重试。",
+      );
       return;
     }
     if (!outcome.threadId || outcome.accepted !== true) return;
@@ -430,6 +391,13 @@ export function DraftComposer({
     )
       return;
     markSending(key, true);
+    if (!goalMode && selection?.mode !== "worktree")
+      setPendingMessage(key, {
+        text: submittedInput.text,
+        files: submittedInput.files,
+        previousUserIds: [],
+        starting: true,
+      });
     setDraftError("");
     let targetKey: string | undefined;
     let creationAttempted = false;
@@ -441,14 +409,12 @@ export function DraftComposer({
       const profile = resolveDraftProfile(owner, profileSelection);
       if ((profileSelection || owner.defaultProfile) && !profile)
         throw new Error("当前任务配置不可用，输入已保留。");
-      const chosenModel = owner.models.find((item: Data) => modelValue(item) === effectiveModel);
-      if (
-        !chosenModel ||
-        chosenModel.available === false ||
-        chosenModel.modelId !== currentModel?.modelId
-      ) {
-        throw new Error("所选模型已不可用，输入已保留，请重新选择模型。");
-      }
+      const separator = effectiveModel.indexOf("/");
+      const chosenModel = owner.models.find((item: Data) => modelValue(item) === effectiveModel) ??
+        currentModel ?? {
+          providerId: effectiveModel.slice(0, separator) || null,
+          modelId: effectiveModel.slice(separator + 1),
+        };
       await revalidateComposerPlugins(
         readAction,
         {
@@ -481,7 +447,13 @@ export function DraftComposer({
         )
           throw new Error("当前任务配置未提供所选 Skill 的确切版本，草稿已保留。");
       }
-      if (effort && !chosenModel.reasoningEffortOptions?.includes(effort))
+      if (
+        effort &&
+        effort !== "default" &&
+        (chosenModel.capabilities?.reasoningEffortOptions !== undefined ||
+          chosenModel.reasoningEffortOptions?.length) &&
+        !chosenModel.reasoningEffortOptions.includes(effort)
+      )
         throw new Error("所选推理强度已不可用，输入与选择已保留，请重新选择强度。");
       const parameters = { ...chosenModel.parameters };
       if (chosenModel.capabilities?.reasoning === false) {
@@ -521,6 +493,12 @@ export function DraftComposer({
       transferComposerPlugins(key, targetKey);
       if (goalMode) localStorage.setItem(`${targetKey}:goal`, "true");
       markSending(targetKey, true);
+      if (!goalMode)
+        setPendingMessage(targetKey, {
+          text: submittedInput.text,
+          files: submittedInput.files,
+          previousUserIds: [],
+        });
       clear();
       // Show the accepted task immediately, including while the first model request waits.
       if (mounted.current) void onOpen(owner.id, result.threadId);
@@ -585,7 +563,11 @@ export function DraftComposer({
         }
       }
     } finally {
-      if (targetKey) markSending(targetKey, false);
+      setPendingMessage(key);
+      if (targetKey) {
+        setPendingMessage(targetKey);
+        markSending(targetKey, false);
+      }
       markSending(key, false);
       if (targetKey)
         setActiveCreation((previous) =>
@@ -646,8 +628,13 @@ export function DraftComposer({
     );
   return (
     <div className="composer-dock" data-v4-composer-dock="true">
+      {outgoing && (
+        <div className="draft-message-preview">
+          <PendingMessageView message={outgoing} />
+        </div>
+      )}
       {activeCreation?.worktree && (busy || creationStatus) && (
-        <div className="worktree-creation-preview" data-testid="worktree-creation-progress">
+        <div className="worktree-creation-preview min-w-0" data-testid="worktree-creation-progress">
           <div className="user-message">
             <div className="user-message-content">
               <div className="user-bubble">{activeCreation.text}</div>
@@ -767,7 +754,7 @@ export function DraftComposer({
       <div className="composer-input-stack">
         <div ref={setMenuAnchor} className="composer-menu-anchor" />
         <ChatPromptEditor
-          key={activeCreation?.worktree && busy ? "worktree-waiting" : "draft"}
+          key={outgoing || (activeCreation?.worktree && busy) ? "waiting" : "draft"}
           surfaceLayout={surfaceLayout}
           triggerPanelContainer={menuAnchor}
           shellClassName="@container/composer"
@@ -780,7 +767,7 @@ export function DraftComposer({
           onFileDrop={(files) => setFiles((current) => [...current, ...files])}
           onWorkspaceReferencePendingChange={setWorkspaceReferencePending}
           taskId={null}
-          initialValue={activeCreation?.worktree && busy ? "" : text}
+          initialValue={outgoing || (activeCreation?.worktree && busy) ? "" : text}
           inputApiRef={api}
           inputTestId="chat-input"
           submitTestId="chat-send-button"
@@ -903,7 +890,7 @@ export function DraftComposer({
             ],
           }}
           onChange={(value) => {
-            if (activeCreation?.worktree && busy) return;
+            if (outgoing || (activeCreation?.worktree && busy)) return;
             setText(value);
             localStorage.setItem(key, value);
           }}
@@ -916,7 +903,7 @@ export function DraftComposer({
               composerPaste(event, (pasted) => setFiles((current) => [...current, ...pasted]));
           }}
           topContent={
-            <>
+            <div hidden={!!outgoing}>
               {skills.tags}
               <div className="composer-attachment-row">
                 {files.length ? (
@@ -961,7 +948,7 @@ export function DraftComposer({
                   onRemove={() => detachReviewComments(reviewKey)}
                 />
               </div>
-            </>
+            </div>
           }
           leadingActions={
             <>
@@ -1066,7 +1053,7 @@ export function DraftComposer({
                         {
                           value: effectiveModel,
                           label: effectiveModel.slice(effectiveModel.indexOf("/") + 1),
-                          unavailableReason: "模型不可用",
+                          historical: true,
                         },
                       ]
                     : []),

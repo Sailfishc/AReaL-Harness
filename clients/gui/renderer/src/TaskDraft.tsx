@@ -512,11 +512,9 @@ export function TaskDraft({
           )}
         </p>
       )}
-      {saved.modelNotice && (
+      {saved.modelNotice === "effort-unsupported" && (
         <p role="status" className="task-plan-note">
-          {saved.modelNotice === "model-unavailable"
-            ? t("chat.composer.previousModelUnavailable")
-            : t("chat.composer.previousEffortUnsupported")}
+          {t("chat.composer.previousEffortUnsupported")}
         </p>
       )}
       {saved.pending && (

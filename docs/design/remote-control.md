@@ -30,6 +30,14 @@
 
 所有 Remote 请求先经过 Gateway。Direct 不代理现有桌面私有 WebSocket，也不把 Core loopback 端口改为公网监听。Thin UI 不意味着把授权和错误恢复推给浏览器。
 
+## 共享客户端实现
+
+`@areal/remote-client` 供 PWA 与原生壳复用。`RemoteConnection` 负责 Direct/Relay wire、Noise Host pin、hello/ready、RPC 超时与清理。握手事件交给页面展示，`ready` 钩子完成身份持久化后才开放请求。`session.open` 的结果回调在 RPC Promise 完成前同步发布基线，随后增量沿同一消息流处理。
+
+`CommandState` 保存命令与草稿映射；`acceptSessionMessage` 校验订阅身份与序号；`SessionBodyReader` 保存可丢弃的正文分页缓存。`ClientState` 管理身份 epoch、记住设备的 revision 与 UNKNOWN 命令定位信息。它通过注入的原子存储事务比较并提交 `{ schema: 1, revision, credential, locators }`，不把未确认命令重发。存储回调同步返回待保存记录与结果，适配器只能在提交完成后返回结果。
+
+Web 的 `BrowserState` 提供 IndexedDB、BroadcastChannel 与 sessionStorage 适配。IndexedDB 请求成功不等于事务提交，跨标签失效和提交后的 abort 继续由事务边界处理。DOM、页面生命周期与重连调度仍由 PWA 所有；共享包不访问 DOM、IndexedDB 或 Capacitor。
+
 ## 两条连接路径
 
 ### A：无自建云端

@@ -411,8 +411,9 @@ async function openPanel(name) {
     await page.keyboard.press("Control+Backquote");
     return;
   }
-  await button("任务操作").click();
-  await page.getByRole("menuitem", { name, exact: true }).click();
+  const shortcuts = { 文件: "Meta+p", 改动: "Control+Shift+g", 预览: "Meta+t" };
+  assert.ok(shortcuts[name], `current panel navigation exists for ${name}`);
+  await page.keyboard.press(shortcuts[name]);
 }
 async function quit() {
   if (!app) return;
@@ -647,7 +648,7 @@ try {
       await page
         .locator(".task-resources-popup")
         .evaluate((el) => el.getBoundingClientRect().width),
-      268, // Default 12px UI typography and the shared inline-spacing token.
+      312, // 默认 14px 界面字号 × 22，加共享行内间距的一半。
     );
     await page.keyboard.press("Escape");
     await resources.waitFor({ state: "hidden" });
@@ -782,6 +783,14 @@ try {
     await donePane.locator(".tool-event").first().waitFor();
     await donePane.getByRole("button", { name: "查看工具原始记录", exact: true }).click();
     await donePane.getByLabel("工具结果", { exact: true }).waitFor();
+    const doneAvatar = await page
+      .locator(`[data-testid=chat-view] [data-agent-avatar="${doneChild.id}"]`)
+      .getAttribute("src");
+    assert.ok(doneAvatar.startsWith("data:image/svg+xml"));
+    assert.equal(
+      await agentsPanel.locator(`header [data-agent-avatar="${doneChild.id}"]`).getAttribute("src"),
+      doneAvatar,
+    );
     await shot("02b-agent-completed");
     await agentsPanel.getByRole("button", { name: "关闭子代理面板", exact: true }).click();
     await resources.waitFor();
@@ -834,16 +843,12 @@ try {
     assert.equal(execution.settled, true);
     assert.equal(execution.verification.status, "notRun");
     assert.equal(execution.delivery.status, "notRequired");
-    await openPanel("子任务");
-    const executionCard = page.getByTestId(`execution-${execution.executionId}`);
-    await executionCard.waitFor();
-    assert.match(await executionCard.innerText(), /未运行检查/);
-    assert.match(await executionCard.innerText(), /报告交付/);
-    assert.equal(await button("创建子任务").isVisible(), false);
-    await shot("02-subtask-delivery");
-    await button("关闭面板").click();
+    await button("任务操作").click();
+    await page.getByRole("menuitem", { name: "查看调用轨迹", exact: true }).waitFor();
+    assert.deepEqual(await page.getByRole("menuitem").allTextContents(), ["查看调用轨迹"]);
+    await page.keyboard.press("Escape");
     checks.push(
-      "unified agent delegation; one subtask panel; verification and delivery stay distinct",
+      "delegation inspection preserves distinct verification/delivery states; current child resources remain navigable and task actions expose only call trace",
     );
     // 已有完整验收通过后，视觉行文修正只重跑其真实资源/事件路径。
     if (!process.env.AREAL_GUI_RESOURCE_SMOKE_ONLY) {
@@ -1097,16 +1102,16 @@ try {
       await page
         .locator(`[data-agent-conversation="${doneChild.id}"] [data-turn-status=completed]`)
         .waitFor();
-      assert.ok(
-        (await page.locator(`[data-agent-conversation="${doneChild.id}"] .tool-event`).count()) > 0,
-      );
+      // 重新挂载的已完成过程组默认收起，先展开再等恢复的工具记录出现。
+      const restoredProgress = donePane.locator(".turn-progress-summary");
+      if ((await restoredProgress.getAttribute("aria-expanded")) === "false")
+        await restoredProgress.click();
+      await donePane.locator(".tool-event").first().waitFor();
       assert.equal(
         await agentsPanel
           .locator(`header [data-agent-avatar="${doneChild.id}"]`)
           .getAttribute("src"),
-        await page
-          .locator(`[data-testid=chat-view] [data-agent-avatar="${doneChild.id}"]`)
-          .getAttribute("src"),
+        doneAvatar,
       );
       assert.equal(received.length, requestCount);
       await shot("07a-agent-restored");

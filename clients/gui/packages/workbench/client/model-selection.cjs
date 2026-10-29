@@ -1,26 +1,59 @@
-'use strict';
+"use strict";
 
-function resolveNewConversationModel(models, lastAcceptedModel) {
-  const remembered = lastAcceptedModel && models.find(item =>
-    (item.providerId ?? null) === (lastAcceptedModel.model?.providerId ?? null)
-    && item.modelId === lastAcceptedModel.modelId);
-  const useRemembered = !!remembered && remembered.available !== false;
-  const candidate = useRemembered ? remembered : models.find(item => item.isDefault);
+function resolveNewConversationModel(models, lastAcceptedModel, catalogReady = models.length > 0) {
+  const remembered =
+    lastAcceptedModel &&
+    models.find(
+      (item) =>
+        (item.providerId ?? null) === (lastAcceptedModel.model?.providerId ?? null) &&
+        item.modelId === lastAcceptedModel.modelId,
+    );
+  const pending = !catalogReady;
+  const useRemembered = !!lastAcceptedModel && (!!remembered || pending);
+  const candidate = useRemembered
+    ? (remembered ?? {
+        providerId: lastAcceptedModel.model?.providerId ?? null,
+        modelId: lastAcceptedModel.modelId,
+        availability: "checking",
+      })
+    : models.find((item) => item.isDefault);
   const effort = useRemembered ? lastAcceptedModel.reasoningEffort : undefined;
-  const unsupportedEffort = effort != null && !candidate?.reasoningEffortOptions?.includes(effort);
+  const supported =
+    candidate?.capabilities?.reasoningEffortOptions ??
+    (candidate?.reasoningEffortOptions?.length ? candidate.reasoningEffortOptions : undefined);
+  const configuredEffort = effort ?? candidate?.parameters?.reasoningEffort;
+  const unsupportedEffort =
+    configuredEffort != null &&
+    configuredEffort !== "default" &&
+    (candidate?.capabilities?.reasoning === false ||
+      (supported != null && !supported.includes(configuredEffort)));
   return {
     candidate,
-    rememberedEffort: unsupportedEffort ? undefined : effort,
-    notice: lastAcceptedModel && !useRemembered ? 'model-unavailable'
-      : unsupportedEffort ? 'effort-unsupported' : undefined,
+    rememberedEffort: unsupportedEffort ? resolveModelEffort(candidate, configuredEffort) : effort,
+    notice:
+      lastAcceptedModel && !useRemembered
+        ? "model-unavailable"
+        : unsupportedEffort
+          ? "effort-unsupported"
+          : undefined,
   };
 }
 
 function resolveModelEffort(model, preferredEffort) {
   if (!model || model.capabilities?.reasoning === false) return undefined;
-  const options = model.reasoningEffortOptions ?? [];
-  return [preferredEffort, model.parameters?.reasoningEffort, 'medium', options[0]]
-    .find(effort => effort != null && options.includes(effort));
+  const options =
+    model.capabilities?.reasoningEffortOptions ??
+    (model.reasoningEffortOptions?.length ? model.reasoningEffortOptions : undefined);
+  if (options == null) return preferredEffort ?? model.parameters?.reasoningEffort;
+  const configured = [preferredEffort, model.parameters?.reasoningEffort];
+  const selected = configured.find(
+    (effort) => effort != null && (effort === "default" || options.includes(effort)),
+  );
+  if (selected !== undefined) return selected;
+  if (!options.length) return "default";
+  if (configured.some((effort) => effort != null))
+    return options.includes("medium") ? "medium" : options[0];
+  return undefined;
 }
 
 module.exports = { resolveNewConversationModel, resolveModelEffort };

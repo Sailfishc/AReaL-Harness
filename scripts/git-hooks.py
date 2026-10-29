@@ -1,6 +1,7 @@
 """在暂存快照检查提交，在当前干净 HEAD 上运行完整推送前门禁。"""
 
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -67,11 +68,37 @@ def precommit():
     if staged.returncode != 1:
         raise subprocess.CalledProcessError(staged.returncode, staged.args)
     paths = git(
-        "diff", "--cached", "--name-only", "--no-renames", "--diff-filter=ACMT", "-z"
+        "diff", "--cached", "--name-only", "--no-renames", "--diff-filter=ACDMT", "-z"
     ).split("\0")
     with tempfile.TemporaryDirectory(prefix="areal-staged-check-") as directory:
         snapshot = Path(directory)
         git("checkout-index", "--all", f"--prefix={snapshot}{os.sep}", capture=False)
+        # 使用同一暂存快照中的规则和 manifest，避免未暂存规则掩盖漏测。
+        spec = importlib.util.spec_from_file_location(
+            "staged_ci_scope", snapshot / "scripts/ci-scope.py"
+        )
+        scope = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(scope)
+        tree = git("write-tree")
+        plan = scope.build_plan(
+            [path for path in paths if path],
+            {
+                "baseRevision": git("rev-parse", "HEAD"),
+                "sourceRevision": tree,
+                "headRevision": git("rev-parse", "HEAD"),
+                "inputHash": tree,
+                "validationTarget": "index-plan-only",
+            },
+            json.loads((snapshot / "clients/gui/scripts/test-manifest.json").read_text()),
+        )
+        output = ROOT / "target/ci/staged-plan.json"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n")
+        print(
+            f"Staged impact plan: {output}; {len(plan['items'])} required checks (not yet executed)",
+            flush=True,
+        )
+        run(["node", "scripts/test-manifest.mjs", "--list"], cwd=snapshot / "clients/gui")
         # 只复用依赖，不链接源码或 .git；未暂存的用户修改不进入验收快照。
         packages = git("ls-files", "-z", "--", "*package.json").split("\0")
         for parent in {Path("."), *(Path(path).parent for path in packages if path)}:
@@ -80,7 +107,9 @@ def precommit():
             if source.is_dir() and destination.parent.is_dir():
                 destination.symlink_to(source, target_is_directory=True)
         gui = [
-            path.removeprefix("clients/gui/") for path in paths if path.startswith("clients/gui/")
+            path.removeprefix("clients/gui/")
+            for path in paths
+            if path.startswith("clients/gui/") and (snapshot / path).is_file()
         ]
         if gui:
             workspace = snapshot / "clients/gui"
@@ -108,7 +137,9 @@ def precommit():
         workflows = [
             snapshot / path
             for path in paths
-            if path.startswith(".github/workflows/") and path.endswith((".yml", ".yaml"))
+            if path.startswith(".github/workflows/")
+            and path.endswith((".yml", ".yaml"))
+            and (snapshot / path).is_file()
         ]
         if workflows:
             cache = ROOT / ".local/tools/actionlint"
@@ -139,6 +170,11 @@ def require_clean_head(expected):
             )
         if result.returncode:
             raise subprocess.CalledProcessError(result.returncode, result.args)
+
+    if git("ls-files", "--others", "--exclude-standard", "-z"):
+        raise ValueError(
+            "Untracked inputs are present; commit required source or use a clean worktree before validating the pushed HEAD"
+        )
 
 
 def prepush():

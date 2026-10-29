@@ -1,0 +1,20 @@
+[
+  {
+    "id": "task-row-more",
+    "page": "ui-library",
+    "source": "packages/ui/src/workbench/task-list-item/task-list-item.tsx",
+    "triggerName": "DropdownMenuTrigger",
+    "row": "#popup-anchor-examples [data-testid=\"task-item-sample\"]",
+    "trigger": "button[aria-haspopup=\"menu\"]",
+    "leave": "[data-testid=\"popup-anchor-leave\"]"
+  },
+  {
+    "id": "project-row-more",
+    "page": "ui-library",
+    "source": "renderer/src/views/ConversationNavigation.tsx",
+    "triggerName": "DropdownMenuTrigger",
+    "row": "#popup-anchor-examples .project-row",
+    "trigger": "button[aria-haspopup=\"menu\"]",
+    "leave": "[data-testid=\"popup-anchor-leave\"]"
+  }
+]

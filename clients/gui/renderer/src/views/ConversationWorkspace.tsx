@@ -1,4 +1,5 @@
 import React from "react";
+import { ComposerSurface } from "../prompt-editor/ComposerSurface.js";
 import { Button } from "../components/ui/button.js";
 import {
   DropdownMenu,
@@ -8,6 +9,7 @@ import {
 } from "../components/ui/dropdown-menu.js";
 import { CloudComposer } from "../CloudComposer.js";
 import { useCloudEnvironment } from "../cloudEnvironment.js";
+import { FeedbackNotice } from "../FeedbackNotice.js";
 import { Composer } from "../Composer.js";
 import { ComposerWorkspaceContext } from "../ComposerWorkspaceContext.js";
 import { ConversationDraftEmptyState } from "../ConversationDraftEmptyState.js";
@@ -115,22 +117,34 @@ function ConversationContent() {
           {thread && project ? (
             <ActiveConversation />
           ) : threadId ? (
-            <div className="settings-empty" role="status">
-              <p>
-                {restorationFailed
-                  ? t("common.conversation.unavailable")
-                  : t("startup.loadingConversation")}
-              </p>
-              {restorationFailed && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-3"
-                  onClick={() => void retryRestoration()}
-                >
-                  {t("recovery.retryView")}
-                </Button>
-              )}
+            <div className="conversation-loading" role="status" aria-busy={!restorationFailed}>
+              <div className="settings-empty conversation-loading-body">
+                <p>
+                  {restorationFailed
+                    ? t("common.conversation.unavailable")
+                    : t(
+                        project?.state?.connected
+                          ? "startup.readingConversation"
+                          : "startup.connectingProject",
+                      )}
+                </p>
+                {restorationFailed && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => void retryRestoration()}
+                  >
+                    {t("recovery.retryView")}
+                  </Button>
+                )}
+              </div>
+              <div className="composer-dock" aria-hidden="true">
+                <ComposerSurface
+                  editor={<div className="conversation-loading-editor" />}
+                  toolbar={<div className="composer-toolbar" />}
+                />
+              </div>
             </div>
           ) : (
             <DraftConversation />
@@ -194,7 +208,6 @@ function ActiveConversation() {
     navigationCommands,
     conversationReferences,
     readTurnReview,
-    setError,
   } = useConversationContext();
   const { project, thread, threadId, library, snapshot, resourceAction } = session;
   const panelOwner = `${project?.id ?? ""}:${threadId}`;
@@ -205,7 +218,7 @@ function ActiveConversation() {
     canCreateSide,
     addSelectionToChat,
     openSideSelection,
-    revealSide,
+    newSide,
     createSide,
   } = side;
   const { forkFromTurn } = fork;
@@ -218,6 +231,8 @@ function ActiveConversation() {
   const { newTask } = navigationCommands;
 
   const { t } = useI18n();
+  const pendingSide =
+    project && thread ? sideChats.pendingCreation(project.id, thread.id) : undefined;
   if (!project || !thread) return null;
   return (
     <>
@@ -291,24 +306,17 @@ function ActiveConversation() {
             </div>
           </div>
         )}
-        {project && thread && sideChats.hasPendingCreation(project.id, thread.id) && (
-          <p role="status" className="notice">
-            {t("chat.side.createUnconfirmed")}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                void sideChats
-                  .recoverCreation(project.id, thread.id)
-                  .then((tab) => {
-                    if (tab) revealSide(tab);
-                  })
-                  .catch((cause) => setError(cause.message));
-              }}
-            >
-              {t("chat.side.inspectCreation")}
-            </Button>
-          </p>
+        {pendingSide && (
+          <FeedbackNotice
+            tone="warning"
+            requestId={pendingSide.requestId}
+            message={t("chat.side.createUnconfirmed")}
+            actions={
+              <Button variant="ghost" size="sm" onClick={newSide}>
+                {t("chat.side.inspectCreation")}
+              </Button>
+            }
+          />
         )}
         {!thread.cloud && mcpWorkspace.contexts}
         {!thread.cloud && mcpWorkspace.formsView}
@@ -414,7 +422,13 @@ function DraftConversation() {
                     className="composer-project"
                     aria-label={
                       project
-                        ? `在 ${library.projects?.[project.id]?.title || (project.projectless ? thread?.title || t("operations.schedules.newTitle") : project.root.split("/").pop())} 中开始新聊天`
+                        ? t("common.conversation.newInProject", {
+                            project:
+                              library.projects?.[project.id]?.title ||
+                              (project.projectless
+                                ? thread?.title || t("operations.schedules.newTitle")
+                                : project.root.split("/").pop()),
+                          })
                         : t("common.conversation.projectless")
                     }
                   >

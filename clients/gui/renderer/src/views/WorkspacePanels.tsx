@@ -327,6 +327,9 @@ export function WorkspacePanels(props: WorkspacePanelsProps) {
           }
           names={project ? panelTabs : []}
           onNewSide={canCreateSide ? newSide : undefined}
+          sideCreationUnconfirmed={
+            !!project && !!thread && !!sideChats.pendingCreation(project.id, thread.id)
+          }
           retainedPanels={retainedPanels}
           previewTabId={previewFileTab}
           onKeepTab={workspacePanels.keepFile}

@@ -36,3 +36,5 @@ Renderer 的来源修订为 ZCode `872ad960de7ec172591f7e1952f7849229f94521`，A
 外部电脑操作原样保留 [amontlabs/lcu](https://github.com/amontlabs/lcu/tree/c31a57958b3086112949374ca6d21414a3ba22b7) 修订 `c31a57958b3086112949374ca6d21414a3ba22b7` 的 `client.mjs`、`diagnostics.mjs` 和 `host-guard.mjs`。MIT 许可及文件摘要位于 `app/src/vendor/lcu/LICENSE` 和 `app/src/vendor/lcu/NOTICE.md`。随包客户端使用 MIT 许可的 `@modelcontextprotocol/sdk` 1.32.0，版本固定于 `pnpm-lock.yaml`；不随包分发专有 LCU 应用或运行时。
 
 终端外观检测 `app/src/core/terminal-profile.cjs` 适配自 ZCode 修订 `3c5b227649371507ddc4eb46ac5133afe6db1cab` 的 `packages/services/src/terminal/terminalProfile.ts` 与 `terminalProfileMacOs.ts`，复用字体回退顺序、iTerm2 和 macOS Terminal profile 字段及 Kitty 字体检测。Copyright 2026 Z.AI Co., Ltd，Apache-2.0 许可保留于 `renderer/ZCODE-LICENSE`。AReaL 改为从指定 home 异步限量读取，适配 Terminal 实际的 `Window Settings` 容器，且只传递外观 metadata。
+
+- Repository oxlint suppression-reason and ResizeObserver rules adapt T3 Code `f41518f3bc2672c419871c02a3c6728d0f627142`, Copyright (c) 2026 T3 Tools Inc., MIT. The retained license is `oxlint-plugin-areal/LICENSE`. The local test harness uses the existing Vite Plus runner.

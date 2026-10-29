@@ -1,3 +1,4 @@
+import { PopupAnchorExamples } from "./package-controls-examples.js";
 import manifestText from "@areal/ui/components.json?raw";
 import tokenText from "@areal/ui/tokens.json?raw";
 import "./ui-library.css";
@@ -38,6 +39,7 @@ export function UiLibraryPreview({ dark, fontSize }: { dark: boolean; fontSize: 
         </a>
         <a href="?conversation-system">对话组合实例</a>
       </nav>
+      <PopupAnchorExamples />
       <section className="ui-library-section" aria-label="独立包消费">
         <h3>真实组件示例</h3>
         <p>下方示例运行在独立文档中，基础外观由包内样式提供。</p>

@@ -1,5 +1,4 @@
 import { SettingsGroupCard, SettingsRow, SettingsSection } from "@areal/ui/compositions";
-import { toast } from "../components/ui/toast.js";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { LoaderCircle, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "../components/ui/button.js";
@@ -163,13 +162,6 @@ export function WorktreesSettings({
   const [operation, setOperation] = useState<Operation>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  useEffect(() => {
-    if (error) toast(error, "error");
-  }, [error]);
-  useEffect(() => {
-    if (notice) toast(notice, "success");
-  }, [notice]);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const root = useRef<HTMLDivElement>(null);
@@ -239,7 +231,6 @@ export function WorktreesSettings({
         root.current?.closest(".settings-workspace")?.scrollTop ?? 0;
       setPage(next);
       setError("");
-      setNotice("");
     });
   };
   const updateEditor = (
@@ -254,7 +245,6 @@ export function WorktreesSettings({
     locked.current = true;
     setOperation(next);
     setError("");
-    setNotice("");
     try {
       await work();
     } catch (cause) {
@@ -307,7 +297,6 @@ export function WorktreesSettings({
         })) as Defaults;
         setDefaults({ value: result, original: result, revision: defaults.revision + 1 });
       }
-      setNotice(t("worktree.saved"));
       await refreshAfterWrite();
     });
   };
@@ -358,7 +347,6 @@ export function WorktreesSettings({
     if (!window.confirm(identity) || locked.current) return;
     locked.current = true;
     setOperation({ kind: "delete-worktree", requestId: item.requestId });
-    setNotice("");
     setRowErrors((previous) => ({ ...previous, [item.requestId]: "" }));
     try {
       const result = await action("workspace", {
@@ -376,12 +364,10 @@ export function WorktreesSettings({
             worktrees: previous.worktrees.filter((value) => value.requestId !== item.requestId),
           },
       );
-      setNotice(t("worktree.settings.directoryDeleted", { name }));
       await refreshAfterWrite();
     } catch (cause) {
       const message = (cause as Error).message;
       setRowErrors((previous) => ({ ...previous, [item.requestId]: message }));
-      toast(message, "error");
     } finally {
       locked.current = false;
       setOperation(undefined);
@@ -410,7 +396,6 @@ export function WorktreesSettings({
           },
       );
       setPage({ view: "project", projectId: editor.projectId });
-      setNotice(t("worktree.settings.environmentDeleted"));
       await refreshAfterWrite();
     });
   };
@@ -518,7 +503,6 @@ export function WorktreesSettings({
               void navigate(() => {
                 setTab(next);
                 setError("");
-                setNotice("");
               });
             }}
           />
@@ -537,10 +521,9 @@ export function WorktreesSettings({
       </Button>
 
       {error && (
-        <details className="worktrees-feedback">
-          <summary>{t("recovery.details")}</summary>
-          <p>{error}</p>
-        </details>
+        <p role="alert" className="worktrees-feedback">
+          {error}
+        </p>
       )}
       {loading && (
         <p role="status" className="settings-section-desc">

@@ -1,4 +1,15 @@
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@areal/ui";
 import { useState } from "react";
+import { ConversationNavigation } from "../views/ConversationNavigation.js";
+import { createNavigationWorkspace } from "../state/navigationWorkspace.js";
 import { FileTextIcon } from "lucide-react";
 import * as Stable from "@areal/ui";
 import {
@@ -32,13 +43,6 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
   DiffViewer,
   EmptySettings,
   FeedbackNotice,
@@ -782,4 +786,75 @@ function Workbench({ id }: { id: string }) {
 
 function GalleryCodeViewer(props: CodeViewerProps) {
   return <UI.CodeViewer {...props} theme="github-light" />;
+}
+
+// 直接挂载生产侧栏与任务行；动作仅作用于预览本地状态。
+export function PopupAnchorExamples() {
+  const [navigation] = useState(createNavigationWorkspace);
+  const [sidebarWidth, setSidebarWidth] = useState(320);
+  const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({});
+  const [count, setCount] = useState(0);
+  const project = { id: "popup-project", root: "/workspace/popup-project" };
+  const act = () => setCount((value) => value + 1);
+  return (
+    <section aria-label="弹出层锚点预览" id="popup-anchor-examples">
+      <h3>行内弹出层锚点</h3>
+      <ConversationNavigation
+        snapshot={{ projects: [project] }}
+        services={{}}
+        projects={[project]}
+        summaries={[]}
+        projectId={project.id}
+        threadId=""
+        taskCenterOpen={false}
+        pluginsOpen={false}
+        sidebar
+        visible
+        appearance={{
+          sidebarWidth,
+          setSidebarWidth,
+          collapsedProjects,
+          setCollapsedProjects,
+          toggleSidebarGroup: (key) =>
+            setCollapsedProjects((current) => ({ ...current, [key]: !current[key] })),
+        }}
+        navigation={navigation}
+        workspaceNavigation={null}
+        applicationRail={null}
+        action={async () => {
+          throw new Error("预览不提交真实操作");
+        }}
+        requestNavigation={async (navigate) => {
+          navigate();
+          return true;
+        }}
+        setError={act}
+        choose={async () => act()}
+        newTask={act}
+        open={async () => act()}
+        onOpenProjectTasks={act}
+        closePanels={act}
+      />
+      <ul className="library-task-list">
+        <UI.MemoTaskItem
+          id="sample"
+          title="需要完整阅读的长任务名称"
+          active
+          pinned={false}
+          running={false}
+          attention={false}
+          archived={false}
+          disabled={false}
+          unread={false}
+          onSelect={act}
+          onRename={act}
+          onPin={act}
+          onArchive={act}
+        />
+      </ul>
+      <p data-testid="popup-anchor-leave" role="status">
+        本地项目动作 {count}
+      </p>
+    </section>
+  );
 }

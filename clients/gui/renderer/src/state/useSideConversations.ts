@@ -60,7 +60,16 @@ export function useSideConversations(
     return tab;
   };
   const newSide = () => {
-    void createSide().catch((cause) => setError(cause.message));
+    if (!project || !thread) return;
+    const recovering = sideChats.pendingCreation(project.id, thread.id);
+    const operation = recovering
+      ? sideChats.recoverCreation(project.id, thread.id).then((tab) => {
+          if (tab) revealSide(tab);
+        })
+      : createSide();
+    void operation.catch((cause) => {
+      if (!cause.submissionUnknown) setError(cause.message);
+    });
   };
   const removeSideTab = (tab: SideChatTab) => {
     sideChats.forget(tab);

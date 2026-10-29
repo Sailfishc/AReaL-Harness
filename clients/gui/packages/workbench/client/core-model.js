@@ -35,8 +35,8 @@ export class CoreTaskModel {
   connection(connected, error = null) {
     this.publish({ connected, error });
   }
-  /** @param {CoreThread} thread */
-  replace(thread) {
+  /** @param {CoreThread} thread @param {{queue?:CoreQueue,interactions?:CoreInteractions}} [metadata] */
+  replace(thread, { queue, interactions } = {}) {
     const old = this.state.threads[thread.id];
     // A snapshot requested before an attachment may arrive after its committed event.
     const currentRevision = old?.toolsetRevision ?? 0;
@@ -45,7 +45,16 @@ export class CoreTaskModel {
       currentRevision > incomingRevision
         ? { ...thread, dynamicTools: old.dynamicTools, toolsetRevision: currentRevision }
         : thread;
-    this.publish({ threads: { ...this.state.threads, [thread.id]: value } });
+    this.publish({
+      threads: { ...this.state.threads, [thread.id]: value },
+      ...(queue && (this.state.queues[thread.id]?.revision ?? -1) <= queue.revision
+        ? { queues: { ...this.state.queues, [thread.id]: queue } }
+        : {}),
+      ...(interactions &&
+      (this.state.interactions[thread.id]?.revision ?? -1) <= interactions.revision
+        ? { interactions: { ...this.state.interactions, [thread.id]: interactions } }
+        : {}),
+    });
   }
   /** @param {string} threadId @param {CoreInteractions} value */
   setInteractions(threadId, value) {

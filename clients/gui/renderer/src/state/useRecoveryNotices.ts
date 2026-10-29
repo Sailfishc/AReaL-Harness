@@ -155,7 +155,7 @@ export function useRecoveryNotices(
         const composerRefusal = name === "send" && failure.outcome?.kind === "rejected";
         if (
           !composerRefusal &&
-          !["providers", "chatgpt", "prediction"].includes(name) &&
+          !["providers", "chatgpt", "prediction", "history"].includes(name) &&
           !(name === "respond" && "answers" in params && params.answers) &&
           name !== "media" &&
           name !== "feedback" &&

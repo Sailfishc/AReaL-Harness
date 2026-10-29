@@ -10,6 +10,7 @@ import {
   captureSmokeFailure,
   resizeConversation,
   selectConversation,
+  openSideChat,
 } from "./smoke-navigation.mjs";
 import assert from "node:assert/strict";
 
@@ -404,15 +405,30 @@ try {
       protocol: "chatCompletions",
       endpoint,
       models: ["fixture", "fixture-alt"],
+      modelCapabilities: Object.fromEntries(
+        ["fixture", "fixture-alt"].map((id) => [
+          id,
+          {
+            tools: true,
+            vision: true,
+            reasoning: true,
+            reasoningEffortOptions: ["none", "minimal", "low", "medium", "high", "xhigh"],
+          },
+        ]),
+      ),
       parameters: {},
     },
   });
   await until(
-    (s) => project(s).models.some((model) => model.modelId === "fixture-alt"),
+    (s) =>
+      project(s).models.some(
+        (model) =>
+          model.modelId === "fixture-alt" && model.reasoningEffortOptions?.includes("high"),
+      ),
     "provider catalog",
   );
-  const input = () => page.locator("[data-testid=chat-input]");
-  const tags = () => page.locator(".composer-skill-tag");
+  const input = () => page.getByTestId("chat-view").getByTestId("chat-input");
+  const tags = () => page.getByTestId("chat-view").locator(".composer-skill-tag");
   const openCatalog = async () => {
     await button("添加功能与 Skills").click();
     await page.getByRole("option").filter({ hasText: "Deterministic test skill" }).waitFor();
@@ -424,13 +440,34 @@ try {
   const sendAndWait = async () => {
     const count = received.length;
     await button("发送").click();
-    await until(
-      (s) =>
-        Object.values(project(s).state.threads).some(
-          (t) => t.turns?.at(-1)?.status === "completed",
-        ) && received.length > count,
-      "send completed",
-    );
+    try {
+      await until(
+        (s) =>
+          Object.values(project(s).state.threads).some(
+            (t) => t.turns?.at(-1)?.status === "completed",
+          ) && received.length > count,
+        "send completed",
+      );
+    } catch (error) {
+      await writeFile(
+        join(scratch, "send-timeout-state.json"),
+        JSON.stringify(
+          {
+            snapshot: await state(),
+            composer: await page.evaluate(() => ({
+              input: document.querySelector('[data-testid="chat-input"]')?.textContent,
+              send: document.querySelector('[data-testid="chat-send-button"]')?.outerHTML,
+              draftStorage: Object.fromEntries(
+                Object.entries(localStorage).filter(([key]) => key.startsWith("areal-gui:draft:")),
+              ),
+            })),
+          },
+          null,
+          2,
+        ),
+      );
+      throw error;
+    }
   };
   if (filesRegression) {
     await runComposerFilesAcceptance({
@@ -637,7 +674,18 @@ try {
     }
     // 由 Chromium 驱动真实组词事件；候选中间态不能保存到草稿或触发发送。
     const checkComposition = async (draftKey, label) => {
-      await input().fill("");
+      // 原生全选让 Lexical 同步选区；fill 的 DOM 全选可能仍按旧编辑器选区删除。
+      await input().focus();
+      await input().press("ControlOrMeta+A");
+      await input().press("Backspace");
+      await page.waitForFunction((key) => {
+        const editor = document.querySelector('[data-testid="chat-input"]');
+        return (
+          editor?.textContent === "" &&
+          editor.__arealLexicalInputE2E?.getText() === "" &&
+          (localStorage.getItem(key) ?? "") === ""
+        );
+      }, draftKey);
       await input().focus();
       await page.evaluate((key) => {
         window.composerInputProbe = { writes: [], restore: Storage.prototype.setItem };
@@ -787,10 +835,47 @@ try {
     await chooseFirst();
     assert.equal(await tags().count(), 2);
     assert.equal(project(await state()).summaries?.length ?? 0, 0);
+    const slashRefreshStart = skillCatalogEvents.length;
     await input().fill("正文保留 /fixture");
-    await page.getByRole("listbox", { name: "功能与 Skills" }).waitFor();
+    const slashCatalog = page.getByRole("listbox", { name: "功能与 Skills" });
+    // 打开 slash 会刷新目录；旧行可见不代表本轮 Core 读取已经结束。
+    await until(() => {
+      const refresh = skillCatalogEvents
+        .slice(slashRefreshStart)
+        .findLast((event) => event.stage === "core" && event.outcome === "begin");
+      return (
+        refresh &&
+        skillCatalogEvents.some(
+          (event) =>
+            event.requestId === refresh.requestId &&
+            event.stage === "core" &&
+            event.outcome === "ready",
+        )
+      );
+    }, "slash Core catalog refresh completed");
+    const nextSlashOption = slashCatalog.getByRole("option", { name: /Second source/ });
+    await nextSlashOption.waitFor();
+    await page.waitForFunction(
+      (id) =>
+        document.getElementById(id)?.getAttribute("aria-selected") === "true" &&
+        document
+          .querySelector('[data-testid="chat-input"]')
+          ?.getAttribute("aria-activedescendant") === id,
+      await slashCatalog.getByRole("option").first().getAttribute("id"),
+    );
     await input().press("ArrowDown");
+    await page.waitForFunction(
+      (id) =>
+        document.getElementById(id)?.getAttribute("aria-selected") === "true" &&
+        document
+          .querySelector('[data-testid="chat-input"]')
+          ?.getAttribute("aria-activedescendant") === id,
+      await nextSlashOption.getAttribute("id"),
+    );
     await input().press("Enter");
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="chat-input"]')?.textContent === "正文保留 ",
+    );
     assert.equal(await input().textContent(), "正文保留 ");
     assert.equal(await tags().count(), 2);
     await openCatalog();
@@ -840,10 +925,13 @@ try {
       ctx.fillRect(0, 0, 64, 64);
       return canvas.toDataURL("image/png").split(",")[1];
     });
-    await page.locator("input[type=file]").setInputFiles([
-      { name: "image.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") },
-      { name: "note.txt", mimeType: "text/plain", buffer: Buffer.from("文本附件内容") },
-    ]);
+    await page
+      .getByTestId("chat-view")
+      .locator("input[type=file]")
+      .setInputFiles([
+        { name: "image.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") },
+        { name: "note.txt", mimeType: "text/plain", buffer: Buffer.from("文本附件内容") },
+      ]);
     await page.getByRole("button", { name: "在文本框中显示 ›" }).click();
     await page.waitForFunction(() =>
       document.querySelector('[data-testid="chat-input"]')?.textContent.includes("文本附件内容"),
@@ -878,6 +966,8 @@ try {
     await button("模型").click();
     await page.getByRole("button", { name: "选择模型", exact: true }).click();
     await page.getByRole("radio", { name: "fixture-alt", exact: true }).click();
+    assert.match(await button("模型").innerText(), /未指定/);
+    await page.getByRole("button", { name: "中", exact: true }).click();
     const slider = page.getByRole("slider", { name: "思考强度" });
     await slider.waitFor();
     await slider.fill("4");
@@ -1115,11 +1205,14 @@ try {
       uploads: (await call("media", { projectId: pid, threadId: tid, operation: "list" })).uploads,
     };
     await input().fill(fileDraft);
-    await page.locator("input[type=file]").setInputFiles({
-      name: "中文源文件.ts",
-      mimeType: "application/typescript",
-      buffer: Buffer.from(uploadedText),
-    });
+    await page
+      .getByTestId("chat-view")
+      .locator("input[type=file]")
+      .setInputFiles({
+        name: "中文源文件.ts",
+        mimeType: "application/typescript",
+        buffer: Buffer.from(uploadedText),
+      });
     await sendAndWait();
     await until(
       (s) => current(s).turns.at(-1)?.status === "completed" && !project(s).pending.length,
@@ -1182,7 +1275,7 @@ try {
     for (const fixture of refusedFiles) {
       const requests = received.length;
       await input().fill("拒绝时保留草稿");
-      await page.locator("input[type=file]").setInputFiles(fixture);
+      await page.getByTestId("chat-view").locator("input[type=file]").setInputFiles(fixture);
       await button("发送").click();
       await page
         .getByRole("alert")
@@ -1444,10 +1537,12 @@ try {
       .at(-1).content;
     assert.equal(firstPluginMessage.split("COMPOSER_PLUGIN_EXACT_BODY").length - 1, 1);
     await selectConversation(page, tid);
-    // This compatibility journey protects the persisted read-only Side policy.
-    await button("任务操作").click();
-    await page.getByRole("menuitem", { name: "历史旁路讨论", exact: true }).click();
-    const sideInput = page.getByTestId("side-chat-input");
+    const parentConfiguration = project(await state()).configurations[tid];
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1024, 768));
+    await page.waitForFunction(() => innerWidth <= 1024);
+    await openSideChat(page);
+    const sidePane = page.getByTestId("side-chat-pane").filter({ visible: true });
+    const sideInput = sidePane.getByRole("textbox", { name: "随心输入", exact: true });
     await sideInput.fill("side plugin @composer");
     const beforeSidePlugin = received.length;
     await page.getByRole("option", { name: /composer-plugin.*Composer plugin fixture/ }).waitFor();
@@ -1464,7 +1559,7 @@ try {
     await page.getByRole("option", { name: /composer-plugin.*Composer plugin fixture/ }).click();
     assert.equal(received.length, beforeSidePlugin);
     await shot("plugin-mention-side-draft");
-    await page.getByTestId("side-chat-send").click();
+    await sidePane.getByRole("button", { name: "发送", exact: true }).click();
     const sideCompleted = await until(
       (s) =>
         received.length > beforeSidePlugin &&
@@ -1486,18 +1581,20 @@ try {
       )
       .at(-1).content;
     assert.match(sidePluginMessage, /plugin:\/\/composer-plugin@composer-fixture/);
-    assert.ok(
-      !sidePluginMessage.includes("COMPOSER_PLUGIN_EXACT_BODY"),
-      "Side mention does not borrow parent Profile Skill body",
+    assert.equal(
+      sidePluginMessage.split("COMPOSER_PLUGIN_EXACT_BODY").length - 1,
+      1,
+      "executable Side inherits the parent Profile Skill and resolves plugin intent once",
     );
     const sidePluginThread = Object.values(project(sideCompleted).state.threads).find(
       (row) => row.conversation?.kind === "side" && row.turns?.at(-1)?.status === "completed",
     );
-    assert.equal(project(sideCompleted).configurations[sidePluginThread.id].readOnly, true);
-    await page.waitForFunction(() => {
-      const editor = document.querySelector('[data-testid="side-chat-input"]');
-      return editor?.getAttribute("contenteditable") === "true" && editor.textContent === "";
-    });
+    assert.equal(sidePluginThread.conversation.policy.kind, "sideExecutableV2");
+    assert.deepEqual(project(sideCompleted).configurations[tid], parentConfiguration);
+    await page.waitForFunction(
+      (editor) => editor.getAttribute("contenteditable") === "true" && editor.textContent === "",
+      await sideInput.elementHandle(),
+    );
     const beforeSideFollowUp = received.length;
     const sideTurnsBefore = sidePluginThread.turns.length;
     await sideInput.fill("side follow-up @composer");
@@ -1505,7 +1602,7 @@ try {
     await sideInput.press("Enter");
     assert.equal(received.length, beforeSideFollowUp, "existing Side plugin selection never sends");
     await sideInput.locator('[data-mention-category="plugins"]').waitFor();
-    await page.getByTestId("side-chat-send").click();
+    await sidePane.getByRole("button", { name: "发送", exact: true }).click();
     const sideFollowUpCompleted = await until(
       (s) =>
         received.length > beforeSideFollowUp &&
@@ -1528,21 +1625,30 @@ try {
     assert.match(sideFollowUpMessage, /side follow-up/);
     assert.match(sideFollowUpMessage, /plugin:\/\/composer-plugin@composer-fixture/);
     assert.match(sideFollowUpMessage, /请在本次请求中使用所选插件 composer-plugin/);
-    assert.ok(
-      !sideFollowUpMessage.includes("COMPOSER_PLUGIN_EXACT_BODY"),
-      "existing Side follow-up retains intent without parent Skill body",
+    assert.equal(
+      sideFollowUpMessage.split("COMPOSER_PLUGIN_EXACT_BODY").length - 1,
+      1,
+      "executable Side follow-up retains its inherited Profile Skill without duplication",
     );
-    assert.equal(project(sideFollowUpCompleted).configurations[sidePluginThread.id].readOnly, true);
+    assert.equal(
+      project(sideFollowUpCompleted).state.threads[sidePluginThread.id].conversation.policy.kind,
+      "sideExecutableV2",
+    );
+    assert.deepEqual(project(sideFollowUpCompleted).configurations[tid], parentConfiguration);
 
+    // 完整视图和分屏共用标签关闭键；窄窗中的面板按钮只负责切换视图。
     await page
-      .getByRole("region", { name: "旁路讨论" })
-      .getByRole("button", { name: "返回主会话", exact: true })
-      .click();
+      .locator(`[data-testid="side-chat-tab"][data-thread-id="${sidePluginThread.id}"]`)
+      .getByRole("tab")
+      .press("Delete");
+    await sidePane.waitFor({ state: "hidden" });
+    await input().waitFor({ state: "visible" });
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
     checks.push(
-      "canonical paste resolves Core metadata; removing chip preserves manual Skill; first-message plugin draft survives navigation/reload; new and existing legacy Side send reference intent under read-only Core policy",
+      "canonical paste resolves Core metadata; removing chip preserves manual Skill; first-message plugin draft survives navigation/reload; new and existing executable Side send reference intent without modifying parent configuration",
     );
     await checkComposition(`areal-gui:draft:${pid}:${tid}`, "chat");
-    // Use native typing: fill() uses the editor bridge and repairs the selection itself.
+    // 使用原生打字验证发送后焦点和选区，避免程序化填充修复选区而掩盖问题。
     for (const theme of ["dark", "light"]) {
       await button("设置").click();
       await button("外观").click();
@@ -1611,7 +1717,10 @@ try {
     assert.equal(received.length, requestCount);
     assert.equal(await tags().count(), 1);
     assert.equal(
-      await page.locator('[data-testid="feedback-notice"][data-tone="error"]').count(),
+      await page
+        .getByTestId("chat-view")
+        .locator('[data-testid="feedback-notice"][data-tone="error"]')
+        .count(),
       0,
     );
     assert.equal(await input().textContent(), "技能失败保留草稿");
@@ -1646,11 +1755,14 @@ try {
     await button("新聊天").click();
     await selectFixtureProfile();
     await chooseFirst();
-    await page.locator("input[type=file]").setInputFiles({
-      name: "goal-note.txt",
-      mimeType: "text/plain",
-      buffer: Buffer.from("目标之外的附件"),
-    });
+    await page
+      .getByTestId("chat-view")
+      .locator("input[type=file]")
+      .setInputFiles({
+        name: "goal-note.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from("目标之外的附件"),
+      });
     await input().fill("/goal");
     await page.getByRole("option", { name: /设置目标/ }).waitFor();
     await input().press("Enter");
@@ -1703,7 +1815,7 @@ try {
         sendBox.y + sendBox.height <= viewport.height,
     );
     await openCatalog();
-    await page.locator(".composer-editor").click();
+    await page.getByTestId("chat-view").locator(".composer-editor").click();
     assert.equal(await page.getByTestId("composer-catalog").count(), 0);
     checks.push(
       "narrow window catalog within viewport; send control reachable; outside-click dismissal",

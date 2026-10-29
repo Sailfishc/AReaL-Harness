@@ -10,6 +10,7 @@ const { TaskQuestions } = require("../app/src/core/remote-task-questions.cjs");
 const { SessionObservers } = require("../app/src/core/remote-session-observer.cjs");
 const { CoreBackend } = require("../app/src/core/backend.cjs");
 const { sessionCommand } = require("../app/src/core/remote-session-commands.cjs");
+const { RemotePush } = require("../app/src/core/remote-push.cjs");
 const home = await makeTempDir("rc09-contract-");
 const checks = [];
 async function fixture(name) {
@@ -78,6 +79,7 @@ async function fixture(name) {
       })),
     },
   };
+  remote.push = new RemotePush(remote);
   const connection = {
     peer: "a",
     connectionId: "c",
@@ -166,6 +168,7 @@ async function check(name, test) {
     checks.push(name);
   } finally {
     f.observers.close();
+    f.remote.push.close();
   }
 }
 await check("pause-original-current-run-durable-receipt", async (f) => {

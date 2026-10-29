@@ -7,19 +7,19 @@
 
 | 变量 | 默认值 | 用途 |
 | --- | --- | --- |
-| `--ui-font-size` | `12px` | 界面默认字号；用户偏好可覆盖 |
+| `--ui-font-size` | `14px` | 界面默认字号；用户偏好可覆盖 |
 | `--ui-font-weight` | `400` | 界面常规字重 |
-| `--text-conversation` | `var(--content-font-size, 12px)` | 对话时间线字号：正文、活动行、子代理行与过程状态共用，跟随内容字号偏好 |
+| `--text-conversation` | `var(--content-font-size, 14px)` | 对话时间线字号：正文、活动行、子代理行与过程状态共用，跟随内容字号偏好 |
 | `--text-ui-xl` | `calc(var(--ui-font-size) + 4px)` | 区块标题 |
 | `--text-page-title` | `calc(var(--ui-font-size) + 8px)` | 页面标题、空态大标题 |
 | `--text-ui-lg` | `calc(var(--ui-font-size) + 2px)` | 输入框文字、卡片标题等较突出内容 |
 | `--text-ui-base` | `var(--ui-font-size)` | 界面正文、卡片内容、普通反馈；在消息正文内被重映射为内容字号 |
 | `--text-ui-caption` | `max(12px, calc(var(--ui-font-size) - 1px))` | 按钮、菜单与紧凑标签 |
-| `--text-content-caption` | `max(12px, calc(var(--content-font-size, 12px) - 1px))` | 执行摘要、状态等过程附注，跟随内容字号而非界面字号 |
-| `--text-content-h1` | `calc(var(--content-font-size, 12px) + 10px)` | 阅读内容一级标题（文件阅读器、长文档），跟随内容字号；14px 时 24px |
-| `--text-content-h2` | `calc(var(--content-font-size, 12px) + 6px)` | 阅读内容二级标题，跟随内容字号；14px 时 20px |
-| `--text-content-h3` | `calc(var(--content-font-size, 12px) + 4px)` | 阅读内容三级标题，跟随内容字号；14px 时 18px |
-| `--text-content-h4` | `calc(var(--content-font-size, 12px) + 2px)` | 阅读内容四级标题，跟随内容字号；14px 时 16px |
+| `--text-content-caption` | `max(12px, calc(var(--content-font-size, 14px) - 1px))` | 执行摘要、状态等过程附注，跟随内容字号而非界面字号 |
+| `--text-content-h1` | `calc(var(--content-font-size, 14px) + 10px)` | 阅读内容一级标题（文件阅读器、长文档），跟随内容字号；14px 时 24px |
+| `--text-content-h2` | `calc(var(--content-font-size, 14px) + 6px)` | 阅读内容二级标题，跟随内容字号；14px 时 20px |
+| `--text-content-h3` | `calc(var(--content-font-size, 14px) + 4px)` | 阅读内容三级标题，跟随内容字号；14px 时 18px |
+| `--text-content-h4` | `calc(var(--content-font-size, 14px) + 2px)` | 阅读内容四级标题，跟随内容字号；14px 时 16px |
 | `--text-ui-sm` | `max(12px, calc(var(--ui-font-size) - 2px))` | 说明文字、次要反馈、表格辅助列 |
 | `--text-ui-xs` | `max(11px, calc(var(--ui-font-size) - 3px))` | 来源细节、元信息；最小 11px，不用于正文 |
 | `--text-ui-2xs` | `calc(var(--ui-font-size) - 5px)` | 仅限工作流图轴面的例外刻度 |
@@ -154,9 +154,19 @@
 | `--font-mono` | `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", monospace` | 代码字体及CJK无衬线回退 |
 | `--conversation-line` | `1.43` | 对话时间线行高（无单位比例）：14px 时为 20px；标题与更大的内容字号按比例增长 |
 | `--conversation-gap` | `12px` | 对话时间线块间距：段落、活动行、子代理行、状态行之间的统一节奏 |
+| `--activity-icon-size` | `16px` | 活动行与活动组摘要的行首图标尺寸；ActivityIcon 按 16 单位网格绘制 |
+| `--activity-chevron-size` | `14px` | 活动行与活动组摘要的展开箭头尺寸 |
+| `--activity-icon-gap` | `6px` | 活动行行首图标与文字、动作与对象之间的间距；展开后子项缩进 = 图标尺寸 + 本间距 |
+| `--activity-list-max-height` | `240px` | 活动组展开后列表的最大高度，超过后在列表内纵向滚动 |
+| `--activity-list-fade` | `24px` | 活动列表可继续向下滚动时底部渐隐的高度；滚到底后渐隐消失 |
+| `--conversation-fade` | `24px` | 对话时间线在 Composer 上沿的渐隐高度，正文滚到 Composer 下方时逐渐淡出 |
+| `--focus-width` | `2px` | 键盘焦点轮廓线宽 |
+| `--focus-offset` | `2px` | 键盘焦点轮廓与元素边缘的距离 |
 | `--browser-file-status-max-height` | `112px` | 浏览器文件交接状态列表的既有最大高度；来自renderer/src/BrowserFileHandoff.layout.css，D2保持原几何。 |
 | `--browser-file-status-inline-gap` | `6px` | 浏览器文件交接状态项的既有内容间距；来自renderer/src/BrowserFileHandoff.layout.css，D2保持原几何。 |
 | `--browser-file-status-block-padding` | `3px` | 浏览器文件交接状态项的既有纵向内边距；来自renderer/src/BrowserFileHandoff.layout.css，D2保持原几何。 |
+| `--size-status-dot` | `7px` | 移动端会话状态圆点尺寸 |
+| `--size-touch-target` | `44px` | 移动端按钮与输入框的最小触控目标 |
 
 ## 派生参数与来源
 

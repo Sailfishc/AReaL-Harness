@@ -6,6 +6,10 @@ let locale = "zh-CN";
 /** @typedef {{count?:unknown,value?:unknown,origin?:unknown}} NativeValues */
 /** @satisfies {Record<string,Record<'zh-CN'|'en',string|((values:NativeValues)=>string)>>} */
 const nativeMessages = {
+  "recovery.creationNotAdmitted": {
+    "zh-CN": "Core 已确认原会话创建未受理，草稿已保留。",
+    en: "Core confirmed that the original conversation creation was not admitted. Your draft is retained.",
+  },
   "common.cancel": { "zh-CN": "取消", en: "Cancel" },
   "common.back": { "zh-CN": "返回", en: "Back" },
   "common.quit": { "zh-CN": "退出", en: "Quit" },

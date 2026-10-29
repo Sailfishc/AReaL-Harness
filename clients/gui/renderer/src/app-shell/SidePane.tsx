@@ -59,6 +59,7 @@ export function SidePane({
   transient = false,
   hideDisabled = false,
   onNewSide,
+  sideCreationUnconfirmed = false,
   retainedPanels = [],
 }: {
   workspaceView?: {
@@ -77,6 +78,7 @@ export function SidePane({
   transient?: boolean;
   hideDisabled?: boolean;
   onNewSide?: () => void;
+  sideCreationUnconfirmed?: boolean;
   retainedPanels?: { id: string; visible: boolean; content: ReactNode }[];
   onSelect: (name: string) => void;
   onChange: (names: string[]) => void;
@@ -223,7 +225,7 @@ export function SidePane({
           {
             id: "side",
             panel: "旁路讨论",
-            label: t("chat.side.title"),
+            label: t(sideCreationUnconfirmed ? "chat.side.inspectCreation" : "chat.side.title"),
             shortcut: "",
             icon: MessageCircle,
             onOpen: onNewSide,

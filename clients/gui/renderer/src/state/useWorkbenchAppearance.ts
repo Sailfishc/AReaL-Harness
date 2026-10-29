@@ -8,7 +8,7 @@ export function useWorkbenchAppearance(
 ) {
   const [themeReady, setThemeReady] = useState(false);
   const [uiFontSize, setUiFontSize] = useState(
-    () => Number(localStorage.getItem("areal-gui:font-size")) || 12,
+    () => Number(localStorage.getItem("areal-gui:font-size")) || 14,
   );
   useEffect(() => {
     document.documentElement.style.setProperty("--ui-font-size", `${uiFontSize}px`);
@@ -16,7 +16,7 @@ export function useWorkbenchAppearance(
   }, [uiFontSize]);
   const [dark, setDark] = useState(false);
   useAppearance(dark);
-  const [theme, setTheme] = useState(() => localStorage.getItem("areal-gui:theme") ?? "system");
+  const [theme, setTheme] = useState(() => localStorage.getItem("areal-gui:theme") ?? "data-dense");
   const [sidebar, setSidebar] = useState(() => !matchMedia("(max-width: 640px)").matches);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = Number(localStorage.getItem("areal-gui:sidebar-width"));

@@ -7,7 +7,7 @@ export async function runContentSystem(page, scratch, checks) {
   const question = region.getByRole("region", { name: "提问预览", exact: true });
   const records = region.getByLabel("预览调用记录", { exact: true });
   const progress = region.getByRole("region", { name: "过程预览", exact: true });
-  assert.equal(await progress.locator(".turn-progress-summary").innerText(), "Working for 15m 29s");
+  assert.equal(await progress.locator(".turn-progress-summary").innerText(), "Worked for 15m 29s");
   assert.equal(await progress.locator(".turn-failure-indicator").count(), 0);
   // 失败步骤留在原位，由所在活动行写明结果；过程标题不另作提示。
   assert.equal(await progress.getByText("失败步骤留在原位").count(), 1);

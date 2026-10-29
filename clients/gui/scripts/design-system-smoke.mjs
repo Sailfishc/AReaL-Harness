@@ -8,6 +8,7 @@ import { runSharedWorkspace } from "./design-system-shared-workspace.mjs";
 import { runConversationExercise } from "./design-system-conversation-exercise.mjs";
 import { runConversationDemo } from "./design-system-conversation-demo.mjs";
 import { runConversationSystem } from "./design-system-conversation-system.mjs";
+import { runPopupAnchors } from "./design-system-popup-anchors.mjs";
 import { runUiLibrary } from "./design-system-library.mjs";
 import { runDecisionExercise } from "./design-system-decision-exercise.mjs";
 import { runSettingsExercise, runSettingsContrast } from "./design-system-settings-exercise.mjs";
@@ -34,6 +35,7 @@ const conversationExercise = process.argv.includes("--conversation-exercise");
 const conversationDemo = process.argv.includes("--conversation-demo");
 const conversationSystem = process.argv.includes("--conversation-system");
 const contentSystem = process.argv.includes("--content-system");
+const popupAnchors = process.argv.includes("--popup-anchors");
 const uiLibrary = process.argv.includes("--ui-library");
 const decisionExercise = process.argv.includes("--decision-exercise");
 const settingsContrast = process.argv.includes("--settings-contrast");
@@ -54,6 +56,7 @@ const namedExercise =
   conversationDemo ||
   conversationSystem ||
   uiLibrary ||
+  popupAnchors ||
   decisionExercise ||
   settingsExercise;
 const exercise = { steps: [], checks: [] };
@@ -354,7 +357,7 @@ async function settingsChecks() {
     if (state === "failed") {
       await save.click();
       assert.equal(
-        await page.getByTestId("toast").getByRole("alert").innerText(),
+        await host("states").getByRole("alert").innerText(),
         "示例操作明确失败，草稿已保留。",
       );
     }
@@ -559,7 +562,7 @@ try {
     };
   });
   await page.goto(
-    `${origin}/design-system.html${contentSystem ? "?content-system" : uiLibrary ? "?ui-library" : conversationSystem ? "?conversation-system" : reuseExercise ? "?reuse-exercise" : productCandidate ? "?product-candidate" : sharedWorkspace ? "?shared-workspace" : conversationExercise ? "?conversation-exercise" : conversationDemo ? "?conversation" : decisionExercise ? "?decision-exercise" : settingsExercise ? "?settings-exercise" : settingsOnly ? "?settings" : ""}`,
+    `${origin}/design-system.html${contentSystem ? "?content-system" : uiLibrary || popupAnchors ? "?ui-library" : conversationSystem ? "?conversation-system" : reuseExercise ? "?reuse-exercise" : productCandidate ? "?product-candidate" : sharedWorkspace ? "?shared-workspace" : conversationExercise ? "?conversation-exercise" : conversationDemo ? "?conversation" : decisionExercise ? "?decision-exercise" : settingsExercise ? "?settings-exercise" : settingsOnly ? "?settings" : ""}`,
   );
   await page
     .getByRole("heading", {
@@ -596,6 +599,7 @@ try {
     else if (conversationExercise) await runConversationExercise(page, scratch, gui, exercise);
     else if (conversationDemo) await runConversationDemo(page, scratch, exercise.checks);
     else if (conversationSystem) await runConversationSystem(page, scratch, exercise.checks);
+    else if (popupAnchors) await runPopupAnchors(page, scratch, checks);
     else if (uiLibrary) await runUiLibrary(page, scratch, exercise.checks);
     else if (decisionExercise) await runDecisionExercise(page, scratch, gui, exercise);
     else if (settingsContrast) await runSettingsContrast(page, scratch, gui, exercise);
@@ -619,6 +623,7 @@ try {
               .getAnimations()
               .filter(
                 (animation) =>
+                  animation.timeline === document.timeline &&
                   animation.playState === "running" &&
                   Number.isFinite(animation.effect?.getComputedTiming().endTime),
               )
@@ -703,7 +708,7 @@ try {
       assert.equal(
         await readingGroup.count(),
         1,
-        "adjacent same-action commands form one collapsible run",
+        "tools between two messages form one collapsible group",
       );
       await toggleHere(readingGroup, undefined, "activity group mouse expansion");
       await toggleHere(readingGroup, "Enter", "activity group keyboard collapse");
@@ -819,16 +824,41 @@ try {
           true,
           `${shape} status is the turn tail`,
         );
-        await status.scrollIntoViewIfNeeded();
         await settleLayout();
+        await status.scrollIntoViewIfNeeded();
+        // IntersectionObserver publishes visibility asynchronously after layout.
+        await page.waitForFunction(
+          (el) => {
+            const rect = el.getBoundingClientRect();
+            const clip = el.closest(".messages").getBoundingClientRect();
+            return (
+              rect.bottom > Math.max(0, clip.top) &&
+              rect.top < Math.min(innerHeight, clip.bottom) &&
+              el
+                .getAnimations({ subtree: true })
+                .some(
+                  (animation) =>
+                    animation.animationName === "areal-thinking-sweep" &&
+                    animation.playState === "running",
+                )
+            );
+          },
+          await status.elementHandle(),
+          { timeout: 5000 },
+        );
         const animations = await status.evaluate(
           (el) =>
             el
               .getAnimations({ subtree: true })
-              .filter((animation) => animation.playState === "running").length,
+              .filter(
+                (animation) =>
+                  animation.animationName === "areal-thinking-sweep" &&
+                  animation.playState === "running",
+              ).length,
         );
-        assert.ok(
-          animations > 0,
+        assert.equal(
+          animations,
+          1,
           `${shape} tail status sweeps while visible (CONV-STATUS-01: tool and model progress share one live line)`,
         );
         if (["grouped", "multiple", "single"].includes(shape))
@@ -841,12 +871,13 @@ try {
             await liveTurn
               .locator('.areal-activity-group[data-presentation="collapsible"]')
               .count(),
-            0,
-            "heterogeneous command, plan and reasoning stay inline",
+            1,
+            "a command and a plan read between two messages form one group",
           );
           assert.equal(
             await liveTurn.locator('.areal-activity-group[data-presentation="inline"]').count(),
-            3,
+            1,
+            "reasoning stays on its own",
           );
         }
         if (shape === "grouped") {
@@ -862,10 +893,10 @@ try {
             (await readingGroup.innerText()).includes("运行命令"),
             "the execution disclosure describes its activities",
           );
-          assert.equal(
+          assert.match(
             await readingGroup.innerText(),
-            "正在运行命令",
-            "running run uses the progressive action label without tool detail or counts",
+            /^已探索，已运行命令$/,
+            "group titles stay past tense without counts; live progress belongs to the tail status (CONV-ACTIVITY-01)",
           );
         }
       }
@@ -930,7 +961,7 @@ try {
       );
       const earlier = timeline.locator('[data-side-item-id="timeline-progress"]');
       const durationToggle = timeline.getByRole("button", {
-        name: "执行过程：Working for 19s",
+        name: "执行过程：Worked for 19s",
         exact: true,
       });
       assert.equal(await durationToggle.getAttribute("aria-expanded"), "false");
@@ -1017,13 +1048,20 @@ try {
       assert.equal(await activityToggle.getAttribute("aria-expanded"), "false");
       assert.equal(await activity.isVisible(), false);
       await activityToggle.click();
+      // 滚动时间线在展开后的渲染阶段更新，先等待其可观察状态再采样。
+      await page.waitForFunction(
+        (list) => getComputedStyle(list).getPropertyValue("--areal-activity-list-fade") === "24px",
+        await activity.elementHandle(),
+      );
       const activitySize = await activity.evaluate((el) => ({
         height: el.clientHeight,
         full: el.scrollHeight,
         overflow: getComputedStyle(el).overflowY,
+        fade: getComputedStyle(el).getPropertyValue("--areal-activity-list-fade"),
       }));
       assert.equal(activitySize.overflow, "auto");
       assert.ok(activitySize.height <= 240 && activitySize.full > activitySize.height);
+      assert.equal(activitySize.fade, "24px", "a list with more below fades at its bottom edge");
       await activity.press("End");
       await page.waitForFunction(
         () =>
@@ -1031,6 +1069,16 @@ try {
             .querySelector('#conversation-timeline [data-tool-id="timeline-read"]')
             .closest(".areal-activity-list").scrollTop > 0,
       );
+      await page.waitForFunction(() => {
+        const list = document
+          .querySelector('#conversation-timeline [data-tool-id="timeline-read"]')
+          .closest(".areal-activity-list");
+        return (
+          list.scrollTop + list.clientHeight >= list.scrollHeight - 1 &&
+          getComputedStyle(list).getPropertyValue("--areal-activity-list-fade") === "0px"
+        );
+      });
+      checks.push("the activity list bottom fade disappears once the list is scrolled to its end");
       assert.equal(await activity.evaluate((el) => el.clientHeight), activitySize.height);
       const imageDisclosure = timeline.getByRole("button", {
         name: "已查看 1 张图片",
@@ -1079,7 +1127,7 @@ try {
       assert.equal(
         scrollOwners.group,
         "visible",
-        "a solitary command remains inline while its own output scrolls",
+        "an open command lifts the group list height limit while its own output scrolls",
       );
       const fileList = timeline.getByRole("region", { name: "本轮文件", exact: true });
       assert.equal(await fileList.isVisible(), true);
@@ -1292,6 +1340,8 @@ try {
             sideHeading: style(".side-chat-heading"),
             sideInfo: style(".side-chat-information"),
             composer: style(".composer-editor [contenteditable]"),
+            response: style(".assistant-message"),
+            userMessage: style(".user-bubble"),
             overflow: [...document.querySelectorAll(".design-preview-panel")].some(
               (el) => el.scrollWidth > el.clientWidth + 1,
             ),
@@ -1307,9 +1357,11 @@ try {
         }
         assert.equal(
           measured.composer.fontSize,
-          "12px",
+          "14px",
           "composer content font stays independent of the interface font fixture",
         );
+        assert.equal(measured.response.fontSize, "14px");
+        assert.equal(measured.userMessage.fontSize, "14px");
         assert.equal(
           await expand.getAttribute("aria-expanded"),
           "false",
@@ -1480,31 +1532,36 @@ try {
           sweep[0].position > sweep[2].position && sweep[2].position > sweep[3].position,
           "the oversized highlight background moves from a negative offset toward zero, sweeping left to right",
         );
-        const seamDifference = await page.evaluate(
-          async ({ first, last }) => {
-            const pixels = async (source) => {
-              const image = new Image();
-              image.src = `data:image/png;base64,${source}`;
-              await image.decode();
-              const canvas = document.createElement("canvas");
-              canvas.width = image.width;
-              canvas.height = image.height;
-              const context = canvas.getContext("2d");
-              context.drawImage(image, 0, 0);
-              return context.getImageData(0, 0, image.width, image.height).data;
-            };
-            const a = await pixels(first),
-              b = await pixels(last);
-            return a.reduce((sum, value, index) => sum + Math.abs(value - b[index]), 0) / a.length;
-          },
-          { first: frames[0], last: frames[6] },
-        );
-        // 背景定位的小数舍入可影响抗锯齿，允许每通道不足一个色阶的平均差异。
+        // 背景定位的小数舍入可影响抗锯齿，逐字节哈希不能稳定比较两帧；按平均像素差判断。
+        const frameDifference = (first, last) =>
+          page.evaluate(
+            async ({ first, last }) => {
+              const pixels = async (source) => {
+                const image = new Image();
+                image.src = `data:image/png;base64,${source}`;
+                await image.decode();
+                const canvas = document.createElement("canvas");
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const context = canvas.getContext("2d");
+                context.drawImage(image, 0, 0);
+                return context.getImageData(0, 0, image.width, image.height).data;
+              };
+              const a = await pixels(first),
+                b = await pixels(last);
+              return (
+                a.reduce((sum, value, index) => sum + Math.abs(value - b[index]), 0) / a.length
+              );
+            },
+            { first, last },
+          );
+        // 允许每通道不足一个色阶的平均差异。
+        const seamDifference = await frameDifference(frames[0], frames[6]);
         assert.ok(seamDifference < 1, `waiting sweep has no visible seam: ${seamDifference}`);
-        assert.equal(
-          sweep[0].sha256,
-          sweep[7].sha256,
-          "waiting highlight repeats at the same phase",
+        const phaseDifference = await frameDifference(frames[0], frames[7]);
+        assert.ok(
+          phaseDifference < 1,
+          `waiting highlight repeats at the same phase: ${phaseDifference}`,
         );
         await motion.screenshot({
           path: join(scratch, `${theme}-chat-motion.png`),
@@ -1550,7 +1607,7 @@ try {
       await page.getByLabel("状态", { exact: true }).selectOption("failed");
       const card = page.getByRole("region", { name: "工具审批", exact: true });
       await card.getByRole("button", { name: "允许一次", exact: true }).click();
-      await page.getByTestId("toast").getByRole("alert").waitFor();
+      await card.getByRole("alert").waitFor();
       await page.getByLabel("状态", { exact: true }).selectOption("unknown");
       await card.getByRole("button", { name: "允许一次", exact: true }).click();
       await card.getByRole("button", { name: "核对待审批状态", exact: true }).waitFor();

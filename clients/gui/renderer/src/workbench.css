@@ -184,26 +184,20 @@ kbd {
   transition: background-color 0.15s ease;
 }
 .project-row:hover,
-.project-row:has([data-state="open"]),
+.project-row:has([data-popup-open]),
 .project-row:has(> .project-label[aria-current="page"]) {
   background: var(--color-sidebar-item, var(--color-hover));
 }
+/* 显隐交给 HoverActions；绝对定位让锚点不随悬停移动，标题只在悬停时让出空间。 */
 .project-actions {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
   gap: 8px;
-  width: 0;
-  overflow: hidden;
-  opacity: 0;
 }
-.project-row:hover .project-actions,
-.project-row:has(:focus-visible) .project-actions,
-.project-actions:focus-within,
-.project-actions:has([data-state="open"]) {
-  width: auto;
-  overflow: visible;
-  opacity: 1;
+.project-row:is(:hover, :has(:focus-visible), :has([data-popup-open])) > .project-label {
+  padding-right: 52px;
 }
 .project-actions .icon-button {
   width: 20px;
@@ -226,12 +220,14 @@ kbd {
   color: var(--color-foreground);
   cursor: var(--interactive-cursor, pointer);
 }
-.project-label > svg {
+.project-label > svg,
+.header-context > svg {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
   color: var(--color-foreground-subtle);
 }
+
 .project-label span {
   white-space: nowrap;
   overflow: hidden;
@@ -274,12 +270,6 @@ kbd {
   align-items: center;
   gap: 8px;
   min-width: 0;
-}
-.header-context > svg {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  color: var(--color-foreground-subtle);
 }
 .header-task {
   white-space: nowrap;
@@ -409,11 +399,13 @@ kbd {
   flex-shrink: 0;
 }
 .composer-workspace-branch,
-.composer-workspace-branch > span {
+.composer-workspace-branch > span,
+.turn-activity > .execution-status > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 .composer-project {
   display: inline-flex;
   align-items: center;
@@ -438,7 +430,7 @@ button.composer-project {
   cursor: var(--interactive-cursor, pointer);
 }
 button.composer-project:hover,
-.composer-project[data-state="open"] {
+.composer-project[data-popup-open] {
   color: var(--color-foreground);
   background: var(--color-hover);
 }
@@ -448,7 +440,7 @@ button.composer-project:hover,
   transition: color 0.15s ease;
 }
 button.composer-project:hover > svg,
-.composer-project[data-state="open"] > svg {
+.composer-project[data-popup-open] > svg {
   color: var(--color-foreground);
 }
 .composer-project > span {
@@ -1504,45 +1496,16 @@ button.composer-project:hover > svg,
   margin: 0;
   min-width: 0;
 }
-.tool-summary-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  font-size: var(--text-conversation);
-  line-height: var(--conversation-line);
-  color: var(--activity-foreground);
-}
-.tool-summary-row > svg {
-  flex-shrink: 0;
-}
-.tool-summary-detail {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: inherit;
-}
 .tool-result {
   font-size: var(--text-ui-caption);
   white-space: nowrap;
   color: var(--color-foreground-subtle);
-}
-/* 失败步骤在所在行尾写明结果（CONV-ACTIVITY-01），只给这段短语用错误色。 */
-.tool-result.tool-failed {
-  color: var(--color-status-error);
 }
 .tool-chevron {
   opacity: 0;
   flex-shrink: 0;
   transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
 }
-.tool-summary-row:hover .tool-chevron,
-.tool-summary-row:focus-visible .tool-chevron,
 .tool-chevron.open {
   opacity: 1;
 }
@@ -1720,13 +1683,40 @@ button.composer-project:hover > svg,
 .composer-input-stack > form {
   position: relative;
 }
+.composer-submit-feedback,
 .composer-preference-notice {
-  margin: 8px 12px 0;
+  position: absolute;
+  inset-inline: var(--spacing-field);
+  bottom: 100%;
+  z-index: 2;
+  margin: 0 0 var(--spacing-inline);
+  padding: var(--spacing-inline) var(--spacing-field);
+  max-height: 6em;
+  overflow-y: auto;
+  border-radius: var(--radius-md);
+  background: var(--color-background);
+  box-shadow: var(--shadow-menu-wide);
   color: var(--color-foreground-subtle);
   font-size: var(--text-ui-sm);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+.composer-dock {
+  position: relative;
+}
+.conversation-loading {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.conversation-loading-body {
+  flex: 1;
+}
+.conversation-loading-editor {
+  min-height: 40px;
+}
+
 .composer-add-menu:focus-visible {
   outline: none;
 }
@@ -1870,11 +1860,6 @@ button[aria-label="停止"] {
   white-space: pre-wrap;
 }
 .timeline-bottom-button {
-  position: absolute;
-  bottom: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 3;
   width: 32px;
   height: 32px;
   padding: 0;
@@ -2128,7 +2113,7 @@ button[aria-label="停止"] {
 .user-bubble {
   font-family: var(--font-content, var(--font-sans));
   font-size: var(--content-font-size, var(--text-fixed-body));
-  --text-ui-base: var(--content-font-size, 12px);
+  --text-ui-base: var(--text-conversation);
   font-weight: var(--ui-font-weight);
   letter-spacing: normal;
 }
@@ -2162,24 +2147,6 @@ button[aria-label="停止"] {
   margin: var(--conversation-gap) 0;
   font-weight: 400;
   min-width: 0;
-}
-/* 一个回合段内可有多个活动段（CONV-ACTIVITY-01）：段与段之间只隔一个块间距，与正文、子代理行同一节奏。 */
-.turn-execution > .areal-activity-group > .areal-disclosure {
-  margin-block: 0;
-}
-.turn-execution > .areal-activity-group + .areal-activity-group {
-  margin-top: var(--conversation-gap);
-}
-/* 展开的同类分组里，类型已由摘要图标说明；子项只保留动作与对象，不重复行首图标。 */
-.turn-execution
-  .areal-activity-group:not([data-presentation="inline"])
-  .areal-activity-list
-  :is(.tool-summary-row, .areal-image-disclosure .areal-disclosure-trigger)
-  > svg[data-activity-icon]:first-child {
-  display: none;
-}
-.tool-summary-row:hover {
-  color: var(--color-foreground);
 }
 .execution-failures {
   font-size: var(--text-content-caption);
@@ -2279,29 +2246,6 @@ button[aria-label="停止"] {
 .reasoning-group-entry + .reasoning-group-entry {
   margin-top: 12px;
 }
-.tool-summary-row {
-  min-width: 0;
-}
-.tool-summary-row > span:not(.tool-summary-text) {
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.tool-summary-detail {
-  min-width: 0;
-}
-.tool-summary-text {
-  display: flex;
-  gap: 6px;
-  min-width: 0;
-  overflow: hidden;
-}
-.tool-summary-text > span:first-child {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.tool-file-row {
-  gap: 6px;
-}
 .tool-file-row .tool-file-link {
   display: block;
   height: auto;
@@ -2331,10 +2275,6 @@ button[aria-label="停止"] {
   border: 0;
   background: transparent;
   color: inherit;
-}
-.tool-file-row:focus-within .tool-chevron,
-.tool-file-row:hover .tool-chevron {
-  opacity: 1;
 }
 .tool-file-row .tool-file-diff-toggle {
   height: auto;
@@ -2394,8 +2334,9 @@ button[aria-label="停止"] {
 .turn-progress {
   margin: var(--conversation-gap) 0 0;
 }
-/* 过程之后的内容（最终回答、状态行）与过程只隔一个块间距。 */
-.turn-progress + * {
+/* 过程组或独立耗时标题之后的内容只隔一个块间距。 */
+.turn-progress + *,
+.turn-elapsed + * {
   margin-top: var(--conversation-gap);
 }
 .turn-elapsed {
@@ -2531,6 +2472,11 @@ button[aria-label="停止"] {
   opacity: 1;
 }
 @media (hover: none) {
+  .message-actions > button,
+  button.turn-progress-summary {
+    min-width: var(--size-touch-target);
+    min-height: var(--size-touch-target);
+  }
   .message-actions,
   .user-message .message-actions {
     opacity: 1;
@@ -2803,12 +2749,15 @@ button[aria-label="停止"] {
 .new-task-action:hover:not(:disabled) > svg {
   color: var(--color-foreground);
 }
-.new-task-action > span {
+.new-task-action > span,
+.composer-catalog-name,
+.composer-catalog-description {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .new-task-action:hover:not(:disabled) {
   background: var(--color-sidebar-item, var(--color-hover));
   color: var(--color-foreground);
@@ -3297,7 +3246,8 @@ button[aria-label="停止"] {
   opacity: 0;
 }
 .review-comment-card:hover .review-comment-menu,
-.review-comment-card:focus-within .review-comment-menu {
+.review-comment-card:focus-within .review-comment-menu,
+.review-comment-card:has([data-popup-open]) .review-comment-menu {
   opacity: 1;
 }
 .review-comment-actions .review-comment-delete-editing {
@@ -3354,11 +3304,13 @@ button[aria-label="停止"] {
 .review-comment-attachment-trigger:hover {
   background: var(--color-history-comment-hover, var(--color-card));
 }
-.review-comment-attachment-trigger > svg {
+.review-comment-attachment-trigger > svg,
+.sent-review-comments [data-slot="button"] > svg {
   width: 14px;
   height: 14px;
   color: color-mix(in srgb, var(--color-foreground) 50%, transparent);
 }
+
 .review-comment-attachment-trigger > span {
   min-width: 0;
   padding-inline-end: 4px;
@@ -3384,11 +3336,6 @@ button[aria-label="停止"] {
 }
 .sent-review-comments [data-slot="button"]:hover {
   background: var(--color-history-comment-hover, var(--color-card));
-}
-.sent-review-comments [data-slot="button"] > svg {
-  width: 14px;
-  height: 14px;
-  color: color-mix(in srgb, var(--color-foreground) 50%, transparent);
 }
 .sent-review-comments [data-slot="button"] > span {
   padding-inline-end: 4px;
@@ -4008,13 +3955,6 @@ button[aria-label="停止"] {
 }
 .composer-catalog-name {
   max-width: 48%;
-}
-.composer-catalog-name,
-.composer-catalog-description {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .composer-catalog-description {
   flex: 1;
@@ -4694,11 +4634,6 @@ button[aria-label="停止"] {
   min-width: 0;
   white-space: nowrap;
 }
-.turn-activity > .execution-status > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 /* 需要注意的状态：橙色只用于图标，文字改用正文色保证对比度。 */
 .turn-activity > .execution-status[data-tone] {
   color: var(--color-foreground);
@@ -4710,11 +4645,7 @@ button[aria-label="停止"] {
 .turn-activity > .execution-status[data-tone="unknown"] > svg {
   color: var(--color-status-unknown);
 }
-.tool-image-row > .areal-image-disclosure {
-  min-width: 0;
-  flex: 1;
-}
-.turn-execution .areal-activity-list .tool-file-diff {
+.turn-execution .tool-file-diff {
   max-width: 100%;
 }
 

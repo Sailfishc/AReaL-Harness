@@ -1,4 +1,40 @@
 export const operationMessages = {
+  "operations.inspectionDetails": {
+    "zh-CN": "查看原操作与诊断",
+    en: "View original operation and diagnostics",
+  },
+  "operations.browserUnconfirmed": {
+    "zh-CN": "浏览器操作未确认，任务已暂停。请核对当前页面后继续。",
+    en: "The browser operation is unconfirmed. Check the current page to continue the paused task.",
+  },
+  "operations.browserInspected": {
+    "zh-CN": "已记录页面核对，可以继续发送消息。原操作不会重放。",
+    en: "Page inspection recorded. You can send another message; the original operation will not be replayed.",
+  },
+  "operations.browserInspect": { "zh-CN": "核对浏览器结果", en: "Check browser result" },
+  "operations.browserInspectionHelp": {
+    "zh-CN":
+      "请核对浏览器当前页面。如果刚完成登录，记录当前已打开的页面；如果涉及提交，先确认是否已提交。核对后可发送保留的草稿继续任务，原操作不会重放。",
+    en: "Check the current browser page. If you just signed in, describe the page now open. If a submission was involved, check whether it went through. Then send your saved draft to continue; the original operation will not be replayed.",
+  },
+  "operations.browserInspectionPlaceholder": {
+    "zh-CN": "例如：已完成登录，当前显示任务列表；没有再次点击提交。",
+    en: "For example: Signed in and the task list is visible. I did not submit again.",
+  },
+  "operations.browserInspectionChecked": {
+    "zh-CN": "已核对当前页面及操作结果",
+    en: "I checked the current page and operation result",
+  },
+  "operations.browserRecovery": {
+    "zh-CN": "请核对当前页面；如需登录，请先完成登录。点击聊天中的“核对后继续”，再发送保留的草稿。",
+    en: "Check the current page and finish signing in if needed. Choose “Check to continue” in the chat, then send your saved draft.",
+  },
+  "operations.toolRecovery": {
+    "zh-CN": "上次操作的结果待核对。请核查实际状态后继续发送，草稿已保留。",
+    en: "The previous operation needs checking. Inspect its actual result before sending. Your draft is preserved.",
+  },
+  "operations.inspectToContinue": { "zh-CN": "核对后继续", en: "Check to continue" },
+  "operations.inspectBeforeSend": { "zh-CN": "核对后发送", en: "Check before sending" },
   "operations.outputStyles": { "zh-CN": "输出样式", en: "Output styles" },
   "operations.themes": { "zh-CN": "主题", en: "Themes" },
   "operations.languageServers": { "zh-CN": "语言服务器", en: "Language servers" },
@@ -479,7 +515,55 @@ export const operationMessages = {
   "operations.schedules.cached": { "zh-CN": "上次记录", en: "Last saved record" },
   "operations.schedules.readAt": { "zh-CN": "本次读取于 {time}", en: "Read at {time}" },
   "operations.schedules.incomplete": { "zh-CN": "完整性尚未确认", en: "Completeness unconfirmed" },
-  "operations.schedules.refreshProject": { "zh-CN": "刷新这个项目", en: "Refresh this project" },
+  "operations.schedules.refreshProject": {
+    "zh-CN": "打开项目以更新",
+    en: "Open project to update",
+  },
+  "operations.schedules.center": { "zh-CN": "自动化中心", en: "Automation center" },
+  "operations.schedules.forward": { "zh-CN": "前进", en: "Forward" },
+  "operations.schedules.toggleSidebar": { "zh-CN": "切换任务侧栏", en: "Toggle task sidebar" },
+  "operations.schedules.search": { "zh-CN": "搜索定时任务", en: "Search scheduled tasks" },
+  "operations.schedules.catalog": { "zh-CN": "任务目录", en: "Task catalog" },
+  "operations.schedules.enabledGroup": { "zh-CN": "已开启", en: "Enabled" },
+  "operations.schedules.pausedGroup": { "zh-CN": "已暂停", en: "Paused" },
+  "operations.schedules.readingCatalog": { "zh-CN": "正在读取任务…", en: "Reading tasks…" },
+  "operations.schedules.disconnectedCatalog": {
+    "zh-CN": "连接后台后可更新任务。",
+    en: "Connect to the backend to update tasks.",
+  },
+  "operations.schedules.moreNoMatches": {
+    "zh-CN": "已加载任务中没有匹配项，可展开显示更多。",
+    en: "No matches among loaded tasks. Show more to load additional tasks.",
+  },
+  "operations.schedules.noMatches": {
+    "zh-CN": "没有符合筛选条件的定时任务。",
+    en: "No scheduled tasks match the filters.",
+  },
+  "operations.schedules.showMore": { "zh-CN": "展开显示", en: "Show more" },
+  "operations.schedules.statusQueued": {
+    "zh-CN": "已受理，等待开始",
+    en: "Accepted, waiting to start",
+  },
+  "operations.schedules.statusRunning": { "zh-CN": "运行中", en: "Running" },
+  "operations.schedules.statusWaitingInput": { "zh-CN": "等待回答", en: "Waiting for an answer" },
+  "operations.schedules.statusWaitingAgents": { "zh-CN": "等待 worker", en: "Waiting for workers" },
+  "operations.schedules.statusBlocked": { "zh-CN": "受阻", en: "Blocked" },
+  "operations.schedules.statusCompleted": { "zh-CN": "已完成", en: "Completed" },
+  "operations.schedules.statusFailed": { "zh-CN": "失败", en: "Failed" },
+  "operations.schedules.statusCancelled": { "zh-CN": "已取消", en: "Cancelled" },
+  "operations.schedules.statusCancelling": {
+    "zh-CN": "正在取消，等待执行结算",
+    en: "Cancelling, waiting for execution to settle",
+  },
+  "operations.schedules.statusPausing": {
+    "zh-CN": "正在暂停，等待执行结算",
+    en: "Pausing, waiting for execution to settle",
+  },
+  "operations.schedules.statusMissed": { "zh-CN": "已错过", en: "Missed" },
+  "operations.schedules.statusScheduled": {
+    "zh-CN": "等待计划时间",
+    en: "Waiting for scheduled time",
+  },
   "operations.schedules.creationIntent": {
     "zh-CN": "帮我创建一个定时任务：",
     en: "Help me create a scheduled task:",

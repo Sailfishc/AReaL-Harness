@@ -13,8 +13,6 @@ import { captureSmokeFailure, selectConversation } from "./smoke-navigation.mjs"
 import { withSmokeDeadline } from "./smoke-deadline.mjs";
 import { closeRecordedSmokeApplication } from "./application-cleanup.mjs";
 
-const sharedWorkspace = process.argv.includes("--shared-workspace");
-const baselineLayout = process.argv.includes("--baseline");
 const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const root = resolve(gui, "../..");
 const desktop = join(gui, "app");
@@ -89,7 +87,7 @@ let sourceThreadId,
   videoPath,
   restartVideoPath,
   firstMutations = [];
-let beforeThreadId, activeTurnId, nestedThreadId, rawThreadId, userQuoteSideId;
+let activeTurnId, nestedThreadId;
 
 const sse = (answer) =>
   [
@@ -238,89 +236,23 @@ const modelConfiguration = (config) => {
 };
 
 async function state() {
-  return page.evaluate(() => window.arealDesktop.snapshot());
+  return withSmokeDeadline("renderer snapshot", () =>
+    page.evaluate(() => window.arealDesktop.snapshot()),
+  );
+}
+
+async function recordMainFailures(application) {
+  // 原生异常弹窗可能阻塞 IPC；先落盘错误栈，保留默认异常处理与失败事实。
+  await application.evaluate(
+    (_, path) => {
+      process.on("uncaughtExceptionMonitor", (error) => {
+        process.getBuiltinModule("fs").appendFileSync(path, `${error.stack ?? error}\n`);
+      });
+    },
+    join(scratch, "main-exceptions.log"),
+  );
 }
 const project = (snapshot) => snapshot.projects.find((p) => p.root === workspace && !p.projectless);
-async function showMainConversation() {
-  const input = page.getByTestId("chat-input");
-  if (!(await input.isVisible())) {
-    await page
-      .getByRole("region", { name: "旁路讨论" })
-      .getByRole("button", { name: "返回主会话", exact: true })
-      .click();
-    await input.waitFor();
-  }
-}
-async function showSideConversation() {
-  const input = page
-    .getByRole("region", { name: "旁路讨论" })
-    .getByRole("textbox", { name: "随心输入" });
-  if (!(await input.isVisible())) {
-    await page.getByRole("button", { name: "展开侧边面板", exact: true }).click();
-    await input.waitFor();
-  }
-}
-// Legacy selection producers were replaced by executable Side Chat. Restore the old
-// persisted draft format here; current selection-to-Side UI is covered by side-chat-parity.
-async function restoreLegacySelection(text, turnId = anchorTurnId, persisted = true) {
-  const source = project(await state()).state.threads[sourceThreadId];
-  const turn = source.turns.find((turn) => turn.id === turnId);
-  assert.ok(turn, "legacy fixture must refer to a real source Turn");
-  const item = persisted
-    ? turn.items.find((item) => item.type === "agentMessage" && item.text?.includes(text))
-    : undefined;
-  if (persisted) assert.ok(item, "legacy itemRange must come from actual Core source text");
-  const selection = persisted
-    ? {
-        kind: "itemRange",
-        turnId,
-        itemId: item.id,
-        startUtf8: Buffer.byteLength(item.text.slice(0, item.text.indexOf(text))),
-        endUtf8:
-          Buffer.byteLength(item.text.slice(0, item.text.indexOf(text))) + Buffer.byteLength(text),
-        textSha256: createHash("sha256").update(text).digest("hex"),
-      }
-    : { kind: "userQuote", text, claimedTurnId: turnId };
-  await page.evaluate(() => window.getSelection()?.removeAllRanges());
-  await page.getByTestId("transcript-selection-actions").waitFor({ state: "hidden" });
-  await page.getByRole("button", { name: "任务操作", exact: true }).click();
-  await page.getByRole("menuitem", { name: "历史旁路讨论", exact: true }).click();
-  const pane = page.getByRole("region", { name: "旁路讨论", exact: true });
-  const owner = await pane.locator("[data-side-owner]").getAttribute("data-side-owner");
-  const previous = await page.evaluate(
-    (owner) => localStorage.getItem(`${owner}:selection`),
-    owner,
-  );
-  if (/:side:[^:]+$/.test(owner) || previous) {
-    const input = pane.getByTestId("side-chat-input");
-    const draft = await input.innerText();
-    await input.fill(draft ? `${draft}\n\n${text}` : text);
-  } else {
-    await page.evaluate(
-      ({ owner, selection, text, anchor }) => {
-        localStorage.setItem(`${owner}:selection`, JSON.stringify(selection));
-        localStorage.setItem(`${owner}:selection-preview`, text);
-        if (anchor) localStorage.setItem(`${owner}:anchor`, JSON.stringify(anchor));
-        else localStorage.removeItem(`${owner}:anchor`);
-        window.dispatchEvent(new CustomEvent("areal-side-selection", { detail: { owner } }));
-      },
-      {
-        owner,
-        selection,
-        text,
-        anchor: persisted ? { kind: "turn", turnId, boundary: "after" } : null,
-      },
-    );
-  }
-  events.push({
-    legacySelectionFixture: {
-      owner,
-      selection,
-      source: persisted ? "actual Core source item" : "observed live streamed text",
-      boundary: "saved legacy draft restoration; no legacy selection UI claim",
-    },
-  });
-}
 async function selectMessageExcerpt(body, excerpt, keyboard = false) {
   await body.evaluate(async (element) => {
     element.scrollIntoView({ block: "center", behavior: "instant" });
@@ -436,64 +368,8 @@ async function untilFile(path, label) {
   throw Error(`Timed out waiting for ${label}`);
 }
 async function shot(name) {
-  if (name === "08b-archived-copyable-preview.png") {
-    const samples = await page.evaluate(async () => {
-      const side = document.querySelector(".side-chat-pane");
-      const panel = side?.closest(".panel-content");
-      const measure = (element) =>
-        element && {
-          height: element.clientHeight,
-          scrollHeight: element.scrollHeight,
-          scrollTop: element.scrollTop,
-          top: element.getBoundingClientRect().top,
-          inlineHeight: element.style.height,
-        };
-      const rows = [];
-      for (let i = 0; i < 3; i++) {
-        await new Promise(requestAnimationFrame);
-        const bounds = panel?.getBoundingClientRect();
-        rows.push({
-          panel: measure(panel),
-          messages: measure(side?.querySelector(".messages")),
-          space: measure(side?.querySelector(".message-response-space")),
-          latest: measure(side?.querySelector('[data-latest-turn="true"]')),
-          preview: measure(side?.querySelector('[aria-label="带回预览"]')),
-          center:
-            bounds &&
-            document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
-              ?.className,
-        });
-      }
-      return rows;
-    });
-    events.push({ sideVisualGeometry: samples });
-    await writeFile(join(scratch, "side-visual-geometry.json"), JSON.stringify(samples, null, 2));
-    assert.ok(
-      Math.abs(samples[2].space.height - samples[0].space.height) <= 1,
-      "Side response spacer must remain stable across animation frames",
-    );
-    await page.getByRole("region", { name: "带回预览" }).scrollIntoViewIfNeeded();
-  }
   await page.screenshot({ path: join(scratch, name), scale: "css", animations: "disabled" });
   frames.push(name);
-}
-async function showRelated(pane) {
-  const trigger = pane.getByRole("button", { name: "相关侧边讨论", exact: true });
-  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
-  await page.getByRole("region", { name: "相关讨论" }).waitFor();
-}
-async function openSideContext(pane) {
-  if (!(await pane.locator(".side-chat-information").isVisible())) {
-    await showRelated(pane);
-    await page.getByRole("button", { name: "上下文与文件访问", exact: true }).click();
-  }
-  if (
-    !(await pane
-      .locator("details.side-chat-context")
-      .getAttribute("open")
-      .then((value) => value !== null))
-  )
-    await pane.getByText("会话上下文与文件访问", { exact: true }).click();
 }
 async function composeText(input, text, label, append = false) {
   const prefix = append
@@ -869,6 +745,7 @@ try {
     recordVideo: { dir: videoDir, size: { width: 1440, height: 960 } },
   };
   app = await electron.launch(launchOptions);
+  await recordMainFailures(app);
   app.process().stderr.on("data", (chunk) => {
     electronStderr.push(String(chunk));
     if (String(chunk).includes("Error")) process.stderr.write(chunk);
@@ -1364,1303 +1241,68 @@ try {
   checks.push(
     "AC55: floating selection actions and Add to Chat preserve main text/files, remove/readd quotes without sending, dismiss on Escape/collapse/outside/scroll, and invalidate on source navigation",
   );
-  await sideTrigger.evaluate((element) => {
-    window.__scfSideTrigger = element;
-  });
-  await restoreLegacySelection(unicodeExcerpt);
-  let sidePane = page.getByRole("region", { name: "旁路讨论" });
-  assert.equal(await sidePane.locator(".side-chat-information").isVisible(), false);
-  const stagedSide = sidePane.getByTestId("side-selection-quote");
-  await stagedSide.filter({ hasText: unicodeExcerpt }).waitFor();
-  assert.match(await stagedSide.innerText(), /已持久化选区/);
-  assert.equal(
-    await sidePane.getByTestId("side-chat-input").textContent(),
-    "",
-    "empty Lexical paragraph contains no draft text",
+  const beforeCurrentSide = requests.length;
+  const sourceTurnIdsBeforeSide = project(await state()).state.threads[sourceThreadId].turns.map(
+    (turn) => turn.id,
+  );
+  await sideTrigger.click();
+  const sidePane = page.getByTestId("side-chat-pane").filter({ visible: true });
+  await sidePane.waitFor();
+  sideThreadId = await sidePane.getAttribute("data-thread-id");
+  const sideState = await until(
+    (snapshot) => project(snapshot).state.threads[sideThreadId],
+    "current Side child admitted",
   );
   assert.equal(
-    await sidePane.getByTestId("side-chat-send").isEnabled(),
-    true,
-    "a staged quote can be explicitly sent without extra text",
+    project(sideState).state.threads[sideThreadId].conversation.policy.kind,
+    "sideExecutableV2",
   );
-  const sideDraftBeforeSelection = "已有旁路草稿";
-  await sidePane.getByTestId("side-chat-input").fill(sideDraftBeforeSelection);
-  await stagedSide.getByRole("button", { name: "移除所选引文", exact: true }).click();
-  await stagedSide.waitFor({ state: "hidden" });
-  await showMainConversation();
-  await selectSideExcerpt();
-  await restoreLegacySelection(unicodeExcerpt);
-  await stagedSide.waitFor();
-  assert.equal(
-    await sidePane.getByTestId("side-chat-input").innerText(),
-    sideDraftBeforeSelection,
-    "staging into current Side draft preserves typed text",
-  );
-  const sideSelectionOwner = await sidePane
-    .locator("[data-side-owner]")
-    .getAttribute("data-side-owner");
-  const firstSelection = await page.evaluate(
-    (owner) => localStorage.getItem(`${owner}:selection`),
-    sideSelectionOwner,
-  );
-  await showMainConversation();
-  await selectSideExcerpt();
-  await restoreLegacySelection(unicodeExcerpt);
-  assert.equal(
-    await sidePane.getByTestId("side-chat-input").innerText(),
-    `${sideDraftBeforeSelection}\n\n${unicodeExcerpt}`,
-  );
-  assert.equal(
-    await page.evaluate((owner) => localStorage.getItem(`${owner}:selection`), sideSelectionOwner),
-    firstSelection,
-    "additional selection must not replace first frozen provenance",
-  );
+  assert.equal(project(sideState).state.threads[sideThreadId].turns.length, 0);
   assert.equal(
     requests.length,
-    beforeStaging,
-    "legacy restored draft staging and removal must not call a model",
+    beforeCurrentSide,
+    "selection creates an idle child without model execution",
   );
-  await openSideContext(sidePane);
-  await sidePane.getByLabel("文件访问范围").selectOption("none");
-  assert.equal(await sidePane.getByLabel("文件访问范围").inputValue(), "none");
-  const sideInput = sidePane.getByRole("textbox", { name: "随心输入" });
-  assert.equal(
-    await sideInput.getAttribute("contenteditable"),
-    "true",
-    "Side must use the shared Lexical editor",
-  );
-  assert.ok(await sidePane.locator(".composer-surface").isVisible());
-  const sourceConfigBeforeSideModel = modelConfiguration(
-    project(await state()).configurations[sourceThreadId],
-  );
-  await sidePane.getByRole("button", { name: "模型", exact: true }).click();
-  const modelPage = page.getByRole("button", { name: "选择模型", exact: true });
-  if (await modelPage.isVisible()) await modelPage.click();
-  await page.locator('[role="radio"][data-model-value="fixture/fixture-alternate"]').click();
-  await page.keyboard.press("Escape");
-  await sideInput.click();
-  await composeText(sideInput, sideQuestion, "Side IME");
-  const narrowBounds = await app.evaluate(({ BrowserWindow }) => {
-    const win = BrowserWindow.getAllWindows()[0];
-    win.setSize(980, 800);
-    return win.getBounds();
-  });
-  events.push({ narrowBounds });
-  assert.equal(narrowBounds.width, 980, "native window should reach its configured minimum width");
-  await page.getByRole("button", { name: "进入完整视图", exact: true }).click();
-  assert.ok(await sidePane.getByRole("textbox", { name: "随心输入" }).isVisible());
-  await page.waitForFunction(
-    () => document.querySelector("[data-workspace-view]")?.dataset.workspaceView === "panel",
-  );
-  const narrowSideDraft = await sidePane.getByRole("textbox", { name: "随心输入" }).innerText();
-  await sidePane.getByRole("button", { name: "返回主会话", exact: true }).click();
-  assert.ok(await page.getByTestId("chat-input").isVisible());
-  await page.waitForFunction(
-    () =>
-      document.activeElement ===
-      (window.__scfSideTrigger?.isConnected
-        ? window.__scfSideTrigger
-        : document.querySelector('[data-testid="chat-input"]')),
-  );
-  await page.getByRole("button", { name: "展开侧边面板", exact: true }).click();
-  assert.equal(
-    await sidePane.getByRole("textbox", { name: "随心输入" }).innerText(),
-    narrowSideDraft,
-  );
-  await page.getByRole("button", { name: "进入完整视图", exact: true }).click();
-  await page.waitForFunction(
-    () => document.querySelector("[data-workspace-view]")?.dataset.workspaceView === "panel",
-  );
-
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
-  await page.getByRole("button", { name: "退出完整视图", exact: true }).click();
-  const sideStartRequests = requests.length;
-  await app.evaluate(() => {
-    globalThis.__scfRejectNext = "selection";
-  });
+  await sidePane.locator("[data-conversation-selection-reference-count]").waitFor();
+  const sideInput = sidePane.getByRole("textbox", { name: "随心输入", exact: true });
+  await sideInput.fill(sideQuestion);
   await sidePane.getByRole("button", { name: "发送", exact: true }).click();
-  await page.getByRole("alert").filter({ hasText: "STALE_SELECTION" }).waitFor();
-  assert.equal(await sidePane.getByRole("textbox", { name: "随心输入" }).innerText(), sideQuestion);
-  assert.equal(requests.length, sideStartRequests);
-  assert.ok(
-    !Object.values(project(await state()).state.threads).some(
-      (thread) => thread.conversation?.kind === "side",
-    ),
-  );
-  await shot("04a-stale-selection.png");
-  checks.push(
-    "AC36/61: actual Core rejects a changed selection digest; Side keeps its question and creates no target or model request",
-  );
-  await sidePane.getByRole("button", { name: "发送", exact: true }).click();
-  const sideStarted = await until(
-    (s) =>
-      Object.values(project(s)?.state?.threads ?? {}).some(
-        (t) =>
-          t.conversation?.kind === "side" &&
-          t.conversation.origin?.sourceThreadId === sourceThreadId &&
-          t.turns?.at(-1)?.status === "completed",
-      ),
-    "Side first answer during source Runtime tool",
-  );
-  const side = Object.values(project(sideStarted).state.threads).find(
-    (t) =>
-      t.conversation?.kind === "side" && t.conversation.origin?.sourceThreadId === sourceThreadId,
-  );
-  sideThreadId = side.id;
-  assert.equal(
-    await page.locator(`#areal-sidebar [data-thread-id="${sideThreadId}"]`).count(),
-    0,
-    "main navigation must exclude Side conversations",
-  );
-  assert.ok(
-    await page.locator(`#areal-sidebar [data-thread-id="${targetThreadId}"]`).count(),
-    "main navigation must retain independent Fork conversations",
-  );
-  assert.equal(
-    project(sideStarted).configurations[sideThreadId].model.modelId,
-    "fixture-alternate",
-  );
-  assert.deepEqual(
-    modelConfiguration(project(sideStarted).configurations[sourceThreadId]),
-    sourceConfigBeforeSideModel,
-  );
-  assert.ok(
-    requests.slice(sideStartRequests).some((request) => request.body.model === "fixture-alternate"),
-    "first Side question uses the selected real Core model",
-  );
-  checks.push(
-    "shared Lexical composer and Core model menu: alternate model applies to Side first question without configuring the source",
-  );
-  assert.equal(
-    side.conversation.policy?.workspaceAccess,
-    "none",
-    "frozen evidence journey uses session-only Side policy",
-  );
-  assert.equal(side.conversation.selection?.text, unicodeExcerpt);
-  assert.equal(side.conversation.selection?.verified, true);
-  assert.equal(
-    project(sideStarted).state.threads[sourceThreadId].turns.at(-1).status,
-    "inProgress",
-  );
-  assert.ok((await readFile(toolStarted, "utf8")).includes("started"));
-  const sideModelInput = JSON.stringify(
-    requests.slice(sideStartRequests).flatMap((r) => r.body.messages ?? []),
-  );
-  assert.ok(sideModelInput.includes(sideQuestion) && sideModelInput.includes(unicodeExcerpt));
-  assert.ok(!sideModelInput.includes(lateSentinel));
-  const firstSideRevision = project(sideStarted).configurations[sideThreadId].revision;
-  await sidePane.getByRole("button", { name: "模型", exact: true }).click();
-  const sideModelPage = page.getByRole("button", { name: "选择模型", exact: true });
-  if (await sideModelPage.isVisible()) await sideModelPage.click();
-  await page.locator('[role="radio"][data-model-value="fixture/fixture"]').click();
-  await page.keyboard.press("Escape");
-  await sidePane.getByRole("textbox", { name: "随心输入" }).click();
-  await until(
-    (s) =>
-      project(s).configurations[sideThreadId]?.revision > firstSideRevision &&
-      project(s).configurations[sideThreadId]?.model?.modelId === "fixture",
-    "Side model update through Core configure",
-  );
-  assert.deepEqual(
-    modelConfiguration(project(await state()).configurations[sourceThreadId]),
-    sourceConfigBeforeSideModel,
-  );
-  assert.equal(
-    project(await state()).state.threads[sideThreadId].conversation.policy.workspaceAccess,
-    "none",
-  );
-  checks.push(
-    "shared model menu configures only an idle Side and preserves its Core read-only policy",
-  );
-  await openSideContext(sidePane);
-  await sidePane.getByRole("button", { name: "查看冻结证据" }).click();
-  await sidePane
-    .getByRole("region", { name: "冻结证据" })
-    .locator("pre")
-    .filter({ hasText: unicodeExcerpt })
-    .first()
-    .waitFor();
-  await shot("05-side-answered-frozen.png");
-  checks.push(
-    "AC30/39: Side answers during a live source Runtime command; Unicode source selection is verified and frozen evidence is visible",
-  );
-  const bringBackContextOwner = { projectId, sourceThreadId, sideThreadId };
-  if (sharedWorkspace) {
-    const currentModels = project(await state()).configurations;
-    const modelOwners = Object.fromEntries(
-      [sourceThreadId, sideThreadId].map((id) => [id, modelConfiguration(currentModels[id])]),
-    );
-    const sample = async (name) => {
-      await page.waitForFunction(
-        () => !document.querySelector(".work-surface")?.hasAttribute("data-panel-transition"),
-      );
-      await page.evaluate(
-        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
-      );
-      const facts = await page.evaluate(() => {
-        const inspect = (selector) => {
-          const input = document.querySelector(selector);
-          if (!input) return null;
-          const root = input.closest(".composer-surface"),
-            css = getComputedStyle(root);
-          return {
-            layout: root.dataset.layout,
-            display: css.display,
-            padding: css.padding,
-            font: getComputedStyle(input).fontSize,
-            draft: input.textContent,
-            width: root.clientWidth,
-            overflow: root.scrollWidth - root.clientWidth,
-          };
-        };
-        return {
-          mode: document.querySelector("[data-workspace-view]")?.dataset.workspaceView,
-          theme: document.documentElement.classList.contains("dark") ? "dark" : "light",
-          font: getComputedStyle(document.documentElement).getPropertyValue("--ui-font-size"),
-          viewport: [innerWidth, innerHeight],
-          main: inspect('[data-testid="chat-input"]'),
-          side: inspect('[data-testid="side-chat-input"]'),
-        };
-      });
-      events.push({ sharedCheckpoint: name, facts, hostTime: Date.now() });
-      await shot(name + ".png");
-      await writeFile(
-        join(scratch, "shared-events.json"),
-        JSON.stringify(
-          events.filter((e) => e.sharedCheckpoint),
-          null,
-          2,
-        ),
-      );
-      return facts;
-    };
-    await showMainConversation();
-    const mainInput = page.getByTestId("chat-input");
-    await composeText(mainInput, "共享主草稿：继续检查返回", "shared main draft");
-    const mainEditor = await mainInput.elementHandle();
-    await showSideConversation();
-    await composeText(
-      sidePane.getByTestId("side-chat-input"),
-      "共享Side草稿：暂不发送",
-      "shared side draft",
-    );
-    const exitFull = page.getByRole("button", { name: "退出完整视图", exact: true });
-    if (await exitFull.isVisible()) await exitFull.click();
-    const split = await sample("shared-01-split");
-    await page.getByRole("button", { name: "进入完整视图", exact: true }).click();
-    const full = await sample("shared-02-side-full");
-    if (!baselineLayout) {
-      assert.equal(full.side.padding, split.side.padding);
-      assert.equal(full.side.display, split.side.display);
-      assert.equal(full.side.layout, "default");
-    }
-    await sidePane.getByRole("button", { name: "模型", exact: true }).click();
-    await page.keyboard.press("Escape");
-    assert.equal(
-      await sidePane.getByTestId("side-chat-input").innerText(),
-      "共享Side草稿：暂不发送",
-    );
-    await sidePane.getByRole("button", { name: "返回主会话", exact: true }).click();
-    assert.equal(await mainInput.innerText(), "共享主草稿：继续检查返回");
-    assert.ok(
-      await mainEditor.evaluate(
-        (el) => el === document.querySelector('[data-testid="chat-input"]'),
-      ),
-      "panel navigation keeps the main editor mounted",
-    );
-    await sample("shared-03-main-return");
-    const settingsButton = page.getByRole("button", { name: "设置", exact: true });
-    await settingsButton.click();
-    await page.getByRole("button", { name: "返回应用", exact: true }).click();
-    assert.equal(await mainInput.innerText(), "共享主草稿：继续检查返回");
-    await page.waitForFunction(
-      (el) => el === document.activeElement,
-      await settingsButton.elementHandle(),
-    );
-    await showSideConversation();
-    assert.equal(
-      await sidePane.getByTestId("side-chat-input").innerText(),
-      "共享Side草稿：暂不发送",
-    );
-    const returned = project(await state());
-    for (const id of [sourceThreadId, sideThreadId])
-      assert.deepEqual(
-        modelConfiguration(returned.configurations[id]),
-        modelOwners[id],
-        "navigation preserves each Core model configuration",
-      );
-    await sample("shared-04-settings-return");
-    await writeFile(toolRelease, "release\n");
-    await until(
-      (s) => project(s)?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "completed",
-      "source command completes after shared UI inspection",
-    );
-    assert.equal(
-      project(await state()).state.threads[sideThreadId].turns.length,
-      1,
-      "navigation never sends a draft",
-    );
-    assert.equal(await hash(fixturePath), workspaceBefore);
-    await sample("shared-05-completed");
-    checks.push(
-      "Shared UI: actual main/Side drafts and Core model ownership survive split/full, model-menu dismissal, panel return and settings return; real source Runtime command completes independently",
-    );
-  } else {
-    const beforeBring = {
-      requests: requests.length,
-      commands: (await app.evaluate(() => globalThis.__scfMutations)).length,
-      sourceTurns: project(sideStarted).state.threads[sourceThreadId].turns.length,
-      sideTurns: side.turns.length,
-      workspaceSha256: await hash(fixturePath),
-    };
-    await sidePane.getByRole("button", { name: "带回整条回复" }).first().click();
-    const preview = sidePane.getByRole("region", { name: "带回预览" });
-    await preview.waitFor();
-    const brought = await preview.getByRole("textbox", { name: "编辑带回文字" }).inputValue();
-    assert.ok(brought.includes(sideQuestion));
-    await preview.getByRole("textbox", { name: "编辑带回文字" }).fill(`${brought}\n保留的编辑`);
-    const previewIdentity = await page.evaluate(
-      () => Object.entries(localStorage).find(([key]) => key.endsWith(":bring-back"))?.[1],
-    );
-    await sidePane.getByRole("button", { name: "新讨论", exact: true }).click();
-    assert.equal(await sidePane.getByRole("region", { name: "带回预览" }).count(), 0);
-    await showRelated(sidePane);
-    await page
-      .getByRole("region", { name: "相关讨论" })
-      .getByRole("button", { name: new RegExp(sideQuestion) })
-      .click();
-    await preview.waitFor();
-    assert.equal(
-      await preview.getByRole("textbox", { name: "编辑带回文字" }).inputValue(),
-      `${brought}\n保留的编辑`,
-    );
-    assert.equal(
-      await page.evaluate(
-        () => Object.entries(localStorage).find(([key]) => key.endsWith(":bring-back"))?.[1],
-      ),
-      previewIdentity,
-      "switching Side must retain edited text, owner and insertionId",
-    );
-    const concurrentDraft = `${mainDraftSentinel}\n确认前的并发草稿修改`;
-    await showMainConversation();
-    await page.getByTestId("chat-input").fill(concurrentDraft);
-    await showSideConversation();
-    await preview.waitFor();
-    const commandsBeforeInsert = (await app.evaluate(() => globalThis.__scfMutations)).length;
-    // 在两个测量区间内执行真实查询，确定性覆盖后台轮询插入的时序。
-    const observedStatus = await page.evaluate(() =>
-      window.arealDesktop.command("trajectory", { operation: "status" }),
-    );
-    assert.ok(observedStatus.ok, "the real background trajectory status request must succeed");
-    const observedFeedbackStatus = await page.evaluate(() =>
-      window.arealDesktop.command("feedback", { operation: "status" }),
-    );
-    assert.ok(
-      observedFeedbackStatus.ok,
-      "the real background feedback status request must succeed",
-    );
-    await preview.getByRole("button", { name: "确认插入主草稿" }).click();
-    await sidePane
-      .getByText("已追加到更新后的主会话草稿；请检查再发送。", { exact: true })
-      .waitFor();
-    const mainDraft = await page.evaluate(
-      (key) => localStorage.getItem(key),
-      `areal-gui:draft:${projectId}:${sourceThreadId}`,
-    );
-    assert.ok(
-      mainDraft?.includes(concurrentDraft) && mainDraft.includes(brought),
-      "actual main Composer draft must retain its previous text and append the confirmed Side answer",
-    );
-    assert.equal(requests.length, beforeBring.requests, "bring-back must not send or steer");
-    const bringCommands = await app.evaluate(() => globalThis.__scfMutations);
-    const insertCommands = bringCommands.slice(commandsBeforeInsert);
-    assert.ok(
-      insertCommands.some(
-        (entry) =>
-          entry.command === "trajectory" &&
-          entry.parameters.operation === "status" &&
-          isNonMutatingObservation(entry, bringBackContextOwner) &&
-          entry.accepted,
-      ),
-      "the raw RPC evidence must retain the successful injected trajectory status request",
-    );
-    assert.ok(
-      insertCommands.some(
-        (entry) =>
-          entry.command === "feedback" &&
-          entry.parameters.operation === "status" &&
-          isNonMutatingObservation(entry, bringBackContextOwner) &&
-          entry.accepted,
-      ),
-      "the raw RPC evidence must retain the successful injected feedback status request",
-    );
-    assert.deepEqual(
-      insertCommands.filter((entry) => !isNonMutatingObservation(entry, bringBackContextOwner)),
-      [],
-      "confirming bring-back may overlap validated owner-scoped observations, never business mutations",
-    );
-    assert.deepEqual(
-      bringCommands
-        .slice(beforeBring.commands)
-        .filter((entry) => !isNonMutatingObservation(entry, bringBackContextOwner)),
-      [],
-      "related discussion navigation may observe its owners and manage history views without any business mutation",
-    );
-    events.push({
-      bringBackCommandWindow: {
-        contextOwner: bringBackContextOwner,
-        from: beforeBring.commands,
-        insertionFrom: commandsBeforeInsert,
-        to: bringCommands.length,
-        injectedStatusAccepted: true,
-        injectedFeedbackStatusAccepted: true,
-        effectContract: "@areal/workbench/desktop-contract",
-      },
-    });
-    checks.push(
-      "bring-back retains all raw commands and validates their production read semantics and owner scope; no mutation, retry, send, configure, queue or steer occurs",
-    );
-    assert.equal(
-      project(await state()).state.threads[sourceThreadId].turns.length,
-      beforeBring.sourceTurns,
-    );
-    assert.equal(
-      project(await state()).state.threads[sideThreadId].turns.length,
-      beforeBring.sideTurns,
-    );
-    assert.equal(await hash(fixturePath), beforeBring.workspaceSha256);
-    await shot("06-bring-back-draft.png");
-    await page.getByRole("button", { name: "关闭面板", exact: true }).click();
-    await page.getByTestId("composer-attachments").getByText("main-attachment.txt").waitFor();
-    await composeText(page.getByTestId("chat-input"), " 输入法确认🌊汉字", "main IME", true);
-    assert.ok((await page.getByTestId("chat-input").innerText()).includes(brought));
-    assert.deepEqual(
-      modelConfiguration(project(await state()).configurations?.[sourceThreadId]),
-      mainConfigBefore,
-      "main model configuration must survive Side and bring-back",
-    );
-    // 关闭面板会记住当前任务的 lastPanel；主窗口的展开按钮恢复同一 Side 标签。
-    await page.getByRole("button", { name: "展开侧边面板", exact: true }).click();
-    await showRelated(sidePane);
-    await page
-      .getByRole("region", { name: "相关讨论" })
-      .getByRole("button", { name: new RegExp(sideQuestion) })
-      .waitFor();
-    assert.equal(project(await state()).state.threads[sideThreadId].id, sideThreadId);
-    checks.push(
-      "AC47/52/53/54/55/74: bring-back appends to the concurrent main draft with its attachment and model; edited preview survives Side switching; Chromium composition Enter submits neither editor; narrow return restores the original trigger or main editor fallback",
-    );
-    const activeAnchor = page.locator(`[data-turn-id="${activeTurnId}"]`);
-    assert.equal(
-      await activeAnchor.getByRole("button", { name: "从此轮创建聊天分支", exact: true }).count(),
-      0,
-      "streaming turns have no Fork action",
-    );
-    const requestsBeforeActiveFork = requests.length;
-    // Core still supports the safe before boundary; the streaming GUI exposes no action row.
-    const beforeResult = await page.evaluate(
-      async ({ projectId, sourceThreadId, activeTurnId }) =>
-        window.arealDesktop.command("fork", {
-          projectId,
-          sourceThreadId,
-          anchor: { turnId: activeTurnId, boundary: "before" },
-          workspaceMode: "sharedCurrent",
-        }),
-      { projectId, sourceThreadId, activeTurnId },
-    );
-    assert.ok(beforeResult.ok, JSON.stringify(beforeResult));
-    beforeThreadId = beforeResult.value.threadId;
-    await selectConversation(page, beforeThreadId);
-    const beforeSnapshot = await state();
-    const beforeThread = project(beforeSnapshot).state.threads[beforeThreadId];
-    assert.equal(beforeThread.conversation?.origin?.sourceTurnId, activeTurnId);
-    assert.equal(beforeThread.conversation?.origin?.boundary, "before");
-    assert.equal(beforeThread.turns?.length, 0);
-    assert.equal(
-      project(beforeSnapshot).state.threads[sourceThreadId].turns.at(-1).status,
-      "inProgress",
-    );
-    assert.equal(requests.length, requestsBeforeActiveFork);
-    const beforeHistory = page.locator(".messages .message-column");
-    await beforeHistory.getByText(future, { exact: true }).waitFor();
-    assert.equal(await beforeHistory.getByText(activeQuestion, { exact: false }).count(), 0);
-    await shot("07-before-active.png");
-    await writeFile(toolRelease, "release\n");
-    await until(
-      (s) => project(s)?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "completed",
-      "source completes independently",
-    );
-    assert.ok(
-      JSON.stringify(project(await state()).state.threads[sourceThreadId].turns.at(-1)).includes(
-        "finished",
-      ),
-    );
-    assert.equal(await hash(fixturePath), workspaceBefore);
-    checks.push(
-      "AC18/19: active Turn actions are hidden, Core before creates an idle exact prefix, and the source completes independently",
-    );
-    await selectConversation(page, sourceThreadId);
-    const completedTool = project(await state())
-      .state.threads[sourceThreadId].turns.find((turn) => turn.id === activeTurnId)
-      .items.find((item) => item.type === "dynamicToolCall" && item.execution?.resultSnapshot);
-    assert.match(completedTool.execution?.resultSnapshot?.uri ?? "", /^areal:\/\/blob\//);
-    const requestsBeforeRawFork = requests.length;
-    const completedActions = activeAnchor
-      .locator(".message-actions")
-      .filter({ has: page.getByRole("button", { name: "从此轮创建聊天分支", exact: true }) });
-    assert.equal(
-      await completedActions.getByRole("button", { name: "复制消息", exact: true }).count(),
-      1,
-      "completed Fork and copy share one action row",
-    );
-    await activeAnchor.getByRole("button", { name: "从此轮创建聊天分支", exact: true }).click();
-    await forkDialog.getByRole("button", { name: "创建分支", exact: true }).click();
-    await page.waitForFunction(
-      (id) => document.querySelector('[data-testid="areal-workbench"]')?.dataset.threadId !== id,
-      sourceThreadId,
-    );
-    rawThreadId = await page.getByTestId("areal-workbench").getAttribute("data-thread-id");
-    const rawHistory = page.locator(".messages .message-column");
-    const rawProgress = rawHistory
-      .locator(`[data-turn-id="${activeTurnId}"]`)
-      .getByTestId("turn-elapsed")
-      .getByRole("button");
-    if ((await rawProgress.getAttribute("aria-expanded")) === "false") await rawProgress.click();
-    const rawGroup = rawHistory
-      .locator(`[data-turn-id="${activeTurnId}"]`)
-      .locator(".areal-activity-group")
-      .filter({ has: page.locator(`[data-tool-id="${completedTool.id}"]`) })
-      .locator(":scope > .areal-disclosure > button");
-    if ((await rawGroup.getAttribute("aria-expanded")) === "false") await rawGroup.click();
-    await rawHistory
-      .locator(`[data-tool-id="${completedTool.id}"]`)
-      .getByRole("button")
-      .first()
-      .click();
-    const rawDownload = rawHistory.getByRole("button", { name: "下载附件 原始结果", exact: true });
-    await rawDownload.waitFor();
-    assert.equal(
-      await rawHistory.getByRole("button", { name: /^(批准|拒绝|停止|终止|重试)/ }).count(),
-      0,
-    );
-    const rawRead = (await app.evaluate(() => globalThis.__scfMutations)).find(
-      (entry) =>
-        entry.command === "media" &&
-        entry.parameters.threadId === rawThreadId &&
-        entry.parameters.uri === completedTool.execution.resultSnapshot.uri &&
-        entry.accepted,
-    );
-    assert.ok(rawRead?.resultSha256 && rawRead.resultLength > 0);
-    const rawPath = join(scratch, "inherited-raw-result.json");
-    await app.evaluate(({ BrowserWindow }, path) => {
-      globalThis.__scfDownload = null;
-      BrowserWindow.getAllWindows()[0].webContents.session.once("will-download", (_event, item) => {
-        item.setSavePath(path);
-        item.once("done", (_event, state) => {
-          globalThis.__scfDownload = { state, path: item.getSavePath() };
-        });
-      });
-    }, rawPath);
-    await rawDownload.click();
-    await until(
-      async () => (await app.evaluate(() => globalThis.__scfDownload))?.state === "completed",
-      "native raw-result download",
-    );
-    assert.equal(await hash(rawPath), rawRead.resultSha256);
-    assert.ok(Object.keys(JSON.parse(await readFile(rawPath, "utf8"))).length);
-    assert.equal(project(await state()).state.threads[rawThreadId].turns.length, 0);
-    assert.equal(requests.length, requestsBeforeRawFork);
-    await shot("07b-inherited-raw-result.png");
-    checks.push(
-      "AC13/16: inherited raw Runtime result is read under the target identity and downloaded byte-for-byte; history has no source controls and the Fork has no local execution",
-    );
-    await selectConversation(page, sourceThreadId);
-    // UTF-8 uploads are supported as Text; a PDF still requires File model capability.
-    await page.locator('.composer-dock:not(.side-chat-composer) input[type="file"]').setInputFiles({
-      name: "unsupported.pdf",
-      mimeType: "application/pdf",
-      buffer: Buffer.from("%PDF-1.7\nfixture\n%%EOF\n"),
-    });
-    await page.getByTestId("composer-attachments").getByText("unsupported.pdf").waitFor();
-    const beforeFileRefusal = {
-      requests: requests.length,
-      turns: project(await state()).state.threads[sourceThreadId].turns.length,
-    };
-    await page.getByTestId("chat-input").fill(lateSentinel);
-    await page
-      .locator(".composer-dock:not(.side-chat-composer)")
-      .getByRole("button", { name: "发送", exact: true })
-      .click();
-    await page.getByText("model does not support File input", { exact: true }).first().waitFor();
-    assert.equal(requests.length, beforeFileRefusal.requests);
-    assert.equal(
-      project(await state()).state.threads[sourceThreadId].turns.length,
-      beforeFileRefusal.turns,
-    );
-    assert.equal(await page.getByTestId("chat-input").innerText(), lateSentinel);
-    assert.ok(!(await sidePane.innerText()).includes("model does not support File input"));
-    await page.getByTestId("composer-attachments").getByText("main-attachment.txt").waitFor();
-    await shot("07a-main-error-isolated.png");
-    await page.getByRole("button", { name: "移除附件 unsupported.pdf", exact: true }).click();
-    await page.getByRole("button", { name: "移除附件 main-attachment.txt", exact: true }).click();
-    checks.push(
-      "AC74: real Core modality refusal preserves the main draft and attachment without a Turn/request; Side history and error state remain independent",
-    );
-    const late = await send(lateSentinel, sourceThreadId);
-    assert.ok(late.turnId);
-    await openSideContext(sidePane);
-    assert.match(await sidePane.innerText(), /来源已推进/);
-    const previousSideTurns = project(await state()).state.threads[sideThreadId].turns.length;
-    const followStart = requests.length;
-    await sidePane.getByRole("textbox", { name: "随心输入" }).fill(sideFollowUp);
-    await showMainConversation();
-    await selectSideExcerpt();
-    await restoreLegacySelection(unicodeExcerpt);
-    assert.equal(
-      await sidePane.getByTestId("side-chat-input").innerText(),
-      `${sideFollowUp}\n\n${unicodeExcerpt}`,
-      "existing Side follow-up appends selection to current editable draft",
-    );
-    assert.equal(
-      requests.length,
-      followStart,
-      "staging into existing Side never sends automatically",
-    );
-    await sidePane.getByRole("button", { name: "发送", exact: true }).click();
-    await until(
-      (s) =>
-        project(s)?.state?.threads?.[sideThreadId]?.turns?.length > previousSideTurns &&
-        project(s).state.threads[sideThreadId].turns.at(-1).status === "completed",
-      "Side follow-up from frozen history",
-    );
-    const followInput = JSON.stringify(
-      requests.slice(followStart).flatMap((request) => request.body.messages ?? []),
-    );
-    assert.ok(followInput.includes(sideFollowUp) && followInput.includes(sideQuestion));
-    const followUser = project(await state())
-      .state.threads[sideThreadId].turns.at(-1)
-      .items.find((item) => item.type === "userMessage");
-    assert.ok(
-      followUser.content.some(
-        (part) =>
-          part.type === "text" &&
-          part.text.includes(sideFollowUp) &&
-          part.text.includes(unicodeExcerpt),
-      ),
-      "explicit Side send contains current question and newly staged quote",
-    );
-    assert.ok(
-      !followInput.includes(lateSentinel),
-      "later source Turn must never enter old Side model context",
-    );
-    await openSideContext(sidePane);
-    await sidePane.getByRole("button", { name: "查看冻结证据" }).click();
-    const frozen = await sidePane.getByRole("region", { name: "冻结证据" }).innerText();
-    assert.ok(frozen.includes(unicodeExcerpt) && !frozen.includes(lateSentinel));
-    await shot("08-side-after-source-progress.png");
-    checks.push(
-      "AC39: later source sentinel is excluded from old Side follow-up model request and paged frozen evidence",
-    );
-    await showRelated(sidePane);
-    const related = page.getByRole("region", { name: "相关讨论" });
-    await showRelated(sidePane);
-    await related.getByRole("button", { name: "刷新" }).click();
-    await sidePane.getByRole("button", { name: "带回整条回复" }).first().click();
-    await preview.getByRole("status").filter({ hasText: "来源在旁路创建后已推进" }).waitFor();
-    const editedOldReference = `${await preview.getByRole("textbox", { name: "编辑带回文字" }).inputValue()}\n有用的结论仍保留 [旧引用](areal://missing-reference)`;
-    await preview.getByRole("textbox", { name: "编辑带回文字" }).fill(editedOldReference);
-    const draftBeforeArchivedInsert = await page.getByTestId("chat-input").innerText();
-    await app.evaluate(({ dialog }) => {
-      dialog.showMessageBox = async () => ({ response: 1 });
-    });
-    await showRelated(sidePane);
-    await related.getByRole("button", { name: "归档", exact: true }).click();
-    await until(
-      (s) => project(s)?.state?.threads?.[sideThreadId]?.desktop?.archived === true,
-      "Side archived",
-    );
-    assert.equal(
-      await sidePane.getByRole("textbox", { name: "随心输入" }).getAttribute("contenteditable"),
-      "false",
-    );
-    await preview.getByRole("button", { name: "确认插入主草稿" }).click();
-    await sidePane
-      .getByText("来源或目标已变化，未写入草稿。可复制预览文字。", { exact: true })
-      .waitFor();
-    assert.equal(await page.getByTestId("chat-input").innerText(), draftBeforeArchivedInsert);
-    assert.equal(
-      await preview.getByRole("textbox", { name: "编辑带回文字" }).inputValue(),
-      editedOldReference,
-    );
-    const priorClipboard = await app.evaluate(({ clipboard }) => clipboard.readText());
-    await app.evaluate(({ app, BrowserWindow }) => {
-      const window = BrowserWindow.getAllWindows()[0];
-      window.show();
-      app.focus({ steal: true });
-      window.focus();
-    });
-    await preview.getByRole("button", { name: "复制文字", exact: true }).click();
-    await sidePane.getByText("已复制带回文字。", { exact: true }).waitFor();
-    assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), editedOldReference);
-    await app.evaluate(({ clipboard }, value) => clipboard.writeText(value), priorClipboard);
-    await shot("08b-archived-copyable-preview.png");
-    checks.push(
-      "AC40/55/56: old snapshot warning survives source progress; archived Side cannot insert, edited useful text and invalid link remain copyable through the real clipboard",
-    );
-    await showRelated(sidePane);
-    await related.getByRole("checkbox", { name: "包含已归档" }).check();
-    await showRelated(sidePane);
-    await related.getByRole("button", { name: /已归档/ }).waitFor();
-    await showRelated(sidePane);
-    await related.getByRole("button", { name: "恢复", exact: true }).click();
-    await until(
-      (s) => project(s)?.state?.threads?.[sideThreadId]?.desktop?.archived === false,
-      "Side unarchived",
-    );
-    assert.equal(
-      project(await state()).state.threads[sideThreadId].turns.length,
-      previousSideTurns + 1,
-    );
-    checks.push(
-      "AC48/51: archived Side is listed under related discussions and explicitly restored without a new Turn",
-    );
-    await sidePane.getByRole("button", { name: "新讨论", exact: true }).click();
-    if (env.AREAL_CORE_SANDBOX_PROFILE === "native") {
-      assert.equal(
-        project(await state()).core?.features?.sideWorkspaceRead,
-        true,
-        "explicit native deployment must expose verified Side workspace read",
-      );
-    }
-    if (project(await state()).core?.features?.sideWorkspaceRead === true) {
-      await openSideContext(sidePane);
-      await sidePane.getByLabel("文件访问范围").selectOption("readOnly");
-      await sidePane.getByRole("textbox", { name: "随心输入" }).fill(sideFileQuestion);
-      await sidePane.getByRole("button", { name: "发送", exact: true }).click();
-      const fileSideState = await until(
-        (s) =>
-          Object.values(project(s).state.threads).some(
-            (thread) =>
-              thread.conversation?.kind === "side" &&
-              thread.conversation.policy?.workspaceAccess === "readOnly" &&
-              thread.turns?.at(-1)?.status === "completed",
-          ),
-        "native read-only Side completion",
-      );
-      const fileSide = Object.values(project(fileSideState).state.threads).find(
-        (thread) =>
-          thread.conversation?.kind === "side" &&
-          thread.conversation.policy?.workspaceAccess === "readOnly",
-      );
-      const fileResult = fileSide.turns
-        .at(-1)
-        .items.find((item) => item.type === "dynamicToolCall" && item.tool === "fs_read");
-      assert.equal(
-        JSON.parse(fileResult.contentItems.find((item) => item.type === "inputText").text).source,
-        "currentWorkspace",
-      );
-      await openSideContext(sidePane);
-      await sidePane.getByText(/可只读查询当前工作区；文件内容可能与历史锚点不同/).waitFor();
-      assert.equal(await hash(fixturePath), workspaceBefore);
-      await shot("08c-side-current-workspace.png");
-      checks.push(
-        "AC41/46: explicit readOnly Side performs real native fs_read with currentWorkspace provenance and current-file UI notice; explicit none journey remains separate and file bytes are unchanged",
-      );
-    } else {
-      const question = "工作区只读不可用时，只讨论冻结会话证据";
-      const before = {
-        count: Object.keys(project(await state()).state.threads).length,
-        requests: requests.length,
-      };
-      await openSideContext(sidePane);
-      await sidePane.getByText(/当前 Core 未提供经过验证的工作区只读能力/).waitFor();
-      await sidePane.getByRole("textbox", { name: "随心输入" }).fill(question);
-      await app.evaluate(() => {
-        globalThis.__scfRejectNext = "workspace-read";
-      });
-      await sidePane.getByRole("button", { name: "发送", exact: true }).click();
-      await page.getByRole("alert").filter({ hasText: "WORKSPACE_READ_UNAVAILABLE" }).waitFor();
-      assert.equal(await sidePane.getByRole("textbox", { name: "随心输入" }).innerText(), question);
-      assert.equal(Object.keys(project(await state()).state.threads).length, before.count);
-      assert.equal(requests.length, before.requests);
-      await openSideContext(sidePane);
-      await sidePane.getByLabel("文件访问范围").selectOption("none");
-      await sidePane.getByRole("button", { name: "发送", exact: true }).click();
-      await until(
-        (s) =>
-          Object.values(project(s).state.threads).some(
-            (thread) =>
-              thread.conversation?.kind === "side" &&
-              thread.preview === question &&
-              thread.turns?.at(-1)?.status === "completed",
-          ),
-        "explicit evidence-only Side after read-only refusal",
-      );
-      await shot("08d-side-workspace-unavailable.png");
-      checks.push(
-        "AC46: unavailable native workspace read is explicitly refused by Core, GUI retains question, explicit none creates an evidence-only Side with no silent fallback",
-      );
-    }
-    await showRelated(sidePane);
-    await related.getByRole("button", { name: new RegExp(sideQuestion) }).click();
-    // 单模型名额由真实 HTTP 流占用；验证两边的停止都不取消另一会话。
-    await showMainConversation();
-    await page.getByTestId("chat-input").fill(capacitySourceQuestion);
-    await page
-      .locator(".composer-dock:not(.side-chat-composer)")
-      .getByRole("button", { name: "发送", exact: true })
-      .click();
-    await until(
-      (s) =>
-        heldResponses.has(capacitySourceQuestion) &&
-        project(s)?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "inProgress",
-      "source owns the single model slot",
-    );
-    const streamingTurnId = project(await state()).state.threads[sourceThreadId].turns.at(-1).id;
-    const streamingBody = page.locator(
-      `[data-turn-id="${streamingTurnId}"] .assistant-message .conversation-markdown`,
-    );
-    await streamingBody.getByText(streamExcerpt, { exact: true }).waitFor();
-    await showSideConversation();
-    await sidePane.getByRole("button", { name: "新讨论", exact: true }).click();
-    await showMainConversation();
-    await selectMessageExcerpt(streamingBody, streamExcerpt);
-    await restoreLegacySelection(streamExcerpt, streamingTurnId, false);
-    await sidePane
-      .getByTestId("side-selection-quote")
-      .filter({ hasText: "用户引文，来源未确认" })
-      .waitFor();
-    await openSideContext(sidePane);
-    await sidePane.getByLabel("文件访问范围").selectOption("none");
-    await sidePane.getByRole("textbox", { name: "随心输入" }).fill("等待模型名额的旁路问题");
-    await sidePane.getByRole("button", { name: "发送", exact: true }).click();
-    const quoteState = await until(
-      (s) =>
-        Object.values(project(s).state.threads).some(
-          (thread) =>
-            thread.conversation?.selection?.text === streamExcerpt &&
-            thread.desktop?.sideCapacityStatus === "waiting",
-        ),
-      "Side waits for model capacity",
-    );
-    const quotedSide = Object.values(project(quoteState).state.threads).find(
-      (thread) => thread.conversation?.selection?.text === streamExcerpt,
-    );
-    userQuoteSideId = quotedSide.id;
-    assert.equal(quotedSide.conversation.selection.verified, false);
-    assert.equal(quotedSide.conversation.selection.selection.kind, "userQuote");
-    const persistedQuote = JSON.parse(
-      await readFile(join(scratch, "core", projectId, "state", `${userQuoteSideId}.json`), "utf8"),
-    );
-    assert.deepEqual(
-      persistedQuote.thread.conversation.selection,
-      quotedSide.conversation.selection,
-    );
-    await openSideContext(sidePane);
-    await sidePane.getByRole("button", { name: "查看冻结证据", exact: true }).click();
-    const quoteEvidence = sidePane.getByRole("region", { name: "冻结证据", exact: true });
-    await quoteEvidence.waitFor();
-    while (await quoteEvidence.getByRole("button", { name: "继续加载证据", exact: true }).count()) {
-      await quoteEvidence.getByRole("button", { name: "继续加载证据", exact: true }).click();
-      await until(
-        async () =>
-          !(await quoteEvidence
-            .getByRole("button", { name: "继续加载证据", exact: true })
-            .isDisabled()
-            .catch(() => false)),
-        "frozen evidence page",
-      );
-    }
-    const quotedEvidenceText = await quoteEvidence.innerText();
-    assert.ok(
-      quotedEvidenceText.includes(capacitySourceQuestion) &&
-        quotedEvidenceText.includes("inProgress"),
-    );
-    assert.ok(
-      !quotedEvidenceText.includes(streamExcerpt),
-      "unpersisted streamed text is only a user quote, not frozen source evidence",
-    );
-    await shot("08e-streaming-user-quote.png");
-    checks.push(
-      "AC37: restored legacy draft of observed streamed plain text is an unverified userQuote; durable Side selection preserves the text while frozen inProgress evidence excludes the unpersisted delta",
-    );
-    await sidePane.getByRole("status").filter({ hasText: "等待模型容量" }).waitFor();
-    await shot("08a-side-waiting-capacity.png");
-    await sidePane.getByRole("button", { name: "停止旁路", exact: true }).click();
-    await until(
-      (s) => project(s)?.state?.threads?.[userQuoteSideId]?.turns?.at(-1)?.status === "interrupted",
-      "waiting Side stops independently",
-    );
-    assert.equal(
-      project(await state()).state.threads[sourceThreadId].turns.at(-1).status,
-      "inProgress",
-    );
-    heldResponses.get(capacitySourceQuestion)();
-    heldResponses.delete(capacitySourceQuestion);
-    await until(
-      (s) => project(s)?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "completed",
-      "source retains and releases its model slot",
-    );
-    await showRelated(sidePane);
-    await related.getByRole("button", { name: new RegExp(sideQuestion) }).click();
-    await sidePane.getByRole("textbox", { name: "随心输入" }).fill(capacitySideQuestion);
-    await sidePane.getByRole("button", { name: "发送", exact: true }).click();
-    await until(
-      (s) =>
-        heldResponses.has(capacitySideQuestion) &&
-        project(s)?.state?.threads?.[sideThreadId]?.desktop?.sideCapacityStatus === "available",
-      "Side owns the single model slot",
-    );
-    await showMainConversation();
-    await page.getByTestId("chat-input").fill("等待模型名额的来源问题");
-    await page
-      .locator(".composer-dock:not(.side-chat-composer)")
-      .getByRole("button", { name: "发送", exact: true })
-      .click();
-    await until(
-      (s) => project(s)?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "inProgress",
-      "source waits while Side runs",
-    );
-    await page
-      .locator(".composer-dock:not(.side-chat-composer)")
-      .getByRole("button", { name: "暂停执行", exact: true })
-      .click();
-    await until(
-      (s) => project(s)?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "interrupted",
-      "source stops independently",
-    );
-    assert.equal(
-      project(await state()).state.threads[sideThreadId].turns.at(-1).status,
-      "inProgress",
-    );
-    heldResponses.get(capacitySideQuestion)();
-    heldResponses.delete(capacitySideQuestion);
-    await until(
-      (s) => project(s)?.state?.threads?.[sideThreadId]?.turns?.at(-1)?.status === "completed",
-      "Side completes after source Stop",
-    );
-    checks.push(
-      "AC34/50/72: visible single-slot waiting, independent Side Stop and source Stop, no deadlock or cancellation cascade",
-    );
-    await showSideConversation();
-    const beforeDisconnect = project(await state());
-    // 保持本次真实断线，避免 500ms 被动重连抢在 React/Playwright 的离线断言之前完成。
-    try {
-      await app.evaluate(
-        ({ app }, connectionPath) => {
-          const read = process
-            .getBuiltinModule("module")
-            .createRequire(app.getAppPath() + "/package.json");
-          const { SharedCoreBackend } = read(connectionPath);
-          const original = SharedCoreBackend.prototype.scheduleReconnect;
-          const connection = globalThis.__scfConnection;
-          let disconnectedBackend;
-          SharedCoreBackend.prototype.scheduleReconnect = function () {
-            if (this.connection === connection) disconnectedBackend = this;
-            // 手动重连会替换 connection；该后端仍不能靠被动重试掩盖手动恢复失败。
-            if (this !== disconnectedBackend) return original.call(this);
-          };
-          globalThis.__scfRestoreReconnect = () => {
-            SharedCoreBackend.prototype.scheduleReconnect = original;
-          };
-          connection.socket.terminate();
-        },
-        join(desktop, "src/core/service-client.cjs"),
-      );
-      await until(
-        (s) => s.connection?.state === "unavailable" && project(s)?.state?.connected === false,
-        "GUI-to-Core transport disconnect and disconnected project projection",
-      );
-      await openSideContext(sidePane);
-      await sidePane.getByText(/^来源：.*来源当前状态未知/).waitFor();
-      await page.getByRole("button", { name: "设置", exact: true }).click();
-      await page.getByRole("button", { name: "后台服务", exact: true }).click();
-      await page.getByRole("button", { name: "重新连接后台", exact: true }).click();
-      const reconnected = await until(
-        (s) =>
-          s.connection?.state === "ready" &&
-          project(s)?.state?.connected &&
-          project(s)?.state?.threads?.[sourceThreadId]?.turns?.length ===
-            beforeDisconnect.state.threads[sourceThreadId].turns.length &&
-          project(s)?.state?.threads?.[sideThreadId]?.turns?.length ===
-            beforeDisconnect.state.threads[sideThreadId].turns.length,
-        "GUI-to-Core manual reconnection and authoritative source/Side snapshot",
-      );
-      assert.equal(
-        project(reconnected).state.threads[sideThreadId].conversation.origin.sourceThreadId,
-        sourceThreadId,
-      );
-      assert.equal(
-        project(reconnected).state.threads[sourceThreadId].conversation?.kind ?? "main",
-        "main",
-      );
-      await page.getByRole("button", { name: "返回应用", exact: true }).click();
-    } finally {
-      await app.evaluate(() => {
-        globalThis.__scfRestoreReconnect?.();
-        delete globalThis.__scfRestoreReconnect;
-      });
-    }
-    checks.push(
-      "AC49: real GUI transport disconnect/reconnect restored distinct source and Side identities without duplicate Turns",
-    );
-    // 重启使用同一隔离状态目录，并另行标记第二段连续录屏。
-    const preRestart = {
-      sourceTurns: project(await state()).state.threads[sourceThreadId].turns.length,
-      sideTurns: project(await state()).state.threads[sideThreadId].turns.length,
-      requests: requests.length,
-    };
-    firstMutations = await app.evaluate(() => globalThis.__scfMutations);
-    const forkResults = firstMutations.filter(
-      (entry) => entry.command === "fork" && entry.accepted,
-    );
-    assert.deepEqual(
-      forkResults.map((entry) => entry.resultThreadId),
-      [targetThreadId, nestedThreadId, beforeThreadId, rawThreadId],
-    );
-    assert.ok(
-      forkResults.every(
-        (entry) => typeof entry.requestId === "string" && entry.requestId.length > 0,
-      ),
-    );
-    assert.equal(new Set(forkResults.map((entry) => entry.requestId)).size, 4);
-    videoPath = await page.video()?.path();
-    await closeRecordedSmokeApplication(app);
-    app = null;
-    await stopService(env);
-    // 复用持久状态故障接缝：只在隔离 Core 安全停止后标记既有来源工具为 UNKNOWN。
-    const sourceRecordPath = join(scratch, "core", projectId, "state", `${sourceThreadId}.json`);
-    const sourceRecord = JSON.parse(await readFile(sourceRecordPath, "utf8"));
-    const unknownItem = sourceRecord.thread.turns
-      .find((turn) => turn.id === activeTurnId)
-      .items.find((item) => item.type === "dynamicToolCall" && item.tool === "run_command");
-    assert.equal(unknownItem.execution.outcome, "succeeded");
-    unknownItem.execution.outcome = "unknown";
-    delete unknownItem.execution.inspection;
-    await writeFile(sourceRecordPath, JSON.stringify(sourceRecord));
-    events.push({
-      persistedUnknownFixture: {
-        sourceThreadId,
-        turnId: activeTurnId,
-        itemId: unknownItem.id,
-        seam: "existing completed tool record altered only after safe Core stop; no real crash claim",
-      },
-    });
-    app = await electron.launch(launchOptions);
-    page = await app.firstWindow();
-    page.setDefaultTimeout(15000);
-    page.on("pageerror", (error) => pageErrors.push(error.message));
-    forkDialog = page.getByRole("dialog", { name: "从这里创建聊天分支", exact: true });
-    sidePane = page.getByRole("region", { name: "旁路讨论" });
-    sideTrigger = page.getByRole("button", { name: "在旁路中询问所选内容", exact: true });
-    await page.getByTestId("areal-workbench").waitFor({ timeout: 120000 });
-    await until(
-      (s) => s.projects.some((project) => project.id === projectId && project.state?.connected),
-      "restarted Core connection",
-    );
-    await selectConversation(page, sourceThreadId);
-    await page.getByRole("button", { name: "任务操作", exact: true }).click();
-    await page.getByRole("menuitem", { name: "历史旁路讨论", exact: true }).click();
-    await showRelated(page.getByRole("region", { name: "旁路讨论" }));
-    await page
-      .getByRole("region", { name: "相关讨论" })
-      .getByRole("button", { name: new RegExp(sideQuestion) })
-      .click();
-    const restored = await until(
-      (s) =>
-        project(s)?.state?.threads?.[sourceThreadId]?.turns?.length === preRestart.sourceTurns &&
-        project(s)?.state?.threads?.[sideThreadId]?.turns?.length === preRestart.sideTurns,
-      "restarted source and Side identity",
-    );
-    assert.equal(
-      project(restored).state.threads[sideThreadId].conversation.origin.sourceThreadId,
-      sourceThreadId,
-    );
-    assert.equal(
-      requests.length,
-      preRestart.requests,
-      "restart must not repeat unknown Side submission",
-    );
-    restartVideoPath = await page.video()?.path();
-    await shot("09-restarted-identities.png");
-    checks.push(
-      "AC47: Electron restart restored the same sent Side and source Turn IDs without another model request",
-    );
-    const unknownDraft = "保持草稿，先检查来源未知结果";
-    await showMainConversation();
-    await page.getByTestId("chat-input").fill(unknownDraft);
-    const unresolvedAnchor = page.locator(`[data-turn-id="${activeTurnId}"]`);
-    assert.ok(
-      await unresolvedAnchor
-        .getByRole("button", { name: "从此轮创建聊天分支", exact: true })
-        .isDisabled(),
-    );
-    await unresolvedAnchor
-      .getByText("历史包含未结算或未核查的操作；请在来源核查或选择更早轮次", { exact: true })
-      .waitFor();
-    await unresolvedAnchor
-      .getByRole("button", { name: "查看来源轮次的核查入口", exact: true })
-      .click();
-    assert.equal(await page.getByTestId("chat-input").innerText(), unknownDraft);
-    await shot("10-unknown-source-refusal.png");
-    await page
-      .locator(`[data-turn-id="${anchorTurnId}"]`)
-      .getByRole("button", { name: "从此轮创建聊天分支", exact: true })
-      .click();
-    await forkDialog.getByRole("button", { name: "创建分支", exact: true }).waitFor();
-    await page.keyboard.press("Escape");
-    await forkDialog.waitFor({ state: "hidden" });
-    assert.equal(requests.length, preRestart.requests);
-    checks.push(
-      "AC21: real restarted Core restores persisted UNKNOWN; GUI disables Branch with its reason, offers source inspection, retains the draft and lets an earlier completed turn open the target dialog without execution",
-    );
-    await selectConversation(page, rawThreadId);
-    await page.getByTestId("chat-input").fill("冷历史损坏时保留这份草稿");
-    const corruptHistory = page.locator(".messages .message-column");
-    await corruptHistory
-      .locator(`[data-turn-id="${activeTurnId}"]`)
-      .getByRole("button", { name: "从此轮创建聊天分支", exact: true })
-      .click();
-    const rawSnapshot = project(await state()).state.threads[rawThreadId].conversation.historySeed
-      .snapshotId;
-    const snapshotPath = join(scratch, "core", projectId, "state", "history", rawSnapshot);
-    const validSnapshotBytes = await readFile(snapshotPath);
-    const countBeforeCorruptFork = Object.keys(project(await state()).state.threads).length;
-    try {
-      await writeFile(snapshotPath, "SCF isolated corrupt snapshot fixture\n");
-      await forkDialog.getByRole("button", { name: "创建分支", exact: true }).click();
-      await forkDialog.getByRole("alert").waitFor();
-      assert.equal(await page.getByTestId("chat-input").innerText(), "冷历史损坏时保留这份草稿");
-      assert.equal(
-        Object.keys(project(await state()).state.threads).length,
-        countBeforeCorruptFork,
-      );
-      assert.equal(requests.length, preRestart.requests);
-      await shot("11-corrupt-history-refusal.png");
-      events.push({
-        corruptSnapshotFixture: {
-          path: snapshotPath,
-          error: await forkDialog.getByRole("alert").innerText(),
-          restored: true,
-        },
-      });
-    } finally {
-      await writeFile(snapshotPath, validSnapshotBytes);
-    }
-    await page.keyboard.press("Escape");
-    await forkDialog.waitFor({ state: "hidden" });
-    checks.push(
-      "AC11: actual frozen-history corruption is refused in the Fork dialog without a target or execution; source draft survives and original snapshot bytes are restored",
-    );
-    const inspectionSource = project(await state())
-      .state.threads[sourceThreadId].turns.find((turn) => turn.id === activeTurnId)
-      .items.find((item) => item.id === unknownItem.id);
-    assert.equal(inspectionSource.tool, "run_command");
-    assert.equal(inspectionSource.execution.outcome, "unknown");
-    assert.deepEqual(inspectionSource.contentItems, unknownItem.contentItems);
-    const originalReceipt = JSON.parse(
-      inspectionSource.contentItems.find((content) => content.type === "inputText").text,
-    );
-    assert.equal(originalReceipt.commandStatus, "succeeded");
-    assert.equal(originalReceipt.state, "exited");
-    assert.equal(originalReceipt.exitCode, 0);
-    assert.equal(originalReceipt.stdout, "finished");
-    assert.equal(originalReceipt.stopReason, null);
-    assert.equal(originalReceipt.outputClosed, true);
-    assert.equal(originalReceipt.outputReadComplete, true);
-    assert.equal(originalReceipt.outputIntegrity, "retained");
-    const inspection =
-      "Inspected the isolated test fixture: the original run_command receipt confirms exit 0, state exited, stdout finished and closed retained output. Core and Runtime were safely stopped before this test changed only the stored outcome to UNKNOWN. AC21 and AC11 refusal checks are complete. No command was replayed; preserve UNKNOWN history.";
-    const acknowledged = await page.evaluate(
-      (params) => window.arealDesktop.command("manage", params),
-      {
-        projectId,
-        threadId: sourceThreadId,
-        operation: "toolAcknowledge",
-        itemId: unknownItem.id,
-        inspection,
-      },
-    );
-    assert.ok(acknowledged.ok, JSON.stringify(acknowledged));
-    const inspected = await until(
-      (s) =>
-        project(s)
-          ?.state?.threads?.[sourceThreadId]?.turns.find((turn) => turn.id === activeTurnId)
-          ?.items.find((item) => item.id === unknownItem.id)?.execution.inspection === inspection,
-      "persisted injected UNKNOWN inspection",
-    );
-    const inspectedItem = project(inspected)
-      .state.threads[sourceThreadId].turns.find((turn) => turn.id === activeTurnId)
-      .items.find((item) => item.id === unknownItem.id);
-    assert.equal(inspectedItem.execution.outcome, "unknown");
-    assert.equal(inspectedItem.execution.inspection, inspection);
-    assert.deepEqual(
-      inspectedItem.contentItems,
-      unknownItem.contentItems,
-      "inspection preserves the complete original Runtime receipt",
-    );
-    assert.equal(requests.length, preRestart.requests, "inspection must not submit to the model");
-    events.push({
-      unknownFixtureInspection: {
-        sourceThreadId,
-        turnId: activeTurnId,
-        itemId: unknownItem.id,
-        processId: originalReceipt.processId,
-        inspection,
-        outcome: inspectedItem.execution.outcome,
-      },
-    });
-    checks.push(
-      "after AC21/AC11 refusals, public inspection preserves the injected UNKNOWN and original completed Runtime receipt without replay or a model request",
-    );
-  }
-  await selectConversation(page, sourceThreadId);
-  await showSideConversation();
-  await sidePane.getByRole("button", { name: "新讨论", exact: true }).click();
-  await showMainConversation();
-  await page.waitForFunction(() => {
-    const primary = document.querySelector(
-      ".composer-dock:not(.side-chat-composer) .composer-primary-action",
-    );
-    return primary && !primary.disabled;
-  });
-  await selectSideExcerpt();
-  await restoreLegacySelection(unicodeExcerpt);
-  assert.equal(
-    await sidePane.getByTestId("side-chat-input").textContent(),
-    "",
-    "empty Lexical paragraph contains no draft text",
-  );
-  const threadsBeforeQuoteOnly = new Set(Object.keys(project(await state()).state.threads));
-  await sidePane.getByTestId("side-chat-send").click();
-  const quoteOnlyState = await until(
+  const sideAnswered = await until(
     (snapshot) =>
-      Object.values(project(snapshot)?.state?.threads ?? {}).some(
-        (thread) =>
-          !threadsBeforeQuoteOnly.has(thread.id) &&
-          thread.conversation?.kind === "side" &&
-          thread.conversation.origin?.sourceThreadId === sourceThreadId &&
-          thread.turns?.at(-1)?.status === "completed",
-      ),
-    "explicit selection-only Side send",
+      project(snapshot).state.threads[sideThreadId]?.turns.at(-1)?.status === "completed",
+    "current Side answer completed",
   );
-  const quoteOnlyThread = Object.values(project(quoteOnlyState).state.threads).find(
-    (thread) =>
-      !threadsBeforeQuoteOnly.has(thread.id) &&
-      thread.conversation?.kind === "side" &&
-      thread.conversation.origin?.sourceThreadId === sourceThreadId,
+  const sourceAfter = project(sideAnswered).state.threads[sourceThreadId];
+  assert.deepEqual(
+    sourceAfter.turns.map((turn) => turn.id),
+    sourceTurnIdsBeforeSide,
   );
-  const quoteOnlyUser = quoteOnlyThread.turns[0].items.find((item) => item.type === "userMessage");
-  assert.equal(
-    quoteOnlyUser.content
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("\n"),
-    unicodeExcerpt,
-    "selection-only explicit send preserves the original excerpt as accepted input",
+  assert.equal(sourceAfter.turns.at(-1).status, "inProgress");
+  assert.deepEqual(
+    modelConfiguration(project(sideAnswered).configurations[sourceThreadId]),
+    mainConfigBefore,
+  );
+  const sideRequest = JSON.stringify(
+    requests.slice(beforeCurrentSide).map((request) => request.body),
+  );
+  assert.ok(
+    sideRequest.includes(unicodeExcerpt),
+    "selected Unicode evidence reaches the real child request",
+  );
+  assert.ok(sideRequest.includes(sideQuestion));
+  assert.ok(
+    !sideRequest.includes(lateSentinel),
+    "unfinished source output cannot enter the child request",
+  );
+  await shot("05-current-side-answered.png");
+  await writeFile(toolRelease, "release\n");
+  await until(
+    (snapshot) =>
+      project(snapshot).state.threads[sourceThreadId].turns.at(-1)?.status === "completed",
+    "source Runtime command settled",
   );
   checks.push(
-    "selection-only Side draft sends the exact excerpt only after the send button is activated",
+    "current selection-to-Side creates an idle executable child, sends verified Unicode context only on explicit send, and preserves source identity/configuration while its real Runtime command is active",
   );
   assert.deepEqual(pageErrors, []);
   passed = true;
@@ -2738,6 +1380,17 @@ try {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   }
+  const mainFailures = await readFile(join(scratch, "main-exceptions.log"), "utf8").catch(
+    (error) => {
+      if (error.code !== "ENOENT") throw error;
+      return "";
+    },
+  );
+  if (mainFailures) {
+    failure ??= mainFailures;
+    passed = false;
+    process.exitCode = 1;
+  }
   const videos = await readdir(join(scratch, "video")).catch(() => []);
   if (!videoPath && videos.length === 1) videoPath = join(scratch, "video", videos[0]);
   const sourceDiff = execFileSync("git", ["diff", "--binary"], { cwd: root });
@@ -2748,31 +1401,23 @@ try {
   const manifest = {
     passed,
     failure,
-    scenario: sharedWorkspace ? "shared-workspace" : "conversation-derivation",
-    baselineLayout,
+    scenario: "conversation-derivation",
     checks,
     events,
     pageErrors,
     electronStderr,
     frames,
     sourceCommit,
-    command: `pnpm --dir clients/gui run test:conversation-derivation${sharedWorkspace ? " --shared-workspace" : ""}${baselineLayout ? " --baseline" : ""}`,
+    command: "pnpm --dir clients/gui run test:conversation-derivation",
     runtime:
       "source Electron renderer + Rust Core + actual Runtime run_command + deterministic local HTTP/SSE model",
     limitations: [
-      "legacy Side selection uses saved draft/anchor fixtures from real Core source items or observed streamed text; current default Side UI is covered by side-chat-parity",
+      "retired read-only Side UI is not exercised; Core side_access/side_history_recovery/side_workspace_read preserve legacy contracts; current Side parity covers P1-P6",
       "local fixture model, not a real provider",
       "source build, not a copied installed package",
       "native project chooser, archive confirmation and download save location are fixtures and have no native-dialog acceptance claim",
       "Browser preview is outside this journey",
       "IME uses Chromium CDP composition and a candidate Enter event, not a physical input method",
-      ...(sharedWorkspace
-        ? [
-            "bounded shared-workspace journey only; restart, bring-back and persisted UNKNOWN recovery matrix are not run",
-          ]
-        : [
-            "UNKNOWN uses a persisted test record after safe Core stop, not an induced process crash",
-          ]),
     ],
     operatingSystem: {
       platform: process.platform,
@@ -2785,48 +1430,9 @@ try {
       { path: videoPath, process: "initial Electron run", continuous: true },
       { path: restartVideoPath, process: "restarted Electron run", continuous: true },
     ],
-    framePredicates: {
-      "01-fork-actions.png":
-        "compact Fork with one current-workspace action and no explanation, target configuration or cancel button",
-      "01-source.png": "two completed source Turns with persisted head and future",
-      "01a-fork-config-refusal.png":
-        "real Core Workflow rejection stays in the Fork dialog without a target or model request",
-      "01b-fork-response-unknown.png":
-        "one real committed Fork survives lost GUI response; dialog offers receipt reconciliation and no resend",
-      "02-fork-empty.png": "idle Fork with inherited prefix and no future Turn",
-      "03-fork-sent.png": "Fork explicit answer; model input excludes future",
-      "04-source-tool-running.png":
-        "Core/Runtime command marker exists and source Turn remains inProgress",
-      "04a-stale-selection.png":
-        "real Core stale-selection rejection retains the Side question without creating a Side",
-      "05-side-answered-frozen.png":
-        "Side first answer completed while source tool remains active; Unicode selection verified",
-      "06-bring-back-draft.png":
-        "preview confirmed; local main draft includes Side text and all overlapping commands are validated owner-scoped observations with no business mutation",
-      "07-before-active.png": "before-active Fork has idle bounded inherited history",
-      "07a-main-error-isolated.png":
-        "Core refuses unsupported main attachment without sending or losing its draft; Side has no main Composer error",
-      "07b-inherited-raw-result.png":
-        "target-owned inherited raw result is displayed and downloaded with no source controls or local execution",
-      "08-side-after-source-progress.png":
-        "old Side model request and frozen evidence exclude later source sentinel",
-      "08a-side-waiting-capacity.png":
-        "Side visibly waits behind the source's single model slot and its Stop remains available",
-      "08b-archived-copyable-preview.png":
-        "archived Side refuses insertion while preserving edited old-snapshot text and a copy action",
-      "08c-side-current-workspace.png":
-        "a distinct readOnly Side reads current workspace bytes through native Runtime with explicit provenance",
-      "08d-side-workspace-unavailable.png":
-        "Core read-only refusal preserves the question before an explicit evidence-only Side succeeds",
-      "08e-streaming-user-quote.png":
-        "a real streamed plain-text selection remains an unverified user quote outside the frozen inProgress evidence",
-      "09-restarted-identities.png":
-        "second Electron process restored source and Side identities without a new model request",
-      "10-unknown-source-refusal.png":
-        "persisted UNKNOWN restores from real Core; GUI blocks its boundary and offers source inspection without losing the main draft",
-      "11-corrupt-history-refusal.png":
-        "real Core rejects corrupt frozen history with no new target, no model request and intact main draft",
-    },
+    framePredicates: Object.fromEntries(
+      frames.map((name) => [name, "captured current Fork/selection/Side journey"]),
+    ),
     sourceDirtyStatus: sourceStatus,
     sourceDiffSha256: createHash("sha256").update(sourceDiff).digest("hex"),
     sandbox,
@@ -2838,10 +1444,7 @@ try {
     sourceThreadId,
     targetThreadId,
     nestedThreadId,
-    beforeThreadId,
-    rawThreadId,
     sideThreadId,
-    userQuoteSideId,
     anchorTurnId,
     activeTurnId,
     projectId,

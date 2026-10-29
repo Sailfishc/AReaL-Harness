@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useI18n } from "../i18n/IntlProvider.js";
 import type { Action, CommandParams, Data, PlatformServices, Snapshot } from "../services.js";
 import type { useGuardedNavigation } from "../settings/UnsavedChanges.js";
@@ -37,6 +37,11 @@ export type SidebarNavigationProps = {
   onOpenProjectTasks: (projectId: string) => void;
   closePanels: () => void;
 };
+const compareActivity = (a: Data, b: Data) =>
+  b.updatedAt - a.updatedAt ||
+  a.activityRank - b.activityRank ||
+  (b.summary.createdAt ?? 0) - (a.summary.createdAt ?? 0) ||
+  a.summary.id.localeCompare(b.summary.id);
 export function useSidebarNavigation(props: SidebarNavigationProps) {
   const { snapshot, projects, summaries, action } = props;
 
@@ -70,11 +75,6 @@ export function useSidebarNavigation(props: SidebarNavigationProps) {
     library.settings?.[`sidebarSort${area}`] ?? library.settings?.sidebarSort ?? "updated_at";
   const rowSortMode = (row: Data) =>
     sortMode(row.pinned ? "Pinned" : row.owner.projectless ? "Chats" : "Projects");
-  const compareActivity = (a: Data, b: Data) =>
-    b.updatedAt - a.updatedAt ||
-    a.activityRank - b.activityRank ||
-    (b.summary.createdAt ?? 0) - (a.summary.createdAt ?? 0) ||
-    a.summary.id.localeCompare(b.summary.id);
   const sortRows = (rows: Data[], mode: string) =>
     [...rows].sort((a, b) => {
       if (mode === "manual") {
@@ -140,33 +140,42 @@ export function useSidebarNavigation(props: SidebarNavigationProps) {
             .map((owner) => owner.id);
     return { operation: "dropSidebar", source, target, anchor, edge, order };
   };
-  const visibleRows = summaries
-    .sort(compareActivity)
-    .filter(
-      (r) =>
-        !!r.archived === archived &&
-        `${r.title} ${r.owner.root}`.toLowerCase().includes(search.toLowerCase()),
-    );
-  const pinnedProjects = projects
-    .filter((owner) => !owner.projectless && library.projects?.[owner.id]?.pinned)
-    .sort((a, b) => {
-      const mode = sortMode("Pinned");
-      if (mode === "manual") return 0; // The project index already applies the saved order.
-      const rows = (owner: Data) => visibleRows.filter((row) => row.owner.id === owner.id);
-      if (mode === "priority") {
-        const priority = (owner: Data) =>
-          Math.max(
-            0,
-            ...rows(owner).map((row) => (row.attention ? 3 : row.unread ? 2 : row.running ? 1 : 0)),
-          );
-        const difference = priority(b) - priority(a);
-        if (difference) return difference;
-      }
-      return (
-        Math.max(0, ...rows(b).map((row) => row.updatedAt)) -
-        Math.max(0, ...rows(a).map((row) => row.updatedAt))
-      );
-    });
+  const visibleRows = useMemo(
+    () =>
+      [...summaries]
+        .sort(compareActivity)
+        .filter(
+          (r) =>
+            !!r.archived === archived &&
+            `${r.title} ${r.owner.root}`.toLowerCase().includes(search.toLowerCase()),
+        ),
+    [summaries, archived, search],
+  );
+  const pinnedProjects = useMemo(() => {
+    const mode =
+      library.settings?.sidebarSortPinned ?? library.settings?.sidebarSort ?? "updated_at";
+    return projects
+      .filter((owner) => !owner.projectless && library.projects?.[owner.id]?.pinned)
+      .sort((a, b) => {
+        if (mode === "manual") return 0;
+        const rows = (owner: Data) => visibleRows.filter((row) => row.owner.id === owner.id);
+        if (mode === "priority") {
+          const priority = (owner: Data) =>
+            Math.max(
+              0,
+              ...rows(owner).map((row) =>
+                row.attention ? 3 : row.unread ? 2 : row.running ? 1 : 0,
+              ),
+            );
+          const difference = priority(b) - priority(a);
+          if (difference) return difference;
+        }
+        return (
+          Math.max(0, ...rows(b).map((row) => row.updatedAt)) -
+          Math.max(0, ...rows(a).map((row) => row.updatedAt))
+        );
+      });
+  }, [projects, library, visibleRows]);
   const dragSource = sidebarDrag.active;
   const dragTitle = !dragSource
     ? ""

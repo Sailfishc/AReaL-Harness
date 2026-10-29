@@ -32,12 +32,30 @@ class GitHooks(unittest.TestCase):
         self.git("init", "-q")
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.test")
-        for name in ("scripts/git-hooks.py", ".githooks/pre-commit", ".githooks/pre-push"):
+        for name in (
+            "scripts/git-hooks.py",
+            "scripts/ci-scope.py",
+            "clients/gui/scripts/test-manifest.mjs",
+            "clients/gui/scripts/test-manifest.json",
+            ".githooks/pre-commit",
+            ".githooks/pre-push",
+        ):
             self.put(name, (ROOT / name).read_text()).chmod((ROOT / name).stat().st_mode)
-        self.put(".gitignore", "node_modules/\n.local/\n")
+        self.put(".gitignore", "node_modules/\n.local/\ntarget/\npreflight-ran\nnested.git/\n")
         self.put("package.json", "{}\n")
         self.put(
-            "clients/gui/package.json", json.dumps({"devDependencies": {"vite-plus": "1.4.0"}})
+            "clients/gui/package.json",
+            json.dumps(
+                {
+                    "devDependencies": {"vite-plus": "1.4.0"},
+                    "scripts": {
+                        entry["script"]: "true"
+                        for entry in json.loads(
+                            (ROOT / "clients/gui/scripts/test-manifest.json").read_text()
+                        )
+                    },
+                }
+            ),
         )
         self.put("clients/gui/renderer/src/example.ts", "initial\n")
         self.put("format-input.txt", "formatted\n")
@@ -118,6 +136,34 @@ class GitHooks(unittest.TestCase):
         self.assertEqual(
             self.git("show", ":clients/gui/renderer/src/example.ts").stdout, "staged\n"
         )
+
+    def test_staged_manifest_failure_cannot_be_hidden_by_unstaged_repair(self):
+        manifest = self.root / "clients/gui/scripts/test-manifest.json"
+        original = manifest.read_text()
+        manifest.write_text("[]\n")
+        self.git("add", "clients/gui/scripts/test-manifest.json")
+        manifest.write_text(original)
+        result = self.hook("pre-commit")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Unregistered tests", result.stderr)
+        self.assertEqual(manifest.read_text(), original)
+
+    def test_deleted_source_is_in_staged_impact_plan(self):
+        self.git("rm", "clients/gui/renderer/src/example.ts")
+        result = self.hook("pre-commit")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        plan = json.loads((self.root / "target/ci/staged-plan.json").read_text())
+        self.assertIn("clients/gui/renderer/src/example.ts", plan["paths"])
+        self.assertEqual(plan["source"]["validationTarget"], "index-plan-only")
+        self.assertIn("smoke:test:composer", {item["id"] for item in plan["items"]})
+
+    def test_prepush_rejects_untracked_source(self):
+        self.assertEqual(self.install().returncode, 0)
+        self.put("clients/gui/renderer/src/uncommitted.ts", "required source\n")
+        result = self.hook("pre-push", self.push_input())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Untracked inputs", result.stderr)
+        self.assertFalse((self.root / "preflight-ran").exists())
 
     def test_precommit_preserves_gui_and_workflow_failure_exit_codes(self):
         self.put("clients/gui/renderer/src/example.ts", "invalid\n")

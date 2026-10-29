@@ -1,6 +1,6 @@
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer as tlsServer } from "node:tls";
 import { createServer as netServer, connect } from "node:net";
@@ -11,7 +11,7 @@ const require = createRequire(new URL("../app/package.json", import.meta.url));
 const WebSocket = require("ws");
 import { RemoteControl } from "../app/src/core/remote.cjs";
 
-export async function certificates() {
+export async function certificates(commonName = "RC12 isolated test CA") {
   const home = await mkdtemp(join(tmpdir(), "rc12-tls-"));
   const run = (args) => execFileSync("openssl", args, { cwd: home, stdio: "pipe" });
   run([
@@ -27,7 +27,7 @@ export async function certificates() {
     "-out",
     "ca.pem",
     "-subj",
-    "/CN=RC12 isolated test CA",
+    `/CN=${commonName}`,
     "-addext",
     "basicConstraints=critical,CA:TRUE",
   ]);
@@ -131,12 +131,14 @@ export async function relayFixture(
   const backendPort = probe.address().port;
   await new Promise((r) => probe.close(r));
   const sockets = new Set();
+  let acceptedTlsConnections = 0;
   const proxy = tlsServer(
     {
       key: await readFile(join(tlsHome, "server.key")),
       cert: await readFile(join(tlsHome, certificate)),
     },
     (socket) => {
+      acceptedTlsConnections += 1;
       const upstream = connect(backendPort, "127.0.0.1");
       sockets.add(socket);
       sockets.add(upstream);
@@ -170,6 +172,7 @@ export async function relayFixture(
     }),
   );
   const cli = new URL("../../../services/remote-relay/src/cli.mjs", import.meta.url).pathname;
+  const relayNode = process.env.AREAL_RELAY_NODE || process.execPath;
   let child,
     logs = "";
   const resources = {
@@ -181,17 +184,20 @@ export async function relayFixture(
     home,
     origin,
     config,
+    get acceptedTlsConnections() {
+      return acceptedTlsConnections;
+    },
     logs: () => logs,
     admin: (...args) =>
       JSON.parse(
-        execFileSync(process.execPath, [cli, ...args, "--config", config], {
+        execFileSync(relayNode, [cli, ...args, "--config", config], {
           encoding: "utf8",
           stdio: ["ignore", "pipe", "pipe"],
         }),
       ),
     async start() {
       const logStart = logs.length;
-      child = spawn(process.execPath, [cli, "serve", "--config", config], {
+      child = spawn(relayNode, [cli, "serve", "--config", config], {
         stdio: ["ignore", "pipe", "pipe"],
       });
       const receipt = { pid: child.pid, exited: false };

@@ -7,6 +7,8 @@ mod capacity;
 pub(crate) use capacity::{RequestCapacity, RequestPhase};
 mod context_windows;
 pub(crate) use context_windows::known_context_window;
+#[cfg(test)]
+mod prompt_cache_tests;
 mod request_budget;
 mod telemetry;
 mod tool_calls;
@@ -92,6 +94,7 @@ struct StreamError {
     error_type: Option<String>,
     reason: Option<String>,
     error_shape: &'static str,
+    parameter: Option<&'static str>,
     #[serde(skip)]
     private_detail: PrivateErrorDetail,
 }
@@ -127,6 +130,8 @@ impl StreamError {
                 | "insufficient_quota"
                 | "context_length_exceeded"
                 | "invalid_request_error"
+                | "unsupported_parameter"
+                | "unsupported_value"
                 | "invalid_api_key"
                 | "authentication_error"
                 | "permission_error"
@@ -157,6 +162,10 @@ impl StreamError {
                 Value::String(_) => "string",
                 _ => "other",
             },
+            parameter: match value["param"].as_str() {
+                Some("reasoning.effort" | "reasoning_effort") => Some("reasoning.effort"),
+                _ => None,
+            },
             private_detail: PrivateErrorDetail(private_detail),
         }
     }
@@ -164,13 +173,27 @@ impl StreamError {
 
 // 非成功 HTTP 响应仅保留状态与白名单协议字段，限制读取量和耗时。
 #[derive(Debug, thiserror::Error)]
-#[error("model HTTP status {status}")]
+#[error("model HTTP status {status}{guidance}")]
 struct HttpFailure {
     status: reqwest::StatusCode,
     detail: Option<StreamError>,
+    request_id: Option<String>,
+    guidance: &'static str,
 }
 async fn http_failure(mut response: reqwest::Response) -> anyhow::Error {
     let status = response.status();
+    let request_id = response
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= 128
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        })
+        .map(str::to_owned);
     match status {
         reqwest::StatusCode::REQUEST_TIMEOUT => return ModelFailure::ResponseTimeout.into(),
         reqwest::StatusCode::TOO_MANY_REQUESTS => return ModelFailure::RateLimited.into(),
@@ -197,13 +220,34 @@ async fn http_failure(mut response: reqwest::Response) -> anyhow::Error {
     .await
     .ok()
     .flatten();
-    HttpFailure { status, detail }.into()
+    let guidance = if detail.as_ref().is_some_and(unsupported_reasoning_parameter) {
+        "; reasoning effort was rejected: choose a supported effort or service default in the model menu, or edit the provider/model configuration"
+    } else {
+        ""
+    };
+    HttpFailure {
+        status,
+        detail,
+        request_id,
+        guidance,
+    }
+    .into()
+}
+
+fn unsupported_reasoning_parameter(detail: &StreamError) -> bool {
+    detail.parameter == Some("reasoning.effort")
+        && matches!(
+            detail.code.as_deref(),
+            Some("unsupported_parameter" | "unsupported_value")
+        )
 }
 
 fn stream_outcome(detail: &StreamError, source: &str) -> areal_protocol::TurnOutcome {
     let labels = [&detail.code, &detail.error_type, &detail.reason];
     let has = |name: &str| labels.iter().any(|v| v.as_deref() == Some(name));
-    let (code, class) = if has("context_length_exceeded") {
+    let (code, class) = if unsupported_reasoning_parameter(detail) {
+        ("MODEL_PARAMETER_UNSUPPORTED", "infrastructure")
+    } else if has("context_length_exceeded") {
         ("LLM_CONTEXT_WINDOW_EXCEEDED", "agent")
     } else if has("max_tokens") || has("max_output_tokens") {
         ("LLM_OUTPUT_TOKEN_LIMIT_EXCEEDED", "agent")
@@ -243,6 +287,9 @@ pub(crate) fn terminal_outcome(error: &anyhow::Error) -> Option<areal_protocol::
             )
         };
         result.details.as_mut().unwrap()["httpStatus"] = json!(detail.status.as_u16());
+        if let Some(request_id) = &detail.request_id {
+            result.details.as_mut().unwrap()["requestId"] = json!(request_id);
+        }
         return Some(result);
     }
     if let Some(detail) = error.downcast_ref::<StreamError>() {
@@ -621,6 +668,65 @@ pub struct HttpModel {
     routing_scope: uuid::Uuid,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ModelConfigurationError {
+    #[error(
+        "MODEL_REASONING_EFFORT_UNSUPPORTED: model '{model}' does not support reasoning effort '{effort}'; choose a supported effort or service default in the model menu, or edit the provider/model configuration"
+    )]
+    ReasoningEffort { model: String, effort: String },
+    #[error(
+        "MODEL_PROTOCOL_UNSUPPORTED: model '{model}' requires Responses for tool calling; change the provider protocol in model settings"
+    )]
+    Protocol { model: String },
+}
+
+pub(crate) fn known_official_reasoning_efforts(endpoint: &str, name: &str) -> Option<Vec<String>> {
+    let url = reqwest::Url::parse(endpoint).ok()?;
+    if url.scheme() != "https"
+        || url.host_str() != Some("api.openai.com")
+        || url.port_or_known_default() != Some(443)
+        || name != "gpt-6.1-sol"
+    {
+        return None;
+    }
+    Some(
+        ["low", "medium", "high", "xhigh", "max"]
+            .map(String::from)
+            .to_vec(),
+    )
+}
+
+pub(crate) fn resolved_capabilities(
+    endpoint: &str,
+    name: &str,
+    declared: Option<&areal_protocol::desktop::ModelCapabilityConfig>,
+) -> Option<areal_protocol::desktop::ModelCapabilityConfig> {
+    let Some(known) = known_official_reasoning_efforts(endpoint, name) else {
+        return declared.cloned();
+    };
+    let mut capabilities =
+        declared
+            .cloned()
+            .unwrap_or(areal_protocol::desktop::ModelCapabilityConfig {
+                tools: true,
+                vision: true,
+                reasoning: true,
+                reasoning_effort_options: None,
+            });
+    capabilities.reasoning_effort_options = Some(if !capabilities.reasoning {
+        Vec::new()
+    } else if let Some(options) = &capabilities.reasoning_effort_options {
+        options
+            .iter()
+            .filter(|effort| known.contains(effort))
+            .cloned()
+            .collect()
+    } else {
+        known
+    });
+    Some(capabilities)
+}
+
 #[derive(Clone, Debug)]
 pub struct ModelOptions {
     pub capabilities: Option<areal_protocol::desktop::ModelCapabilityConfig>,
@@ -630,6 +736,7 @@ pub struct ModelOptions {
     pub summary_max_output_tokens: Option<u64>,
     pub reasoning_summary: Option<String>,
     pub responses_websocket: bool,
+    pub responses_prompt_cache: bool,
     pub temperature: Option<f64>,
     pub top_p: Option<f64>,
     pub top_k: Option<i64>,
@@ -652,6 +759,7 @@ impl Default for ModelOptions {
             summary_max_output_tokens: None,
             reasoning_summary: None,
             responses_websocket: false,
+            responses_prompt_cache: false,
             temperature: None,
             top_p: None,
             top_k: None,
@@ -761,20 +869,6 @@ impl HttpModel {
                 options.reasoning_effort = None;
                 options.summary_reasoning_effort = None;
                 options.reasoning_summary = None;
-            } else if let Some(efforts) = &capabilities.reasoning_effort_options
-                && !efforts.is_empty()
-            {
-                anyhow::ensure!(
-                    options
-                        .reasoning_effort
-                        .as_ref()
-                        .is_none_or(|effort| efforts.contains(effort))
-                        && options
-                            .summary_reasoning_effort
-                            .as_ref()
-                            .is_none_or(|effort| efforts.contains(effort)),
-                    "reasoning effort is not supported by the selected model"
-                );
             }
         }
         // 稀疏目录参数与旧快照中的省略值沿用统一默认，不交给供应商隐式决定。
@@ -784,6 +878,10 @@ impl HttpModel {
         anyhow::ensure!(
             !options.responses_websocket || self.protocol == ModelProtocol::Responses,
             "responses_websocket requires responses protocol"
+        );
+        anyhow::ensure!(
+            !options.responses_prompt_cache || self.protocol == ModelProtocol::Responses,
+            "responses_prompt_cache requires responses protocol"
         );
         anyhow::ensure!(
             options
@@ -806,11 +904,11 @@ impl HttpModel {
                 .as_deref()
                 .is_none_or(|v| matches!(
                     v,
-                    "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+                    "default" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
                 ))
                 && options.reasoning_effort.as_deref().is_none_or(|v| matches!(
                     v,
-                    "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+                    "default" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
                 )),
             "invalid reasoning effort"
         );
@@ -956,6 +1054,43 @@ impl HttpModel {
 
 #[async_trait]
 impl Model for HttpModel {
+    fn check_work(&self) -> Result<()> {
+        let capabilities = resolved_capabilities(
+            &self.endpoint,
+            &self.name,
+            self.options.capabilities.as_ref(),
+        );
+        if let Some(efforts) = capabilities
+            .as_ref()
+            .and_then(|value| value.reasoning_effort_options.as_ref())
+        {
+            for effort in [
+                &self.options.reasoning_effort,
+                &self.options.summary_reasoning_effort,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if effort != "default" && !efforts.contains(effort) {
+                    return Err(ModelConfigurationError::ReasoningEffort {
+                        model: self.name.clone(),
+                        effort: effort.clone(),
+                    }
+                    .into());
+                }
+            }
+        }
+        if known_official_reasoning_efforts(&self.endpoint, &self.name).is_some()
+            && self.protocol != ModelProtocol::Responses
+            && capabilities.as_ref().is_none_or(|value| value.tools)
+        {
+            return Err(ModelConfigurationError::Protocol {
+                model: self.name.clone(),
+            }
+            .into());
+        }
+        Ok(())
+    }
     fn replay_protocol(&self) -> Option<ModelProtocol> {
         Some(self.protocol)
     }
@@ -1006,7 +1141,11 @@ impl Model for HttpModel {
 
     fn capabilities(&self) -> ModelCapabilities {
         let mut capabilities = self.protocol.capabilities();
-        capabilities.declared = self.options.capabilities.clone();
+        capabilities.declared = resolved_capabilities(
+            &self.endpoint,
+            &self.name,
+            self.options.capabilities.as_ref(),
+        );
         if capabilities
             .declared
             .as_ref()
@@ -1074,6 +1213,7 @@ impl Model for HttpModel {
         mut limits: ToolCallLimits,
         cap: Option<u64>,
     ) -> Result<AgentStream> {
+        self.check_work()?;
         anyhow::ensure!(
             limits.max_buffer_bytes > 0,
             "tool buffer budget must be positive"
@@ -1125,7 +1265,9 @@ impl Model for HttpModel {
                 .or(self.options.reasoning_effort.as_ref())
         } else {
             self.options.reasoning_effort.as_ref()
-        } {
+        }
+        .filter(|effort| effort.as_str() != "default")
+        {
             match self.protocol {
                 ModelProtocol::ChatCompletions => body["reasoning_effort"] = json!(effort),
                 ModelProtocol::Responses => body["reasoning"]["effort"] = json!(effort),
@@ -1179,6 +1321,16 @@ impl Model for HttpModel {
                 .is_none_or(|capabilities| capabilities.tools)
         {
             body["tool_choice"] = json!("none");
+        }
+        if self.options.responses_prompt_cache
+            && let Some(key) = affinity::prompt_cache_key(
+                &self.name,
+                self.key.as_deref(),
+                REQUEST_OWNER.try_with(Clone::clone).ok(),
+                purpose,
+            )
+        {
+            body["prompt_cache_key"] = json!(key);
         }
         // Retrying before accepting a stream cannot replay a tool operation.
         // Never automatically replay a partially consumed model stream here.
@@ -1326,6 +1478,12 @@ impl Model for HttpModel {
         }
         if !response.status().is_success() {
             let error = http_failure(response).await;
+            if let Some(detail) = error
+                .downcast_ref::<HttpFailure>()
+                .and_then(|failure| failure.detail.as_ref())
+            {
+                audit.save_error_detail(&detail.private_detail.0);
+            }
             audit.value["terminalOutcome"] = json!(terminal_outcome(&error));
             audit.value["outcome"] = json!("failed");
             audit.value["error"] = json!(error.to_string());
@@ -1807,6 +1965,12 @@ mod outcome_tests {
                 None,
             ),
             (
+                400,
+                json!({"error":{"code":"unsupported_value","param":"reasoning.effort","message":"secret"}}).to_string(),
+                "MODEL_PARAMETER_UNSUPPORTED",
+                None,
+            ),
+            (
                 413,
                 json!({"error":{"code":"context_length_exceeded"}}).to_string(),
                 "MODEL_REQUEST_TOO_LARGE",
@@ -1865,5 +2029,58 @@ mod outcome_tests {
             assert!(!serde_json::to_string(&outcome).unwrap().contains("secret"));
             server.abort();
         }
+    }
+}
+
+#[cfg(test)]
+mod reasoning_parameter_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn unsupported_effort_http_error_has_safe_guidance_correlation_and_private_detail_without_retry()
+     {
+        use axum::{Router, http::StatusCode, routing::post};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = calls.clone();
+        let app = Router::new().route("/", post(move || {
+            let seen = seen.clone();
+            async move {
+                seen.fetch_add(1, Ordering::SeqCst);
+                (StatusCode::BAD_REQUEST, [("x-request-id", "req_fixture_400")],
+                    json!({"error":{"code":"unsupported_value","param":"reasoning.effort","message":"private-provider-marker"}}).to_string())
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let directory = tempfile::tempdir().unwrap();
+        let mut model = HttpModel::new(endpoint, "custom".into(), None)
+            .unwrap()
+            .with_audit_directory(directory.path().to_owned());
+        model.client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let error = match model
+            .chat(vec![Message::text("user", "hello")], vec![])
+            .await
+        {
+            Ok(_) => panic!("unsupported parameter must fail"),
+            Err(error) => error,
+        };
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(error.to_string().contains("service default"));
+        assert!(!format!("{error:?}").contains("private-provider-marker"));
+        let outcome = terminal_outcome(&error).unwrap();
+        assert_eq!(outcome.code, "MODEL_PARAMETER_UNSUPPORTED");
+        assert_eq!(outcome.details.unwrap()["requestId"], "req_fixture_400");
+        let journal = std::fs::read_to_string(directory.path().join("requests.jsonl")).unwrap();
+        assert!(!journal.contains("private-provider-marker"));
+        let record: Value = serde_json::from_str(journal.lines().last().unwrap()).unwrap();
+        assert!(
+            std::fs::read_to_string(record["errorDetailFile"].as_str().unwrap())
+                .unwrap()
+                .contains("private-provider-marker")
+        );
+        server.abort();
+        let _ = server.await;
     }
 }

@@ -1259,6 +1259,10 @@ impl Connection {
                 response_overhead,
             )
             .await?;
+            if scoped_request_search {
+                // 项目级受理证明不能绕过现有 Thread 可见范围。
+                result.as_object_mut().unwrap().remove("creationAdmission");
+            }
             if scoped_request_search
                 && let Some(data) = result.get_mut("data").and_then(Value::as_array_mut)
             {
@@ -1391,6 +1395,7 @@ impl Connection {
                         "ordinaryTurnSubmit":true,"editLastMessage":true,"turnStartAdmissionGuard":true,"turnEnqueueAdmissionGuard":true,"turnInterruptAdmissionGuard":true,"threadStartAdmissionGuard":true,"taskPauseRunGuard":true,"taskModes":true,"taskChannels":true,"asyncQuestions":true,"headlessInteractions":true,"goals":true,"dynamicTools":true,"mediaOutput":true,"durableSubmissionDeduplication":true,"profiles":true,"skills":true,"plans":true,"interactions":true,"queue":true,"providerConfiguration":true,"modelReset":true,"toolMedia":true,"blobUpload":true}),
                     "limits":{"frameBytes":MAX_FRAME_BYTES,"responseBytes":MAX_RESPONSE_BYTES,"subscriptions":128,"sendQueue":256,"threadEventWindow":128},
                     "runtime":engine.runtime_capabilities()});
+                capabilities["features"]["threadCreationJournal"] = json!({"version":1,"binding":engine.creation_admission(&self.principal.id).await});
                 capabilities["features"]["sideExecutableV2"] = json!(true);
                 capabilities["desktopToolBundles"] = if can_attach_browser {
                     json!([{ "bundleId":areal_protocol::desktop::COMPUTER_V1_BUNDLE,

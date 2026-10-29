@@ -39,8 +39,10 @@ export async function runA11yLint(files = ["renderer/src", "packages/ui/src"]) {
   const report = JSON.parse(result.stdout);
   assert.ok(report.number_of_files > 0, "accessibility lint must examine source files");
   const occurrences = new Map();
+  // CLI 的 -A 不关闭 JS 插件规则；仓库规则由独立的增量检查负责。
+  const findings = report.diagnostics.filter((finding) => !finding.code?.startsWith("areal("));
   return Promise.all(
-    report.diagnostics.map(async (finding) => {
+    findings.map(async (finding) => {
       assert.ok(
         rules.some((rule) => finding.code === `jsx-a11y(${rule})`),
         `unexpected lint rule: ${finding.code}`,

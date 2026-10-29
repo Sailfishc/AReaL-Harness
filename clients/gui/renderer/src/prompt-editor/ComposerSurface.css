@@ -11,7 +11,7 @@
 }
 .interaction-composer-compact .composer-editor {
   flex: 1 1 120px;
-  padding: 0;
+  padding: 0 0 0 34px;
   max-height: 80px;
 }
 .interaction-composer-compact .composer-editor :is([contenteditable], textarea) {
@@ -25,20 +25,10 @@
   line-height: var(--line-height-ui);
 }
 .interaction-composer-compact .composer-toolbar {
-  flex: 1 0 auto;
-}
-.interaction-composer-compact .composer-toolbar [data-composer-leading-actions] {
-  flex: 0 0 auto;
-}
-
-/* 紧凑状态保持编辑器归属，只调整工具栏位置。 */
-.interaction-composer-compact .composer-editor {
-  padding-left: 34px;
-}
-.interaction-composer-compact .composer-toolbar {
   position: static;
   flex: 0 0 auto;
 }
+
 .interaction-composer-compact [data-composer-leading-actions] {
   position: absolute;
   left: 10px;
@@ -71,15 +61,13 @@
 }
 .composer-model-menu {
   width: 254px;
+  padding: 7px 4px 6px;
 }
 .composer-model-menu [role="menuitemradio"] {
   font-size: var(--text-ui-caption);
   font-weight: 430;
   padding-block: 5px;
   border-radius: var(--radius-choice);
-}
-.composer-model-menu {
-  padding: 7px 4px 6px;
 }
 .composer-model-menu [role="radio"] {
   display: flex;
@@ -107,4 +95,9 @@
   .composer-model-trigger {
     max-width: 120px;
   }
+}
+
+.composer-editor .lexical-chat-input[data-touch-input="true"] {
+  font-size: var(--text-ui-xl);
+  line-height: var(--line-height-ui);
 }

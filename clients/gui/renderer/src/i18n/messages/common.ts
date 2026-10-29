@@ -1,4 +1,9 @@
 export const commonMessages = {
+  "common.update.retryCheck": { "zh-CN": "重新检查更新", en: "Check for updates again" },
+  "common.update.networkChanged": {
+    "zh-CN": "网络发生变化，更新请求中断。请待网络稳定后点击重试。",
+    en: "The update request was interrupted by a network change. Retry once your connection is stable.",
+  },
   "common.contextProjection": {
     "zh-CN":
       "这里展示 Core 当前保留的消息与压缩摘要。工具定义、供应商私有上下文及下次请求配置不完整呈现在此。",
@@ -50,6 +55,8 @@ export const commonMessages = {
     "zh-CN": "项目操作 {project}",
     en: "Actions for project {project}",
   },
+  "common.navigation.moveUp": { "zh-CN": "上移", en: "Move up" },
+  "common.navigation.moveDown": { "zh-CN": "下移", en: "Move down" },
   "common.navigation.rename": { "zh-CN": "重命名", en: "Rename" },
   "common.navigation.openDefault": {
     "zh-CN": "在默认应用中打开",
@@ -111,6 +118,14 @@ export const commonMessages = {
     en: "Line counts unavailable for some files",
   },
   "chat.files.unavailable": { "zh-CN": "行数不可用", en: "Line counts unavailable" },
+  "chat.files.changedLive": {
+    "zh-CN": "{count} 个文件已更改",
+    en: "{count, plural, one {# file changed} other {# files changed}}",
+  },
+  "chat.files.reviewLive": {
+    "zh-CN": "查看本轮已更改的 {count} 个文件",
+    en: "Review {count, plural, one {# changed file} other {# changed files}} in this turn",
+  },
   "chat.files.partialTotals": {
     "zh-CN": "已统计文件新增 {additions} 行，删除 {deletions} 行",
     en: "Counted files: {additions} added, {deletions} deleted",
@@ -323,6 +338,25 @@ export const commonMessages = {
   "startup.recover": { "zh-CN": "恢复后台…", en: "Recover backend…" },
   "startup.quit": { "zh-CN": "退出界面", en: "Quit interface" },
   "startup.back": { "zh-CN": "返回加载界面", en: "Back to loading" },
+  "startup.connectingProject": { "zh-CN": "正在连接项目…", en: "Connecting to project…" },
+  "startup.readingConversation": { "zh-CN": "正在读取对话…", en: "Reading conversation…" },
+  "common.conversation.newInProject": {
+    "zh-CN": "在 {project} 中开始新聊天",
+    en: "Start a new chat in {project}",
+  },
+  "recovery.creationNotAdmitted": {
+    "zh-CN": "Core 已确认原会话创建未受理，草稿已保留。",
+    en: "Core confirmed that the original conversation creation was not admitted. Your draft is retained.",
+  },
+  "recovery.creationRecords": {
+    "zh-CN": "待核对的会话创建",
+    en: "Unconfirmed conversation creation",
+  },
+  "recovery.creationRecordDescription": {
+    "zh-CN":
+      "原请求已保留。核对只查询受理结果；查不到回执时仍保留为未知，不会重新创建会话。核对可能需要连接项目。",
+    en: "The original request is retained. Checking only queries its outcome; a missing receipt remains unknown and does not create another conversation. Checking may connect to the project.",
+  },
   "startup.loadingConversation": { "zh-CN": "正在加载对话…", en: "Loading conversation…" },
   "recovery.loadingView": {
     "zh-CN": "正在重新加载对话，历史和草稿已保留…",
@@ -377,6 +411,16 @@ export const commonMessages = {
   "chat.composer.previousEffortUnsupported": {
     "zh-CN": "上次使用的思考强度当前不受支持，请确认当前选择。",
     en: "The previous reasoning effort is unsupported. Check the current selection.",
+  },
+  "chat.composer.effortUnverified": {
+    "zh-CN": "此强度来自显式配置，服务尚未声明支持情况。",
+    en: "This effort is explicitly configured; the service has not declared support.",
+  },
+  "chat.composer.serviceDefault": { "zh-CN": "服务默认", en: "Service default" },
+  "chat.composer.unsupportedEffort": {
+    "zh-CN":
+      "{model} 不支持思考强度 {effort}。请在模型菜单重新选择强度或服务默认；也可在模型设置修改供应商默认。",
+    en: "{model} does not support reasoning effort {effort}. Choose another effort or Service default in the model menu, or edit the provider default in model settings.",
   },
   "chat.composer.effortUnspecified": { "zh-CN": "未指定", en: "Unspecified" },
   "chat.composer.noModels": { "zh-CN": "暂无可用模型", en: "No models available" },

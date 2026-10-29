@@ -1617,7 +1617,7 @@ async fn mrtr_app_resource_and_tool_share_authoritative_forms() {
         "pkg/server.py",
         include_str!("../../mcp/tests/mrtr.py"),
     );
-    write(root.path(),"pkg/.mcp.json",&json!({"mcpServers":{"fixture":{"command":"python3","args":["server.py"],"env":{"READ_FORM":"1"}}}}).to_string());
+    write(root.path(),"pkg/.mcp.json",&json!({"mcpServers":{"fixture":{"command":"python3","args":["server.py"],"env":{"READ_FORM":"1","TRACE":state.path().join("mrtr-wire.jsonl")}}}}).to_string());
     let e = Engine::open(state.path(), Arc::new(ModelFixture), Limits::default()).unwrap();
     e.set_permissions(
         serde_json::from_value(json!({"mode":"ASK_PERMISSIONS","ask":["mcp__*"]})).unwrap(),
@@ -1638,10 +1638,23 @@ async fn mrtr_app_resource_and_tool_share_authoritative_forms() {
     .await
     .unwrap();
     let d = store.read(&d.id).unwrap();
-    e.plugin_connection(d.id.clone(), d.installed_digest.unwrap(), true)
+    let connection = e
+        .plugin_connection(d.id.clone(), d.installed_digest.unwrap(), true)
         .await
         .unwrap();
+    assert_eq!(
+        connection["data"][0]["state"],
+        "connected",
+        "connection: {connection}; wire: {:?}",
+        fs::read_to_string(state.path().join("mrtr-wire.jsonl"))
+    );
     let apps = e.mcp_apps_list(None).await.unwrap();
+    assert!(
+        !apps["data"].as_array().unwrap().is_empty(),
+        "Apps: {apps}; connection: {connection}; current: {:?}; wire: {:?}",
+        e.plugin_mcp_list().await,
+        fs::read_to_string(state.path().join("mrtr-wire.jsonl"))
+    );
     let server = apps["data"][0]["serverId"].as_str().unwrap().to_owned();
     let generation = apps["data"][0]["generation"].as_u64().unwrap();
     let thread = e

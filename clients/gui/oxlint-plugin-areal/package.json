@@ -1,0 +1,9 @@
+{
+  "name": "@areal/oxlint-plugin",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "devDependencies": {
+    "@oxlint/plugins": "1.89.0"
+  }
+}
