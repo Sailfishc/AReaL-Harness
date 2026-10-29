@@ -7,7 +7,6 @@ const {
   readHistoryPage,
   readHistoryFragmentPage,
   readHistoryEntry,
-  readThreadList,
   isDeferredItem,
   isHistoryNotification,
   historyFailure,
@@ -17,6 +16,7 @@ const { readTask } = require("@areal/workbench/desktop-contract/management-tasks
 const { modelRecord } = require("@areal/workbench/core-model-contract");
 const { isTaskDraftConfiguration } = require("./task-draft.cjs");
 const { readInspection } = require("./thread-configuration.cjs");
+const { CatalogObservation } = require("./catalog-observation.cjs");
 
 // Owns rebuildable history windows and read recovery. It cannot submit mutations.
 /** @param {unknown} error */
@@ -51,6 +51,7 @@ class HistoryObservation {
   /** @param {import('./history-state.cjs').HistoryHost} host */
   constructor(host) {
     this.host = host;
+    this.catalog = new CatalogObservation(host);
     /** @type {Map<string,import('./history-state.cjs').HistoryWindow>} */
     this.historyWindows = new Map();
   }
@@ -107,6 +108,7 @@ class HistoryObservation {
         window.epoch++;
       }
       void this.openThread(project, threadId).catch(() => {});
+      void this.refreshThreadSummary(project, threadId).catch(() => {});
       return;
     }
     project.model.event(method, params);
@@ -136,10 +138,17 @@ class HistoryObservation {
         )
         .catch(() => {});
     }
-    // Lifecycle notifications omit thread timestamps; refresh the authoritative
-    // summaries so continued and automatically dequeued tasks sort correctly.
-    if (method === "turn/started" || method === "turn/completed") {
-      void this.listThreads(project).catch(() => {});
+    // 生命周期通知不带完整时间戳；仅回读目标摘要，并合并同一连接的重叠刷新。
+    if (
+      [
+        "thread/started",
+        "turn/started",
+        "turn/completed",
+        "areal/thread/configured",
+        "areal/thread/edited",
+      ].includes(method)
+    ) {
+      void this.refreshThreadSummary(project, threadId).catch(() => {});
     }
     if (method === "turn/completed") this.host.providers.requestReconciliation();
     if (
@@ -240,45 +249,12 @@ class HistoryObservation {
 
   /** @param {import('./project-state.cjs').CoreProject} project */
   listThreads(project) {
-    const client = project.client;
-    // Lifecycle refreshes and explicit reads can overlap. Serialize complete
-    // reads so an earlier snapshot cannot overwrite a later navigation cache.
-    const task = (project.summaryReads ?? Promise.resolve())
-      .catch(() => {})
-      .then(async () => {
-        if (!this.host.currentConnection(project, client)) return project.summaries;
-        const data = [];
-        /** @type {string|null|undefined} */
-        let cursor;
-        do {
-          const classified = client.capabilities?.methods?.includes("areal/conversation/list");
-          const page = await client.request(
-            classified ? "areal/conversation/list" : "thread/list",
-            {
-              limit: 100,
-              ...(classified ? { view: "main", includeArchived: true } : {}),
-              ...(cursor ? { cursor } : {}),
-            },
-            { decode: readThreadList },
-          );
-          data.push(
-            ...page.data.filter(
-              (thread) => !isTaskDraftConfiguration(thread.desktop?.configuration),
-            ),
-          );
-          cursor = page.nextCursor;
-        } while (cursor);
-        if (!this.host.currentConnection(project, client)) return project.summaries;
-        await this.host.library.recordThreadSummaries(project.id, data);
-        if (!this.host.currentConnection(project, client)) return project.summaries;
-        project.summaries = data;
-        project.summariesLoaded = true;
-        await this.host.worktrees.observeProject(project);
-        this.host.onChange();
-        return data;
-      });
-    project.summaryReads = task.catch(() => {});
-    return task;
+    return this.catalog.listThreads(project);
+  }
+
+  /** @param {import('./project-state.cjs').CoreProject} project @param {string|undefined} threadId */
+  refreshThreadSummary(project, threadId) {
+    return this.catalog.refreshThreadSummary(project, threadId);
   }
 
   /** @param {import('./project-state.cjs').CoreProject} project @param {string} threadId @param {unknown} error @param {{refreshPending?:boolean,id?:string}} [options] */
