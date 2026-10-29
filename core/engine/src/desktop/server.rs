@@ -84,12 +84,8 @@ impl Engine {
                 resources.push(resource);
             }
             let s = cell.state.lock().await;
-            latest_activity = latest_activity.max(s.thread.updated_at);
-            for turn in &s.thread.turns {
-                latest_activity = latest_activity
-                    .max(turn.started_at.unwrap_or(0))
-                    .max(turn.completed_at.unwrap_or(0));
-            }
+            // 冷目录保留全部持久轮次的最大活动时间，不能只用尾轮摘要提前回收。
+            latest_activity = latest_activity.max(s.latest_activity_at());
             if cell.hooks.closing.load(Ordering::Acquire)
                 && !cell.hooks.ended.load(Ordering::Acquire)
             {
@@ -290,6 +286,19 @@ impl Engine {
             engine.drain_task_modes().await?;
             let cells: Vec<_> = engine.threads.read().await.values().cloned().collect();
             for cell in &cells {
+                if !cell.state.is_loaded()
+                    && cell
+                        .state
+                        .lock()
+                        .await
+                        .thread
+                        .desktop
+                        .as_ref()
+                        .is_some_and(|d| d.archived)
+                {
+                    continue;
+                }
+                engine.materialize_cell(cell).await?;
                 let mut state = cell.state.lock().await;
                 if state.thread.desktop.as_ref().is_some_and(|d| d.archived) {
                     continue;

@@ -267,6 +267,7 @@ fn walk(
             | ["goals"]
             | ["permissions"]
             | ["trajectory"]
+            | ["storage"]
             | ["cloud"]
     );
     if table {
@@ -406,6 +407,7 @@ fn walk(
             | ["tools", "extensions_file"]
             | ["permissions", "mode"]
             | ["delegation", "inspection_permissions"]
+            | ["storage", "session_catalog"]
     );
     let decimal = matches!(
         names.as_slice(),
