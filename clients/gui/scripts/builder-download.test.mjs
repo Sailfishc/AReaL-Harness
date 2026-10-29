@@ -189,6 +189,14 @@ test("official downloader preserves HTTPS CONNECT, custom CA, NO_PROXY and proxy
         timeout: 15000,
         env: {
           ...process.env,
+          // 本夹具逐场景设置大写代理；宿主的小写排除项不能绕过失败代理的负控制。
+          HTTP_PROXY: "",
+          http_proxy: "",
+          https_proxy: "",
+          ALL_PROXY: "",
+          all_proxy: "",
+          NO_PROXY: "",
+          no_proxy: "",
           NODE_EXTRA_CA_CERTS: certificate,
           NODE_TLS_REJECT_UNAUTHORIZED: "1",
           ELECTRON_BUILDER_CACHE: join(root, "cache"),
