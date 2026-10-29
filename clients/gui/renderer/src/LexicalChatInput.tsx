@@ -1,3 +1,4 @@
+import type { ComposerWorkspaceFiles } from "./lib/workspaceFileComposer.js";
 import { HISTORY_NAVIGATION_UPDATE_TAG, PROGRAMMATIC_UPDATE_TAG } from "./lib/editorUpdateTags.js";
 import {
   shouldSubmitLexicalEnter,
@@ -24,6 +25,7 @@ import {
  * 3. mention 面板用 enableMentionPanel 控制；slash command 始终读取 CLI workspace catalog。
  */
 import { $getPromptMarkdown } from "@/mentions/promptSerialization.js";
+import { PromptMentionTooltipPlugin } from "@/mentions/PromptMentionTooltipPlugin.js";
 import { PromptClipboardPlugin } from "@/mentions/PromptClipboardPlugin.js";
 import {
   resolveComposerKeyAction,
@@ -136,31 +138,66 @@ function replaceEditorText(editor: LexicalEditor, text: string) {
   editor.update(() => replacePlainTextRoot(text), { tag: PROGRAMMATIC_UPDATE_TAG });
 }
 
-const INLINE_PROMPT_MENTION_PATTERN =
-  /\[((?:\\.|[^\\\]])*)\]\((plugin:\/\/[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+|#sess_[a-zA-Z0-9._-]+)\)/g;
+const INLINE_PROMPT_MENTION_PATTERN = /\[((?:\\.|[^\\\]])*)\]\(/g;
 
 function inlineMentionNodes(text: string) {
   const paragraph = $createParagraphNode();
   let cursor = 0;
   for (const match of text.matchAll(INLINE_PROMPT_MENTION_PATTERN)) {
-    const destination = match[2] ?? "";
+    const start = match.index ?? 0;
+    if (start < cursor) continue;
+    const destinationStart = start + match[0].length;
+    const angleDestination = text[destinationStart] === "<";
+    let depth = 1;
+    let destinationEnd = destinationStart + (angleDestination ? 1 : 0);
+    for (; destinationEnd < text.length; destinationEnd += 1) {
+      const character = text[destinationEnd];
+      if (character === "\\") {
+        destinationEnd += 1;
+        continue;
+      }
+      if (angleDestination) {
+        if (character === ">") break;
+        continue;
+      }
+      if (character === "(") depth += 1;
+      if (character === ")" && --depth === 0) break;
+    }
+    if (destinationEnd >= text.length || (angleDestination && text[destinationEnd + 1] !== ")"))
+      continue;
+    const markdownEnd = destinationEnd + (angleDestination ? 2 : 1);
+    const destination = text.slice(destinationStart + (angleDestination ? 1 : 0), destinationEnd);
     const pluginId = parsePluginStableId(destination);
     const threadId = parseSessionThreadId(destination);
-    if (!pluginId && !threadId) continue;
-    const start = match.index ?? 0;
+    const relativePath =
+      destination.startsWith("./") && !match[1]?.startsWith("$")
+        ? destination.slice(2).replace(/\\(.)/g, "$1")
+        : undefined;
+    if (!pluginId && !threadId && !relativePath) continue;
     if (start > cursor) appendPlainTextLines(paragraph, text.slice(cursor, start));
-    const label = (match[1]?.replace(/\\(.)/g, "$1") ?? "").replace(pluginId ? /^@/ : /^#/, "");
+    const label = (match[1]?.replace(/\\(.)/g, "$1") ?? "").replace(
+      pluginId ? /^@/ : threadId ? /^#/ : /^@/,
+      "",
+    );
     paragraph.append(
       $createPromptMentionNode({
-        id: pluginId ? `plugin:${pluginId}` : `session:${threadId}`,
-        category: pluginId ? "plugins" : "sessions",
+        id: pluginId
+          ? `plugin:${pluginId}`
+          : threadId
+            ? `session:${threadId}`
+            : `file:${relativePath}`,
+        category: pluginId ? "plugins" : threadId ? "sessions" : "files",
         label,
-        value: pluginId ?? threadId!,
-        markdown: match[0],
-        ...(pluginId ? { data: { pluginId } } : {}),
+        value: pluginId ?? threadId ?? relativePath!,
+        markdown: text.slice(start, markdownEnd),
+        ...(pluginId
+          ? { data: { pluginId } }
+          : relativePath
+            ? { data: { relativePath, kind: relativePath.endsWith("/") ? "directory" : "file" } }
+            : {}),
       }),
     );
-    cursor = start + match[0].length;
+    cursor = markdownEnd;
   }
   if (cursor < text.length) appendPlainTextLines(paragraph, text.slice(cursor));
   return paragraph;
@@ -1344,6 +1381,7 @@ interface LexicalChatInputProps {
   excludedSlashCommandNames?: readonly string[];
   composerCatalog?: ComposerCatalogData;
   pluginMentionCatalog?: ComposerCatalogData;
+  workspaceFiles?: ComposerWorkspaceFiles;
   /** App 层本地斜杠命令（如 `/side`），选中即执行 UI 行为，不发送。 */
   appSlashCommands?: readonly AppSlashCommand[];
   /** mention（@/#）面板开关。v4 数据面未就绪时显式关闭，入口保留。 */
@@ -1380,6 +1418,7 @@ export function LexicalChatInput({
   appSlashCommands,
   composerCatalog,
   pluginMentionCatalog,
+  workspaceFiles,
 }: LexicalChatInputProps) {
   const activeTaskProvider = "areal";
   const handleSubmit = useCallback(
@@ -1447,6 +1486,7 @@ export function LexicalChatInput({
           <PromptPredictionPlugin text={nextPrompt} disabled={disabled} />
           <HistoryPlugin />
           <PromptClipboardPlugin />
+          <PromptMentionTooltipPlugin workspacePath={workspacePath} />
           <PluginMentionMetadataPlugin catalog={pluginMentionCatalog} />
           <TextContentPlugin onChange={onChange} />
           <KeyboardPlugin
@@ -1475,6 +1515,7 @@ export function LexicalChatInput({
           appCommands={appSlashCommands}
           catalog={composerCatalog}
           mentionCatalog={pluginMentionCatalog}
+          workspaceFiles={workspaceFiles}
         />
       </LexicalComposer>
     </div>

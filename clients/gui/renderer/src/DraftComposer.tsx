@@ -2,7 +2,10 @@ import type { DraftComposerProps } from "./draftComposerTypes.js";
 import { PendingMessageView } from "./UserMessageBody.js";
 import { setPendingMessage, usePendingMessage } from "./pendingMessage.js";
 import { Input } from "@areal/ui";
-import { validateWorkspaceFileReference } from "./lib/workspaceFileComposer.js";
+import {
+  composerWorkspaceFiles,
+  validateWorkspaceFileReference,
+} from "./lib/workspaceFileComposer.js";
 import { imageAnnotationBlocked, useImageAnnotationRevision } from "./imageAnnotations.js";
 import { resolveDraftProfile } from "./ProfileDetails.js";
 import { draftModelSelection, modelValue } from "./lib/draftModelSelection.js";
@@ -15,7 +18,7 @@ import { ComposerPermissionMenu } from "./ComposerPermissionMenu.js";
 import { permissionOptions, planModeOptions, type PermissionPreset } from "./permissions.js";
 import { ComposerPlanMode } from "./ComposerPlanMode.js";
 import { FileTree, AttachmentIcon, GoalIcon, PlanModeIcon as Lightbulb } from "./interfaceIcons.js";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChatPromptEditor } from "./prompt-editor/ChatPromptEditor.js";
 import {
   ComposerAttachment,
@@ -95,6 +98,19 @@ export function DraftComposer({
   worktree,
   onWorktreeCreated,
 }: DraftComposerProps) {
+  const workspaceFiles = useMemo(
+    () =>
+      project.root
+        ? composerWorkspaceFiles(
+            readAction,
+            project.id,
+            project.root,
+            project.core?.connectionGeneration,
+            draftKey ?? "new",
+          )
+        : undefined,
+    [readAction, project.id, project.root, project.core?.connectionGeneration, draftKey],
+  );
   const { t } = useI18n();
   const referenceEntries = conversationReferenceEntries(
     conversationReferences,
@@ -630,7 +646,7 @@ export function DraftComposer({
     <div className="composer-dock" data-v4-composer-dock="true">
       {outgoing && (
         <div className="draft-message-preview">
-          <PendingMessageView message={outgoing} />
+          <PendingMessageView message={outgoing} fileReferenceRoot={project.root} />
         </div>
       )}
       {activeCreation?.worktree && (busy || creationStatus) && (
@@ -800,6 +816,7 @@ export function DraftComposer({
           submitLabel={goalMode ? "开始目标" : "发送"}
           enterSubmits={prefs.sendShortcut === "enter"}
           enableMentionPanel={false}
+          workspaceFiles={workspaceFiles}
           pluginMentionCatalog={{
             ...plugins.catalog,
             entries: [...plugins.catalog.entries, ...referenceEntries],
