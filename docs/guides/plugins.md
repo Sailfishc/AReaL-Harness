@@ -189,3 +189,7 @@ Core 保存每次受理的 `desktop.hookRuns`。UNKNOWN 保留并阻止继续执
 已信任的 command hook 使用有界 Runtime 任务写入组：固定窗口内同任务 hook/工具允许重叠，ordinary/ordinary 与跨任务冲突仍独占。窗口不能延长，封口后的操作可能排在外组任务之后。P2 尚未完整验收：Side/研究及限制 Profile 继续排除；普通只读子任务采用独立 command 许可。Windows shell、完整配置栈与固定 Codex 二进制对照仍开放。详见 [P2 验收矩阵](../development/codex-plugins-p2-acceptance.md)。
 
 普通只读子任务的 command hooks 需要审阅当前定义后另行勾选同意；CLI 在 `hooks-trust` 添加 `--allow-read-only-commands`，省略该选项会移除此项同意。工作区/安装包只读，仅私有子任务 scratch 和本插件 data 可写，禁止网络和 provider 秘密继承，data 目录被重定向时拒绝执行。Side、研究任务、nativeTaskAgent、受限 Profile 和只读根会话继续排除，此项同意不包含 MCP handler。
+
+## 离线快照与诊断
+
+`areal plugin snapshot --json` 和 `areal plugin doctor --json` 直接读取配置 home 下的插件 Store，支持尚未初始化的 home。读取不会启动 Core 或联系插件服务。通过 `--config-home /absolute/home` 选择配置 home，通过 `--workspace /absolute/project` 读取项目覆盖；省略 workspace 时仅显示用户作用域。快照保留候选与已安装摘要，并提供读取时间和 revision。doctor 仅报告静态事实，`runtimeObserved: false` 表示没有观察实时连接状态。

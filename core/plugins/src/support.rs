@@ -160,6 +160,14 @@ fn row(kind: ComponentKind, source_field: String, supported: bool) -> ComponentS
                 "mcpConnection",
             ],
         ),
+        ComponentKind::Commands => (
+            Some("areal-markdown-command-v1"),
+            &["installed", "enabled", "normalTurnAdmission"],
+        ),
+        ComponentKind::Agents => (
+            Some("areal-agent-profile-template-v1"),
+            &["installed", "enabled", "profileAdmission"],
+        ),
         _ => (None, &[]),
     };
     ComponentSupport {
@@ -500,6 +508,21 @@ pub(crate) fn parse(
         selection.portable,
         &mut components,
     )?;
+    let templates = crate::templates::discover(
+        files,
+        overlay,
+        selection.claude_defaults,
+        "support",
+        "support",
+    );
+    for (kind, path, reason) in templates.reports {
+        reserve(&components, 1)?;
+        let mut report = row(kind, path, reason.is_none());
+        if let Some(reason) = reason {
+            report.reason_codes = vec![reason.into()];
+        }
+        components.push(report);
+    }
     let mut declarations = vec![(selection.manifest, selection.manifest_path)];
     if selection.portable {
         declarations.push((overlay, selection.overlay_path.as_str()));
@@ -509,8 +532,6 @@ pub(crate) fn parse(
         declarations.push((&catalog.entry, catalog.origin.as_str()));
     }
     for (kind, key) in [
-        (ComponentKind::Commands, "commands"),
-        (ComponentKind::Agents, "agents"),
         (ComponentKind::OutputStyles, "outputStyles"),
         (ComponentKind::Themes, "themes"),
         (ComponentKind::Lsp, "lspServers"),

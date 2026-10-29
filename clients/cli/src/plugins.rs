@@ -14,11 +14,20 @@ pub struct Options {
     data_dir: Option<PathBuf>,
     #[arg(long, global = true)]
     json: bool,
+    #[arg(long, global = true)]
+    config_home: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
 #[derive(Subcommand)]
 enum Command {
+    /// 直接读取插件文件，不启动或连接 Core 服务。
+    Snapshot {
+        #[arg(long)]
+        id: Option<String>,
+    },
+    /// 报告插件静态信息，不推断实时连接状态。
+    Doctor,
     List,
     Read {
         id: String,
@@ -130,6 +139,39 @@ fn installed_digest<'a>(list: &'a Value, id: &str) -> Result<&'a str> {
         .context("plugin is not installed")
 }
 pub async fn run(options: Options) -> Result<()> {
+    if matches!(options.command, Command::Snapshot { .. } | Command::Doctor) {
+        ensure!(
+            options.config.is_none() && options.data_dir.is_none(),
+            "snapshot and doctor use --config-home, not --config or --data-dir"
+        );
+        let user_home = std::env::var_os("HOME").map(PathBuf::from);
+        let config_home = options
+            .config_home
+            .or_else(|| std::env::var_os("AREAL_HARNESS_HOME").map(PathBuf::from))
+            .or_else(|| user_home.as_ref().map(|home| home.join(".areal")))
+            .context("cannot locate config home; set --config-home")?;
+        let selected = match &options.command {
+            Command::Snapshot { id } => id.as_deref(),
+            _ => None,
+        };
+        let snapshot = areal_plugins::Store::read_snapshot(
+            config_home.join("plugins"),
+            options.workspace,
+            user_home,
+            selected,
+        )?;
+        let value = if matches!(options.command, Command::Doctor) {
+            serde_json::to_value(snapshot.doctor())?
+        } else {
+            serde_json::to_value(snapshot)?
+        };
+        println!("{}", serde_json::to_string_pretty(&value)?);
+        return Ok(());
+    }
+    ensure!(
+        options.config_home.is_none(),
+        "--config-home is available only for snapshot and doctor"
+    );
     let root = areal_local_service::home()?;
     let service_id = areal_local_service::select(
         &root,
@@ -150,6 +192,7 @@ pub async fn run(options: Options) -> Result<()> {
         .context("invalid plugin directory revision")?;
     let request_id = uuid::Uuid::new_v4().to_string();
     let (method, mut params, mutation) = match options.command {
+        Command::Snapshot { .. } | Command::Doctor => unreachable!(),
         Command::List => {
             println!("{}", serde_json::to_string_pretty(&list)?);
             return Ok(());

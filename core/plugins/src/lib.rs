@@ -6,11 +6,15 @@ pub mod hooks;
 mod metadata;
 mod package;
 mod remote;
+mod snapshot;
+mod templates;
+pub use templates::{ComponentIdentity, InstalledAgent, InstalledCommand};
 mod support;
 pub use components::{
     AppDeclaration, ComponentDocument, InstalledComponents, InstalledSnapshot,
     McpComponentDocument, app_declarations,
 };
+pub use snapshot::{PluginDoctorEntry, PluginDoctorReport, PluginReadScope, PluginStoreSnapshot};
 pub use support::{
     CompatibilityState, ComponentCompatibility, ComponentKind, ComponentSupport, ManifestFormat,
     PackageComponentSupport, SupportStatus, SupportValidation,

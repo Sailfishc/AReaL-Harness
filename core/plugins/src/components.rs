@@ -21,6 +21,8 @@ pub struct InstalledComponents {
     pub root: PathBuf,
     pub data_root: PathBuf,
     pub digest: String,
+    pub commands: Vec<crate::InstalledCommand>,
+    pub agents: Vec<crate::InstalledAgent>,
     pub mcp_documents: Vec<McpComponentDocument>,
     pub hook_documents: Vec<ComponentDocument>,
     pub app_documents: Vec<ComponentDocument>,
@@ -207,6 +209,8 @@ impl Store {
             root,
             data_root: self.root.join("data").join(id),
             digest: digest.to_owned(),
+            commands: vec![],
+            agents: vec![],
             mcp_documents: vec![],
             hook_documents: vec![],
             app_documents: vec![],
@@ -217,6 +221,10 @@ impl Store {
                 .component_support
                 .context("validated package support report missing")?,
         };
+        let templates =
+            crate::templates::discover(&files, overlay, selection.claude_defaults, id, digest);
+        result.commands = templates.commands;
+        result.agents = templates.agents;
         result.mcp_documents = mcp_documents(
             overlay.get("mcpServers"),
             &files,
@@ -268,6 +276,8 @@ impl Store {
                 )
             })
         {
+            result.commands.clear();
+            result.agents.clear();
             result.mcp_documents.clear();
             result.hook_documents.clear();
             result.app_documents.clear();
