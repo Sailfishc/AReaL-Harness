@@ -342,6 +342,10 @@ PR #111 在初始 G0 快照后整合历史恢复与定时任务所有权。以�
 
 推送 GUI/Core 集成分支前，获取实际目标引用并准备锁定依赖，运行 `make check-changed CI_BASE=upstream-readonly/main`；按需使用 `make ci-preflight CI_BASE=upstream-readonly/main` 完整本机验收。共享计划包含适用的 Rust/SDK、schema、静态检查、生产构建与预算、Portable/Core 契约、原生与 Electron smoke。GUI 普通检查使用 Node 24.22.1；Relay 合同使用 Node 24.2.0，本机可通过 `AREAL_RELAY_NODE_BIN` 指定其可执行文件。完整本机验收执行当前平台全部适用项；快检仍列出未执行的完整验收项，Linux 容器和其他平台列为远端必需项，不计作本地通过。
 
+快检只运行一套 Portable 生产构建和包体预算，Relay 与 macOS 的独立构建及原生 helper 留给完整验收。`mobile-types` 在快检执行；`mobile-browser` 与 Relay 安装在完整 `mobile` 组执行。GUI 主进程使用 Node 24.22.1，Relay 子进程通过 `AREAL_RELAY_NODE_BIN` 指定 Node 24.2.0，执行器将它传给夹具的 `AREAL_RELAY_NODE`。移动浏览器需要锁定 Playwright 的 Chromium 和 WebKit，Chrome 能力不代替这两项。类型失败不阻止独立浏览器场景收集结果。
+
+`test:composer-files` 是文件引用的独立必需 smoke，保留普通 `test:composer` 的输入与 IME 检查。移动浏览器与文件专项都由同轮 `GUI gate` 校验，缺失结果、错误平台或旧 attempt 均失败。推送钩子固定执行参数，继承的 `ARGS=--plan` 不得跳过快检。
+
 本机预检使用项目 Python 环境：`export PATH="$PWD/.venv/bin:$PATH"`。能力探针要求 Python 至少 3.11，且具备 `tomllib` 和 tar 解包过滤；缺失时提前 blocked。Cargo 自身管理 verify/native 的可变构建目录与重建，产物哈希冻结限于发布给其他 job 的 GUI bundle；该 bundle 的消费者仍逐文件复核哈希。
 
 本地与 CI 通过 `scripts/ci-preflight.py --groups <组名>` 执行同一计划，`--plan` 只展示。`make ci-gui-static CI_BASE=<ref>` 运行 Portable 的提交阶段，`make ci-gui-portable CI_BASE=<ref>` 运行完整 Portable 组，`make ci-core-contracts CI_BASE=<ref>` 连同产物依赖运行 Core 契约。`make ci-gui-health` 保留轻量健康入口。显式 `AREAL_CORE_BIN` 必须与刚构建的 Core 哈希一致；macOS 原生执行按固定产物路径流程准备。CI 只有同一 run/attempt 的产物依赖报告可跨 job 使用，消费者重新核对产物哈希。最终 gate 独立重算计划，严格核对结果全集、子测试全集和源码/计划/run/attempt 身份，缺项或意外 skip 拒绝放行。

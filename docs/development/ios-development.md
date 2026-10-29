@@ -48,7 +48,7 @@ AREAL_RELAY_NODE=/path/to/node-24.2.0/bin/node pnpm --dir clients/gui test:mobil
 
 本流程参考 t3code 的移动开发生命周期、可重复场景与设备证据组织：脚本热更要处理连接所有者，原生变化需要重建，截图要绑定设备和场景。其 Expo/React Native、Effect runtime 与设备池实现不作为本工程依赖。我们使用 Vite 整页重载与既有 Remote 门禁完成这些职责。
 
-相关 GUI、移动端和 Relay 改动会触发 `iOS development checks`：在 Linux 检查移动类型、双浏览器路径和生产资源，并上传证据。原生构建与系统版本门禁使用上述本机入口；该 CI 不声明 iOS 原生或真机验收。浏览器门禁使用独立 Vite 缓存，结束后回收，避免与日常开发服务器共用预打包结果。
+相关 GUI、移动端和 Relay 改动由 `GUI checks` 的 `Linux mobile browser contracts` 检查移动类型、双浏览器路径和生产资源。该 job 执行共享计划的 `mobile` 组，上传报告与证据，并由 `GUI gate` 核对完整结果。原生构建与系统版本门禁使用上述本机入口；该 CI 不声明 iOS 原生或真机验收。浏览器门禁使用独立 Vite 缓存，结束后回收，避免与日常开发服务器共用预打包结果。
 
 ## Agent 模拟器工具
 

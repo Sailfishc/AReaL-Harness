@@ -109,7 +109,7 @@ UTF-8 文本卡片可通过“在文本框中显示”追加到正文，展开�
 
 主聊天、Side 聊天和项目新草稿输入 `@` 可搜索当前项目工作区的文件，同时保留会话和插件候选。裸 `@` 不展示文件；在 Composer 中继续输入关键词后才搜索工作区，文件结果排在会话和插件等候选之后，搜索词保留在输入框中，菜单不另设搜索框。支持文件名或相对路径搜索，忽略目录和现有搜索服务排除的构建及依赖目录。每次最多展示 100 个文件；结果不完整时提示缩小搜索范围。方向键选择，Enter 或 Tab 插入，Escape 关闭；选择文件只插入引用，不发送消息。候选列表在输入框上方显示文件名和父目录。选中的文件在 Composer 和已发送的消息正文中显示为 Skills 式的行内图标与文件名标识；悬停显示所属项目或 Worktree 实际根目录下的完整绝对路径。发送、排队和恢复草稿使用规范工作区相对引用，不上传文件内容。实际上传文件沿用附件卡片。展示合同见 [R-COMPOSERSURFACE-007](packages/ui/src/conversation/composer-surface/composer-surface.md#工作区文件引用)。
 
-`pnpm --dir clients/gui run test:composer` 使用隔离 Electron/Core/Runtime 验证输入路径。`AREAL_COMPOSER_FILES_REGRESSION=1` 运行文本文件、文件搜索引用、目录引用、队列与两种模型协议的专项；文件选择器使用 fixture，不代表物理系统选择器验收。`AREAL_COMPOSER_SKILLS_REGRESSION=1` 对真实 Core Profile 目录的可选来源读取设置屏障，验证来源延迟、失败、旧 Profile 响应及关闭菜单不刷新。
+`pnpm --dir clients/gui run test:composer` 使用隔离 Electron/Core/Runtime 验证输入路径。`pnpm --dir clients/gui test:composer-files` 运行文本文件、文件搜索引用、目录引用、队列与两种模型协议的专项；文件选择器使用 fixture，不代表物理系统选择器验收。`AREAL_COMPOSER_SKILLS_REGRESSION=1` 对真实 Core Profile 目录的可选来源读取设置屏障，验证来源延迟、失败、旧 Profile 响应及关闭菜单不刷新。
 
 点击 Composer 图片缩略图可放大预览，再通过图片下方的“标注”进入右侧编辑。在图片上点选位置并填写说明，可确认多条点位标注；编辑器与内置浏览器批注共用紧凑输入和展开输入交互。“完成”返回原草稿，不发送消息。发送时只提交原图及其标注清单，坐标相对完整图片以百分比展示，缩放不改变坐标。已发送图片支持只读回看点位和说明。未发送图片及标注随当前窗口草稿保留，不跨窗口重启保存。 `pnpm --dir clients/gui run test:image-annotations` 使用隔离 Electron/Core 与本地模型验证草稿首发、重复图片、上传拒绝、队列编辑和历史回看，不替代真实供应商、物理输入或安装包验收。
 
