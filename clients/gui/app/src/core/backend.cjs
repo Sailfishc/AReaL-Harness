@@ -1615,6 +1615,11 @@ class CoreBackend {
     const { name, request } = invocation;
     const projectId = "projectId" in request ? request.projectId : undefined;
     if (this.closing) throw new Error("应用正在退出");
+    if (
+      name === "manage" &&
+      (request.operation === "pluginStoreSnapshot" || request.operation === "pluginStoreDoctor")
+    )
+      return require("./plugin-store-reader.cjs").readPluginStore(this, request);
     if (name === "trajectory") return this.trajectory.command(request);
     if (name === "feedback") return this.feedback.command(request);
     if (name === "tasks") return taskCatalog(this, request);

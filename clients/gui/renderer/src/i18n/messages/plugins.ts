@@ -1,4 +1,54 @@
 export const pluginMessages = {
+  "settings.pluginCenter.installTrustBoundary": {
+    "zh-CN": "安装会自动核对来源与快照。MCP 执行和 Hook 信任需分别授权。",
+    en: "Installation verifies the source and snapshot automatically. Authorize MCP execution and Hook trust separately.",
+  },
+  "settings.pluginCenter.pluginNotInSnapshot": {
+    "zh-CN": "当前快照中没有此插件，请返回列表刷新。",
+    en: "This plugin is absent from the current snapshot. Return to the list and refresh.",
+  },
+  "settings.pluginCenter.snapshotScope": {
+    "zh-CN": "读取范围 {scope} · revision {revision} · {time}",
+    en: "Read scope {scope} \u00b7 revision {revision} \u00b7 {time}",
+  },
+  "settings.pluginCenter.runtimeNotObserved": {
+    "zh-CN": "尚未观察当前项目的运行状态。目录与支持信息来自本地 Store 快照。",
+    en: "Runtime state for this project has not been observed. Catalog and support information come from the local Store snapshot.",
+  },
+  "settings.pluginCenter.runtimeNotObservedTitle": {
+    "zh-CN": "已读取安装快照，运行状态未观察",
+    en: "Installation snapshot read. Runtime not observed",
+  },
+  "settings.pluginCenter.partiallyAvailable": {
+    "zh-CN": "部分组件可用，其他组件需要处理",
+    en: "Some components are available. Others need attention",
+  },
+  "settings.pluginCenter.declaredComponentsAvailable": {
+    "zh-CN": "已声明组件已就绪",
+    en: "Declared components are ready",
+  },
+  "settings.pluginCenter.reviewInstallation": {
+    "zh-CN": "检查安装内容",
+    en: "Review installation",
+  },
+  "settings.pluginCenter.enablePlugin": { "zh-CN": "在当前项目启用", en: "Enable in this project" },
+  "settings.pluginCenter.refreshSnapshot": { "zh-CN": "刷新快照", en: "Refresh snapshot" },
+  "settings.pluginCenter.pluginOverview": {
+    "zh-CN": "插件状态与下一步",
+    en: "Plugin status and next step",
+  },
+  "settings.pluginCenter.componentFactsRemainIndependent": {
+    "zh-CN": "各组件的配置、认证与信任状态见下方详情。执行受当前任务权限约束。",
+    en: "See configuration, authentication, and trust for each component below. Execution remains subject to current task permissions.",
+  },
+  "settings.pluginCenter.skillsInstalledAndEnabled": {
+    "zh-CN": "Skills 已安装并在当前范围启用。",
+    en: "Skills are installed and enabled in this scope.",
+  },
+  "settings.pluginCenter.hooksRequireSeparateReview": {
+    "zh-CN": "Hook 定义需要独立审阅与信任。",
+    en: "Hook definitions require separate review and trust.",
+  },
   "settings.pluginCenter.previousCreationRecords": {
     "zh-CN": "历史会话创建记录（待核对）",
     en: "Previous conversation creation records (awaiting review)",
@@ -149,8 +199,8 @@ export const pluginMessages = {
     en: "The source resolution result is unconfirmed and will not be resent automatically.",
   },
   "settings.pluginCenter.sourceResolvedReviewTheDigestBeforeInstalling": {
-    "zh-CN": "来源已解析，请核对摘要后安装。",
-    en: "Source resolved. Review the digest before installing.",
+    "zh-CN": "来源已解析，可确认安装内容。",
+    en: "Source resolved. Confirm the installation contents.",
   },
   "settings.pluginCenter.savingCredentialsDidNotReturnAProtected": {
     "zh-CN": "凭据保存未返回受保护引用。",

@@ -47,49 +47,23 @@ import { ResourceScope, type ScopedProps } from "./ScopedSkillsSettings.js";
 import type { Data } from "../services.js";
 import { isIndependentCreation, recoveredOutcome } from "../recoveryPresentation.js";
 import { buildPluginMentionMarkdown } from "../mentions/mentionMarkdown.js";
+import { presentPlugin, type PluginConnectionFacts } from "./pluginPresentation.js";
+import { PluginInstallReview } from "./PluginInstallReview.js";
+import { PluginOverview } from "./PluginOverview.js";
+import { usePluginCenter } from "./usePluginCenter.js";
 import { pluginMcpStateLabel } from "./pluginResources.js";
 
+import type { ManagementRequest } from "@areal/workbench/desktop-contract/management";
 import type {
-  ManagementRequest,
-  ManagementRequestMap,
-  ManagementResponseMap,
-  ManagementResponse,
-  PluginMutation,
-} from "@areal/workbench/desktop-contract/management";
-export type PluginDetail = ManagementResponseMap["plugin"];
-type PluginReadiness = ManagementResponseMap["pluginReadiness"];
-type PluginList = ManagementResponseMap["plugins"];
-export type PluginCommand = <P extends ManagementRequest>(
-  request: P,
-) => Promise<ManagementResponse<P>>;
-type WithoutSubmission<R> = R extends { projectId: string }
-  ? Omit<R, "projectId" | "requestId">
-  : never;
-export type PluginMutationRequest = WithoutSubmission<
-  ManagementRequestMap[PluginMutation | "pluginAuth"]
->;
-export type PluginMutate = (
-  request: PluginMutationRequest,
-) => Promise<ManagementResponseMap[PluginMutation | "pluginAuth"] | undefined>;
-type PluginSubmission = { mutation: PluginMutation; requestId: string; projectId: string };
-type PluginOperation = Omit<PluginSubmission, "mutation"> & {
-  mutation: PluginMutation | "pluginAuth";
-  pluginId?: string;
-};
-type PluginActivity = PluginOperation & { kind: "submit" | "check" };
-type PluginPreview = Pick<
   PluginDetail,
-  | "id"
-  | "revision"
-  | "source"
-  | "sourceDigest"
-  | "admissionDigest"
-  | "resolvedCommit"
-  | "packageVersion"
-  | "version"
-  | "integrity"
->;
-type PluginReceipt = ManagementResponseMap["pluginSubmission"];
+  PluginReadiness,
+  PluginMutationRequest,
+  PluginOperation,
+  PluginActivity,
+  PluginPreview,
+  PluginReceipt,
+} from "./pluginTypes.js";
+export type { PluginDetail, PluginCommand, PluginMutate } from "./pluginTypes.js";
 const pluginMethods: Record<string, PluginOperation["mutation"]> = {
   "areal/plugin/importArchive": "pluginArchiveImport",
   "areal/marketplace/add": "marketplaceAdd",
@@ -219,7 +193,6 @@ type PluginListReturn = {
   pluginId: string;
   scrollTop: number;
 };
-type OptionalReadErrors = Partial<Record<"connections" | "hooks", UiMessage | string>>;
 export type PluginCenterProps = ScopedProps & {
   active: boolean;
   marketRequest: number;
@@ -250,8 +223,6 @@ export function PluginCenter({
   initialTab = "plugins",
   onSettings,
   onMarket,
-  onChooseProject,
-  onSelectProject,
   onStartDraft,
   onReturnToTask,
 }: PluginCenterProps) {
@@ -279,12 +250,6 @@ export function PluginCenter({
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const setSelected = (id: string | null) => {
-    if (authPending && id !== selected) {
-      setMessage({
-        id: "settings.pluginCenter.theOriginalAuthenticationSubmissionIsStillUnconfirmed",
-      });
-      return;
-    }
     navigate(() => {
       if (id && route.kind !== "plugin" && route.kind !== "skill" && projectId) {
         listReturn.current = {
@@ -298,11 +263,6 @@ export function PluginCenter({
       setRoute(id ? { kind: "plugin", id, returnTo: listRoute } : listRoute);
     });
   };
-  const [catalog, setCatalog] = useState<PluginList | null>(null);
-  const [supported, setSupported] = useState<boolean | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [readError, setReadError] = useState<UiMessage | string>("");
-  const [optionalReadErrors, setOptionalReadErrors] = useState<OptionalReadErrors>({});
   const [error, setError] = useState<PluginFailure | null>(null);
   const [message, setMessage] = useState<UiMessage | string>("");
   const [setupThreadId, setSetupThreadId] = useState<string | null>(null);
@@ -326,7 +286,6 @@ export function PluginCenter({
   const [gitRef, setGitRef] = useState("");
   const [sparsePaths, setSparsePaths] = useState("");
   const [archive, setArchive] = useState<{ selectionToken: string; fileName: string } | null>(null);
-  const [allConnections, setAllConnections] = useState<Data[]>([]);
   const [mcpAddRequest, setMcpAddRequest] = useState(0);
   const [mcpScope, setMcpScope] = useState("user");
   useEffect(() => {
@@ -347,7 +306,6 @@ export function PluginCenter({
     [],
   );
   const [preview, setPreview] = useState<PluginPreview | null>(null);
-  const [reviewed, setReviewed] = useState(false);
   const [installReview, setInstallReview] = useState(false);
   const installReviewPanel = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -361,6 +319,11 @@ export function PluginCenter({
     kind: "copied" | "failed";
     name: string;
   } | null>(null);
+  const [connectionFacts, setConnectionFacts] = useState<PluginConnectionFacts | null>(null);
+  const onConnectionFacts = useCallback(
+    (facts: PluginConnectionFacts) => setConnectionFacts(facts),
+    [],
+  );
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [connectionReadKey, setConnectionReadKey] = useState(0);
   const [connections, setConnections] = useState<Data[]>([]);
@@ -369,97 +332,23 @@ export function PluginCenter({
   const [connectorToken, setConnectorToken] = useState("");
   const [credentialRef, setCredentialRef] = useState("");
   const [credentialBusy, setCredentialBusy] = useState(false);
-  const [detail, setDetail] = useState<PluginDetail | null>(null);
   const panelActiveRef = useRef(panelActive);
   panelActiveRef.current = panelActive;
   const panelGeneration = useRef(0);
   useEffect(() => {
     panelGeneration.current++;
   }, [panelActive]);
-  const [readiness, setReadiness] = useState<PluginReadiness | null>(null);
-  const [readinessError, setReadinessError] = useState("");
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<UiMessage | string>("");
-  const [hookSources, setHookSources] = useState<
-    { id: string; digest: string; origin: string; enabled: boolean }[]
-  >([]);
   const active = useRef(false);
-  const mounted = useRef(true);
-  const readGeneration = useRef(0);
-  const detailGeneration = useRef(0);
   const actionRef = useRef(action);
   actionRef.current = action;
   useEffect(() => {
-    if (busy || credentialBusy || authPending || submission || error?.submissionUnknown || pending)
-      return;
-    if (selectedProject?.id !== ownerId) {
-      readGeneration.current++;
-      detailGeneration.current++;
-      listReturn.current = null;
-      restoringList.current = false;
-      setOwnerId(selectedProject?.id);
-      setCatalog(null);
-      setSupported(null);
-      setAllConnections([]);
-      setHookSources([]);
-      setOptionalReadErrors({});
-      setReadError("");
-      setLoading(false);
-      setDetail(null);
-      updateSelected(null);
-      setPreview(null);
-      setError(null);
-      setProjectCheckMessages({});
-      setSubmission(null);
-      setRoute((current) =>
-        current.kind === "plugin" || current.kind === "skill" ? current.returnTo : current,
-      );
-    }
-  }, [
-    selectedProject?.id,
-    ownerId,
-    busy,
-    credentialBusy,
-    authPending,
-    submission,
-    error?.submissionUnknown,
-    pending,
-  ]);
-  const savedRoutes = useRef<{ workspace: CenterRoute; settings: CenterRoute }>({
-    workspace: { kind: "market", audience: "public" },
-    settings: { kind: "installed", tab: initialTab },
-  });
-  const lastSurface = useRef(surface);
-  const openPluginSurface = (nextSurface: "workspace" | "settings") => {
-    if (!selected) return;
-    savedRoutes.current[nextSurface] = {
-      kind: "plugin",
-      id: selected,
-      returnTo:
-        nextSurface === "settings"
-          ? { kind: "installed", tab: "plugins" }
-          : { kind: "market", audience: "public" },
-    };
-    if (nextSurface === surface) setRoute(savedRoutes.current[nextSurface]);
-    else if (nextSurface === "settings") onSettings();
-    else onMarket(true);
-  };
-  useEffect(() => {
-    if (surface !== lastSurface.current) {
-      savedRoutes.current[lastSurface.current] = route;
-      const restored = savedRoutes.current[surface];
-      if (restored.kind === "plugin" && authPending && restored.id !== selected) {
-        setRoute(route);
-        setMessage({
-          id: "settings.pluginCenter.theOriginalAuthenticationSubmissionIsStillUnconfirmed",
-        });
-      } else {
-        if (restored.kind === "plugin") updateSelected(restored.id);
-        setRoute(restored);
-      }
-      lastSurface.current = surface;
-    }
-  }, [surface, initialTab]);
+    if (selectedProject?.id === ownerId) return;
+    listReturn.current = null;
+    restoringList.current = false;
+    setOwnerId(selectedProject?.id);
+    setPreview(null);
+    setProjectCheckMessages({});
+  }, [selectedProject?.id, ownerId]);
   useEffect(() => {
     if (marketRequest) setRoute({ kind: "market", audience: "public" });
   }, [marketRequest]);
@@ -482,33 +371,26 @@ export function PluginCenter({
     },
     [projectId],
   );
-  useEffect(() => {
-    let current = true;
-    const refreshReadiness = async () => {
-      setReadiness(null);
-      setReadinessError("");
-      if (!panelActive || !detail?.installed || !detail.installedDigest || !detail.enabled) return;
-      try {
-        const value: PluginReadiness = await api({
-          projectId,
-          operation: "pluginReadiness",
-          id: detail.id,
-          expectedDigest: detail.installedDigest,
-        });
-        if (current) setReadiness(value);
-      } catch (cause) {
-        if (current) setReadinessError(failureText(failure(cause), t));
-      }
-    };
-    void refreshReadiness();
-    window.addEventListener("focus", refreshReadiness);
-    window.addEventListener("areal-plugins-changed", refreshReadiness);
-    return () => {
-      current = false;
-      window.removeEventListener("focus", refreshReadiness);
-      window.removeEventListener("areal-plugins-changed", refreshReadiness);
-    };
-  }, [api, panelActive, detail?.id, detail?.installedDigest, detail?.enabled, catalog?.revision]);
+  const {
+    catalog,
+    snapshot: storeSnapshot,
+    supported,
+    loading,
+    readError,
+    optionalReadErrors,
+    allConnections,
+    hookSources,
+    detail,
+    detailLoading,
+    detailError,
+    readiness,
+    readinessError,
+    refresh,
+    readDetail,
+    mounted,
+    detailGeneration,
+    setReadiness,
+  } = usePluginCenter({ api, projectId, connected, active: panelActive, selected });
   const readinessReason = (value: PluginReadiness) =>
     t("settings.pluginCenter.requiredHostToolsUnavailable", {
       tools: value.missingTools.join(", "),
@@ -516,114 +398,8 @@ export function PluginCenter({
     (value.missingTools.includes("computer_v1")
       ? ` ${t("settings.pluginCenter.enableNativeComputerProvider")}`
       : "");
-  const refresh = useCallback(async () => {
-    if (!connected) return;
-    const generation = ++readGeneration.current;
-    setLoading(true);
-    setReadError("");
-    setOptionalReadErrors({});
-    try {
-      const capability = await api({ projectId, operation: "pluginCapabilities" });
-      if (!mounted.current || generation !== readGeneration.current) return;
-      setSupported(capability.enabled);
-      if (!capability.enabled) {
-        setCatalog(null);
-        setAllConnections([]);
-        setHookSources([]);
-        return;
-      }
-      const result: PluginList = await api({ projectId, operation: "plugins" });
-      if (!mounted.current || generation !== readGeneration.current) return;
-      setCatalog(result);
-      const [pluginConnections, hooks] = await Promise.allSettled([
-        api({ projectId, operation: "pluginMcp" }),
-        api({ projectId, operation: "pluginHooks" }),
-      ]);
-      if (!mounted.current || generation !== readGeneration.current) return;
-      setAllConnections(
-        pluginConnections.status === "fulfilled" && Array.isArray(pluginConnections.value.data)
-          ? pluginConnections.value.data
-          : [],
-      );
-      setHookSources(
-        hooks.status === "fulfilled" && Array.isArray(hooks.value.data)
-          ? hooks.value.data.flatMap((row: Data) =>
-              typeof row.sourceKind === "string" &&
-              typeof row.pluginId === "string" &&
-              typeof row.installedDigest === "string" &&
-              typeof row.origin === "string" &&
-              typeof row.enabled === "boolean"
-                ? [
-                    {
-                      id: row.pluginId,
-                      digest: row.installedDigest,
-                      origin: row.origin,
-                      enabled: row.enabled,
-                    },
-                  ]
-                : [],
-            )
-          : [],
-      );
-      setOptionalReadErrors({
-        ...(pluginConnections.status === "rejected"
-          ? { connections: failure(pluginConnections.reason).message }
-          : {}),
-        ...(hooks.status === "rejected" ? { hooks: failure(hooks.reason).message } : {}),
-      });
-    } catch (cause) {
-      if (mounted.current && generation === readGeneration.current) {
-        setReadError(failure(cause).message);
-        setCatalog(null);
-        setAllConnections([]);
-        setHookSources([]);
-      }
-    } finally {
-      if (mounted.current && generation === readGeneration.current) setLoading(false);
-    }
-  }, [api, connected]);
-  useEffect(() => {
-    mounted.current = true;
-    const changed = () => void refresh();
-    window.addEventListener("areal-plugins-changed", changed);
-    void refresh();
-    return () => {
-      window.removeEventListener("areal-plugins-changed", changed);
-      mounted.current = false;
-      readGeneration.current++;
-      detailGeneration.current++;
-    };
-  }, [refresh]);
-  const readDetail = useCallback(
-    async (id: string) => {
-      if (selectedRef.current !== id) return;
-      const generation = ++detailGeneration.current;
-      setDetailLoading(true);
-      setDetail((current) => (current?.id === id ? current : null));
-      setDetailError("");
-      try {
-        const result: PluginDetail = await api({ projectId, operation: "plugin", id });
-        if (
-          mounted.current &&
-          generation === detailGeneration.current &&
-          selectedRef.current === id
-        )
-          setDetail(result);
-      } catch (cause) {
-        if (mounted.current && generation === detailGeneration.current)
-          setDetailError(failure(cause).message);
-      } finally {
-        if (mounted.current && generation === detailGeneration.current) setDetailLoading(false);
-      }
-    },
-    [api],
-  );
-  useEffect(() => {
-    if (selected) void readDetail(selected);
-  }, [selected, readDetail, catalog?.revision]);
   useEffect(() => {
     setPreview((current) => (current?.id === selected ? current : null));
-    setReviewed(false);
     setInstallReview(false);
     setDetailsOpen(false);
     setScopeOpen(false);
@@ -643,7 +419,7 @@ export function PluginCenter({
     setMetadataCopy(null);
   }, [detail?.installedDigest]);
   useEffect(() => {
-    if (!detail?.installed) {
+    if (!panelActive || !connected || !projectId || !detail?.installed) {
       setConnections([]);
       return;
     }
@@ -670,6 +446,9 @@ export function PluginCenter({
       current = false;
     };
   }, [
+    panelActive,
+    connected,
+    projectId,
     detail?.id,
     detail?.installedDigest,
     detail?.installed,
@@ -689,7 +468,6 @@ export function PluginCenter({
     !!error?.submissionUnknown;
   const acceptPreview = (result: Partial<PluginDetail> | undefined, operation: PluginOperation) => {
     const next = previewFromResult(result);
-    setReviewed(false);
     if (!next || (operation.pluginId && next.id !== operation.pluginId)) {
       setPreview(null);
       setError({
@@ -717,7 +495,6 @@ export function PluginCenter({
     setMessage("");
     if (operation === "pluginResolve") {
       setPreview(null);
-      setReviewed(false);
     }
     try {
       const result = await api({ projectId, ...values, requestId });
@@ -963,7 +740,6 @@ export function PluginCenter({
         setRoute({ kind: "plugin", id: receipt.result.id, returnTo: listRoute });
         setArchive(null);
         setPreview(null);
-        setReviewed(false);
         await readDetail(receipt.result.id);
       }
       if (recoverable.mutation === "pluginSetup" && receipt.result && "thread" in receipt.result)
@@ -1017,11 +793,26 @@ export function PluginCenter({
     reviewDigest(preview) === reviewDigest(detail) &&
     preview.revision === catalog?.revision;
   const pendingKind =
-    blockingPending.some((entry) => entry.awaitingResponse !== true) ||
-    (submission && !submissionAwaiting) ||
-    (error?.submissionUnknown && !submissionAwaiting)
+    blockingPending.some(
+      (entry) =>
+        entry.params?.id === selected &&
+        pluginMethods[entry.method] &&
+        entry.awaitingResponse !== true,
+    ) ||
+    (submission &&
+      submission.projectId === projectId &&
+      (!submission.pluginId || submission.pluginId === selected) &&
+      !submissionAwaiting) ||
+    (error?.submissionUnknown &&
+      error.operation?.projectId === projectId &&
+      (!error.operation?.pluginId || error.operation?.pluginId === selected) &&
+      !submissionAwaiting)
       ? "unknown"
-      : pending || busy || submissionAwaiting
+      : blockingPending.some(
+            (entry) => entry.params?.id === selected && pluginMethods[entry.method],
+          ) ||
+          (busy && activity?.projectId === projectId && activity?.pluginId === selected) ||
+          submissionAwaiting
         ? "active"
         : "none";
   const pendingMessage =
@@ -1043,7 +834,10 @@ export function PluginCenter({
           : t("settings.pluginCenter.aProjectOperationIsProcessingPleaseWait")
         : "";
   const displayedError =
-    error?.submissionUnknown && submissionAwaiting && error.requestId === submission?.requestId
+    (error?.operation &&
+      (error.operation.projectId !== projectId ||
+        (error.operation.pluginId && error.operation.pluginId !== selected))) ||
+    (error?.submissionUnknown && submissionAwaiting && error.requestId === submission?.requestId)
       ? null
       : error;
   const operationError = displayedError?.submissionUnknown ? "" : failureText(displayedError, t);
@@ -1084,7 +878,7 @@ export function PluginCenter({
                 ? t("settings.pluginCenter.sourceResolvedReviewTheDigestBeforeInstalling")
                 : "");
   const install = () => {
-    if (!previewCurrent || !reviewed || !preview) return;
+    if (!previewCurrent || !preview) return;
     void mutate({
       operation: "pluginInstall",
       id: preview.id,
@@ -1340,7 +1134,7 @@ export function PluginCenter({
   const showPlugins =
     listRoute.kind === "market" || (listRoute.kind === "installed" && listRoute.tab === "plugins");
   const isDetail = route.kind === "plugin" || route.kind === "skill";
-  const managing = surface === "settings";
+  const managing = !!detail?.installed || surface === "settings";
   const detailSnapshot = connections.find(
     (row) => row.pluginId === detail?.id && row.installedDigest === detail?.installedDigest,
   );
@@ -1585,29 +1379,22 @@ export function PluginCenter({
               })}
             />
           )}
-          {!project && (
-            <div className="resource-empty">
-              <Package size={28} />
-              <strong>{t("settings.pluginCenter.selectAProjectToBrowsePlugins")}</strong>
-              <p>{t("settings.pluginCenter.thePluginCatalogIsManagedByThe")}</p>
-              <div className="plugin-context-actions">
-                {projects
-                  .filter((item) => !item.projectless)
-                  .map((item) => (
-                    <Button
-                      key={item.id}
-                      variant="outline"
-                      onClick={() => onSelectProject(item.id)}
-                    >
-                      {item.name || item.root.split(/[\\/]/).pop()}
-                    </Button>
-                  ))}
-                <Button onClick={onChooseProject}>{t("settings.pluginCenter.openProject")}</Button>
-              </div>
-            </div>
-          )}
-          {project && !connected && (
-            <Feedback message={t("settings.pluginCenter.theProjectSCoreIsDisconnectedCurrent")} />
+          <Feedback
+            message={
+              storeSnapshot
+                ? t("settings.pluginCenter.snapshotScope", {
+                    scope:
+                      storeSnapshot.scope.kind === "user"
+                        ? t("settings.pluginCenter.user")
+                        : storeSnapshot.scope.workspace,
+                    revision: storeSnapshot.revision,
+                    time: new Date(storeSnapshot.observedAt).toLocaleString(),
+                  })
+                : ""
+            }
+          />
+          {(!project || !connected) && (
+            <Feedback message={t("settings.pluginCenter.runtimeNotObserved")} />
           )}
           {supported === false && (
             <Feedback error={t("settings.pluginCenter.thisCoreDoesNotSupportThePlugin")} />
@@ -1699,7 +1486,7 @@ export function PluginCenter({
               ))}
             </div>
           )}
-          {!isDetail && showPlugins && project && (
+          {!isDetail && showPlugins && (
             <div
               className={
                 listRoute.kind === "installed" ? "plugin-compact-list" : "plugin-market-groups"
@@ -1764,7 +1551,6 @@ export function PluginCenter({
                               if (element) pluginRows.current.set(item.id, element);
                               else pluginRows.current.delete(item.id);
                             }}
-                            disabled={busy}
                             aria-label={t("settings.pluginCenter.viewPluginValue", {
                               value0: item.id,
                             })}
@@ -2114,14 +1900,11 @@ export function PluginCenter({
                   )}
                   {detail?.installed && (
                     <>
-                      <Button
-                        variant="outline"
-                        onClick={() => openPluginSurface(managing ? "workspace" : "settings")}
-                      >
+                      <Button variant="outline" onClick={() => setDetailsOpen((value) => !value)}>
                         {t(
-                          managing
-                            ? "settings.pluginCenter.viewPluginDetails"
-                            : "settings.pluginCenter.manage",
+                          detailsOpen
+                            ? "settings.pluginCenter.hideDetails"
+                            : "settings.pluginCenter.viewPluginDetails",
                         )}
                       </Button>
                       {managing ? (
@@ -2198,13 +1981,71 @@ export function PluginCenter({
               )}
               {detail && (
                 <div className="plugin-detail-body">
-                  {managing && detail.installed && !detail.enabled && (
-                    <section className="plugin-status-panel">
-                      <h2>{t("settings.pluginCenter.disabledInCurrentProject")}</h2>
-                      <p className="plugin-status-description">
-                        {t("settings.pluginCenter.manageTheEnabledScopeBeforeUsingThis")}
-                      </p>
-                    </section>
+                  {pendingKind !== "unknown" && pendingKind !== "active" && !installReview && (
+                    <PluginOverview
+                      presentation={presentPlugin({
+                        detail,
+                        runtimeObserved: connected,
+                        hostAvailable:
+                          readiness?.pluginId === detail.id &&
+                          readiness.installedDigest === detail.installedDigest
+                            ? readiness.available
+                            : undefined,
+                        connection: connectionFacts,
+                        submission: recoverable?.projectId === projectId ? recoverable : null,
+                      })}
+                      disabled={busy || loading}
+                      onNext={() => {
+                        const next = presentPlugin({
+                          detail,
+                          runtimeObserved: connected,
+                          hostAvailable:
+                            readiness?.pluginId === detail.id &&
+                            readiness.installedDigest === detail.installedDigest
+                              ? readiness.available
+                              : undefined,
+                          connection: connectionFacts,
+                          submission: recoverable?.projectId === projectId ? recoverable : null,
+                        }).nextAction;
+                        if (next === "refresh") {
+                          void refresh();
+                          return;
+                        }
+                        if (next === "install") {
+                          setInstallReview(true);
+                          void mutate({
+                            operation: "pluginResolve",
+                            id: detail.id,
+                            expectedRevision: catalogRevision(),
+                          });
+                          return;
+                        }
+                        if (next === "enable") {
+                          void mutate({
+                            operation: "pluginConfigure",
+                            id: detail.id,
+                            enabled: true,
+                            scope: "project",
+                            expectedRevision: catalogRevision(),
+                          });
+                          return;
+                        }
+                        if (next === "queryOriginal") {
+                          void recoverSubmission();
+                          return;
+                        }
+                        if (next === "connections" || next === "configure")
+                          document
+                            .querySelector<HTMLElement>("[data-plugin-connections]")
+                            ?.scrollIntoView({ block: "nearest" });
+                        else {
+                          setDetailsOpen(true);
+                          document
+                            .querySelector<HTMLElement>("[data-plugin-components]")
+                            ?.scrollIntoView({ block: "nearest" });
+                        }
+                      }}
+                    />
                   )}
                   {pendingKind === "unknown" ? (
                     <section
@@ -2252,7 +2093,7 @@ export function PluginCenter({
                         </div>
                       )}
                     </section>
-                  ) : busy && activity?.mutation !== "pluginAuth" ? (
+                  ) : pendingKind === "active" && activity?.mutation !== "pluginAuth" ? (
                     <section
                       className="plugin-status-panel"
                       aria-label={t("settings.pluginCenter.pluginOperationProgress")}
@@ -2274,145 +2115,37 @@ export function PluginCenter({
                       </p>
                     </section>
                   ) : installReview || (!detail.installed && preview?.id === detail.id) ? (
-                    <section
-                      ref={installReviewPanel}
-                      tabIndex={-1}
-                      className="plugin-status-panel"
-                      aria-label={t("settings.pluginCenter.sourceResolutionAndPreview")}
-                    >
-                      <h2>
-                        {detail.installed
-                          ? t("settings.pluginCenter.reviewNewInstallationSnapshot")
-                          : t("settings.pluginCenter.notInstalled")}
-                      </h2>
-                      <p className="plugin-status-description">
-                        {t("settings.pluginCenter.reviewTheSourceThenChooseAnInstallation")}
-                      </p>
-                      <div className="plugin-install-review">
-                        <Feedback error={sourceError} message={sourceMessage} />
-                        {preview?.id === detail.id && (
-                          <dl className="plugin-metadata">
-                            <dt>{t("settings.pluginCenter.source2")}</dt>
-                            <dd>
-                              {marketFor(detail)?.sourceUrl ||
-                                pluginInterface(detail.catalogSource).url ||
-                                detail.source}
-                            </dd>
-                            {(preview.packageVersion || preview.version) && (
-                              <>
-                                <dt>{t("settings.pluginCenter.packageVersion")}</dt>
-                                <dd>{preview.packageVersion || preview.version}</dd>
-                              </>
-                            )}
-                            <dt>{t("settings.pluginCenter.contentDigest")}</dt>
-                            <dd>
-                              <code>{preview.sourceDigest}</code>
-                            </dd>
-                            {preview.admissionDigest && (
-                              <>
-                                <dt>{t("settings.pluginCenter.definitionReviewDigest")}</dt>
-                                <dd>
-                                  <code>{preview.admissionDigest}</code>
-                                </dd>
-                              </>
-                            )}
-                            {preview.resolvedCommit && (
-                              <>
-                                <dt>{t("settings.pluginCenter.pinnedCommit")}</dt>
-                                <dd>
-                                  <code>{preview.resolvedCommit}</code>
-                                </dd>
-                              </>
-                            )}
-                            {preview.integrity && (
-                              <>
-                                <dt>{t("settings.pluginCenter.integrity")}</dt>
-                                <dd>
-                                  <code>{preview.integrity}</code>
-                                </dd>
-                              </>
-                            )}
-                          </dl>
-                        )}
-                        {previewCurrent && (
-                          <>
-                            <div className="plugin-scope-field">
-                              <span>{t("settings.pluginCenter.installationScope")}</span>
-                              <ResourceScope
-                                value={scope}
-                                onChange={(value) => {
-                                  if (value === "user" || value === "project") setScope(value);
-                                }}
-                                project={project}
-                                disabled={disabled}
-                              />
-                            </div>
-                            <p className="plugin-status-note">
-                              {scope === "user"
-                                ? t("settings.pluginCenter.availableToProjectsUnderTheSameUser")
-                                : t("settings.pluginCenter.saveWithinTheCurrentProjectScope")}
-                            </p>
-                            <label className="plugin-consent">
-                              <Input
-                                unstyled
-                                data-slot={undefined}
-                                type="checkbox"
-                                checked={reviewed}
-                                disabled={disabled}
-                                onChange={(event) => setReviewed(event.target.checked)}
-                              />
-                              <span>
-                                {t("settings.pluginCenter.iHaveReviewedTheSourceVersionAnd")}
-                              </span>
-                            </label>
-                          </>
-                        )}
-                        {preview && !previewCurrent && (
-                          <p role="status">
-                            {t("settings.pluginCenter.theCatalogChangedResolveTheSourceAgain")}
-                          </p>
-                        )}
-                        <div className="plugin-service-actions">
-                          {previewCurrent ? (
-                            <Button disabled={disabled || !reviewed} onClick={install}>
-                              {detail.installed
-                                ? t("settings.pluginCenter.installReviewedSnapshot")
-                                : t("settings.pluginCenter.installForValue", {
-                                    value0:
-                                      scope === "user"
-                                        ? t("settings.pluginCenter.user")
-                                        : t("settings.pluginCenter.currentProject"),
-                                  })}
-                            </Button>
-                          ) : (
-                            <Button
-                              disabled={disabled}
-                              onClick={() =>
-                                void mutate({
-                                  operation: "pluginResolve",
-                                  id: detail.id,
-                                  expectedRevision: catalogRevision(),
-                                })
-                              }
-                            >
-                              {t("settings.pluginCenter.resolveSourceAgain")}
-                            </Button>
-                          )}
-                          <Button
-                            variant="outline"
-                            disabled={busy}
-                            onClick={() => {
-                              setInstallReview(false);
-                              setPreview(null);
-                              setReviewed(false);
-                            }}
-                          >
-                            {t("settings.pluginCenter.cancelInstallation")}
-                          </Button>
-                        </div>
-                      </div>
-                    </section>
-                  ) : managing && detail.installed && connectionManagement ? (
+                    <PluginInstallReview
+                      detail={detail}
+                      preview={preview}
+                      previewCurrent={previewCurrent}
+                      sourceLabel={
+                        marketFor(detail)?.sourceUrl ||
+                        pluginInterface(detail.catalogSource).url ||
+                        detail.source
+                      }
+                      sourceError={sourceError}
+                      sourceMessage={sourceMessage}
+                      scope={scope}
+                      setScope={setScope}
+                      project={project}
+                      disabled={disabled}
+                      busy={busy}
+                      panelRef={installReviewPanel}
+                      onInstall={install}
+                      onResolve={() =>
+                        void mutate({
+                          operation: "pluginResolve",
+                          id: detail.id,
+                          expectedRevision: catalogRevision(),
+                        })
+                      }
+                      onCancel={() => {
+                        setInstallReview(false);
+                        setPreview(null);
+                      }}
+                    />
+                  ) : connected && managing && detail.installed && connectionManagement ? (
                     <PluginConnectionPanel
                       projectId={projectId}
                       key={`${projectId}:${detail.id}:${detail.installedDigest}`}
@@ -2428,6 +2161,8 @@ export function PluginCenter({
                         void refresh();
                         void readDetail(detail.id);
                       }}
+                      summaryPlacement="components"
+                      onFacts={onConnectionFacts}
                       onAuthActivity={onAuthActivity}
                       onComponentChange={(id, enabled) =>
                         configureComponent("mcpServer", id, enabled)
@@ -2718,15 +2453,16 @@ export function PluginCenter({
                   )}
                   {detail.installed && detail.enabled && (
                     <p className="plugin-host-readiness" role="status">
-                      {readinessError ||
-                        (readiness?.pluginId === detail.id &&
-                        readiness.installedDigest === detail.installedDigest
+                      {readinessError
+                        ? formatUiMessage(t, readinessError)
+                        : readiness?.pluginId === detail.id &&
+                            readiness.installedDigest === detail.installedDigest
                           ? !readiness.available
                             ? readinessReason(readiness)
                             : readiness.requiredTools.length
                               ? t("settings.pluginCenter.hostToolDeploymentReady")
                               : null
-                          : t("settings.pluginCenter.checkingHostToolDeployment"))}
+                          : t("settings.pluginCenter.checkingHostToolDeployment")}
                     </p>
                   )}
                   {componentWarning && (
@@ -2940,7 +2676,6 @@ export function PluginCenter({
                         disabled={disabled}
                         onClick={() => {
                           setInstallReview(true);
-                          setReviewed(false);
                           void mutate({
                             operation: "pluginResolve",
                             id: detail.id,
@@ -3104,7 +2839,7 @@ export function PluginCenter({
                       )}
                     </div>
                   )}
-                  {managing && detail.installed && detail.installedDigest && (
+                  {connected && managing && detail.installed && detail.installedDigest && (
                     <PluginHookSettings
                       projectId={projectId}
                       id={detail.id}
@@ -3117,7 +2852,7 @@ export function PluginCenter({
                       refreshKey={catalog?.revision}
                     />
                   )}
-                  {managing && detail.installed && apps?.(detail.id)}
+                  {connected && managing && detail.installed && apps?.(detail.id)}
                   {managing && detail.installed && detail.installedOnboardingSkill && (
                     <section className="plugin-detail-resources">
                       <h3>{t("settings.pluginCenter.pluginSettings")}</h3>

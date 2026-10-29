@@ -15,8 +15,12 @@ const { protocolFor } = require("./generated/management-protocol.cjs");
  * processSubmission:{projectId:string,operation:'processSubmission',threadId:string,requestId:string,guiOwned?:boolean},
  * agentSubmission:{projectId:string,operation:'agentSubmission',parentThreadId:string,requestId:string},
  * mcpFormResourceSubmission:{projectId:string,operation:'mcpFormResourceSubmission',requestId:string},
+ * pluginStoreSnapshot:{operation:'pluginStoreSnapshot',projectId?:string,id?:string},pluginStoreDoctor:{operation:'pluginStoreDoctor',projectId?:string},
  * pluginArchivePick:{projectId:string,operation:'pluginArchivePick'}
  * }} LocalRequestMap */
+/** @typedef {{kind:'user'}|{kind:'project',workspace:string}} PluginReadScope */
+/** @typedef {{revision:number,scope:PluginReadScope,observedAt:number,runtimeObserved:false,list:ProtocolResponseMap['plugins'],detail:ProtocolResponseMap['plugin']|null}} PluginStoreSnapshot */
+/** @typedef {{revision:number,scope:PluginReadScope,observedAt:number,runtimeObserved:false,data:{id:string,installed:boolean,enabled:boolean,installedDigest:string|null,candidateDigest:string,compatibility:unknown,nextAction:string}[],errors:string[]}} PluginDoctorReport */
 /** @template T @typedef {{confirmed:false,state?:string}|{confirmed:true,accepted:true,status:'completed'|'failed',operation?:import('../../../runtime-client/core.js').OperationRef,warning?:string}&({result:T,error?:never,message?:never}|{error:import('../desktop-contract.cjs').DesktopError,message:string,result?:never})} SubmissionRead */
 /** @typedef {{shell:string,fontFamily:string,fontFamilySource:'custom'|'system'|'fallback',fontSize?:number,theme?:Record<string,string>}} TerminalPresentation */
 /** @typedef {{path:string,head:string,state:'matches'|'ready'|'conflict'}} ArtifactState */
@@ -28,6 +32,7 @@ const { protocolFor } = require("./generated/management-protocol.cjs");
  * processSubmission:{confirmed:false}|{confirmed:true,result:ProtocolResponseMap['processStart']&TerminalPresentation&{argv:string[],closed:boolean,controls:number}},
  * agentSubmission:{confirmed:false}|({confirmed:true,accepted:true,method:'areal/agent/spawn',parentThreadId:string,threadId:string,turnId:string}&import('./shared.cjs').SubmissionOutcome),
  * mcpFormResourceSubmission:SubmissionRead<ProtocolResponseMap['mcpFormResourceStage']>,
+ * pluginStoreSnapshot:PluginStoreSnapshot,pluginStoreDoctor:PluginDoctorReport,
  * pluginArchivePick:{canceled:true}|{selectionToken:string,fileName:string}
  * }} LocalResponseMap */
 /** @typedef {ProtocolRequestMap&LocalRequestMap&import('./management-tasks.cjs').LocalTaskRequestMap} ManagementRequestMap */
@@ -62,12 +67,23 @@ function pluginMutation(value) {
 }
 /** @param {unknown} value @returns {value is ManagementRequest} */
 function isManagementRequest(value) {
-  if (
-    !modelRecord(value) ||
-    typeof value.operation !== "string" ||
-    typeof value.projectId !== "string"
-  )
-    return false;
+  if (!modelRecord(value) || typeof value.operation !== "string") return false;
+  if (["pluginStoreSnapshot", "pluginStoreDoctor"].includes(value.operation))
+    return (
+      (value.projectId === undefined ||
+        (typeof value.projectId === "string" &&
+          value.projectId.trim().length > 0 &&
+          value.projectId.length <= 256)) &&
+      (value.id === undefined || (typeof value.id === "string" && value.id.length > 0)) &&
+      Object.keys(value).every((key) =>
+        [
+          "operation",
+          "projectId",
+          ...(value.operation === "pluginStoreSnapshot" ? ["id"] : []),
+        ].includes(key),
+      )
+    );
+  if (typeof value.projectId !== "string") return false;
   const protocol = protocolFor(value.operation);
   if (protocol)
     return (
@@ -194,6 +210,36 @@ function validateManagementResponse(request, value) {
           value.canceled === true ||
           (typeof value.selectionToken === "string" && typeof value.fileName === "string")
         );
+      case "pluginStoreSnapshot":
+        return (
+          pluginStoreMetadata(value) &&
+          protocolResponse("plugins", value.list) &&
+          modelRecord(value.list) &&
+          value.list.revision === value.revision &&
+          (value.detail === null ||
+            (protocolResponse("plugin", value.detail) &&
+              modelRecord(value.detail) &&
+              value.detail.revision === value.revision &&
+              (request.operation !== "pluginStoreSnapshot" ||
+                !request.id ||
+                value.detail.id === request.id)))
+        );
+      case "pluginStoreDoctor":
+        return (
+          pluginStoreMetadata(value) &&
+          strings(value.errors) &&
+          Array.isArray(value.data) &&
+          value.data.every(
+            (row) =>
+              modelRecord(row) &&
+              typeof row.id === "string" &&
+              typeof row.installed === "boolean" &&
+              typeof row.enabled === "boolean" &&
+              (row.installedDigest === null || typeof row.installedDigest === "string") &&
+              typeof row.candidateDigest === "string" &&
+              typeof row.nextAction === "string",
+          )
+        );
       case "pluginReadiness":
         return (
           typeof value.pluginId === "string" &&
@@ -273,5 +319,19 @@ function terminalPresentation(value) {
     (value.theme === undefined ||
       (modelRecord(value.theme) &&
         Object.values(value.theme).every((item) => typeof item === "string")))
+  );
+}
+
+/** @param {Record<string,unknown>} value */
+function pluginStoreMetadata(value) {
+  return (
+    Number.isSafeInteger(value.revision) &&
+    Number(value.revision) >= 0 &&
+    Number.isSafeInteger(value.observedAt) &&
+    Number(value.observedAt) >= 0 &&
+    value.runtimeObserved === false &&
+    modelRecord(value.scope) &&
+    (value.scope.kind === "user" ||
+      (value.scope.kind === "project" && typeof value.scope.workspace === "string"))
   );
 }
