@@ -552,4 +552,4 @@ Core 的 `externalCua` 能力表示支持原始 CUA 工具结果与轮次清理�
 
 ## Cloud 配置与会话生命周期
 
-Cloud 设置只接受 `status` 和 `save`，不提供会分配资源的 `check`。固定地址为 `/openapi/v1/app-server/`；桌面可信适配器用持久化的 Cloud Session UUID 派生 workspace endpoint。新建会话时建立原生 thread 并投影真实连接状态，query 直接使用该连接。服务端回收后的断线不自动重连；下一条用户消息或显式“恢复连接”恢复原 endpoint、thread 和 UPFS；断线前仍显示运行中时可显式恢复并读取权威历史，避免旧状态阻塞发送。已提交但结果未知的 Turn 不自动重发。旧会话 endpoint 保持绑定，不因修改服务地址而迁移到新工作区。
+Cloud 设置只接受 `status` 和 `save`，不提供会分配资源的 `check`。固定地址为 `/openapi/v1/app-server/`；桌面可信适配器用持久化的 Cloud Session UUID 派生 workspace endpoint。打开新 Cloud 聊天只编辑本地草稿，首次发送才提交 `cloudSession/create`、建立原生 thread 并投影真实连接状态，query 直接使用该连接。创建请求 ID 必须符合 UUID 的 8-4-4-4-12 十六进制布局，在保存或派生 workspace 前校验。服务端回收后的断线不自动重连；下一条用户消息或显式“恢复连接”恢复原 endpoint、thread 和 UPFS；断线前仍显示运行中时可显式恢复并读取权威历史，避免旧状态阻塞发送。已提交但结果未知的 Turn 不自动重发。旧会话 endpoint 保持绑定，不因修改服务地址而迁移到新工作区。

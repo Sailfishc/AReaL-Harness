@@ -165,7 +165,7 @@ The TUI captures the mouse by default for clicking and scrolling. Use `areal --m
 
 GUI Cloud settings use the fixed `/openapi/v1/app-server/` service address and saving does not connect. Each new session UUID becomes its workspace; see the [GUI guide](../../clients/gui/README.en.md#cloud-backend-configuration). CLI/TUI `--endpoint` continues to accept the full native endpoint including workspace.
 
-GUI, CLI, and TUI can connect to the same native AReaL WebSocket service. Arena provisions a workspace and UPFS; a remote machine or Docker host runs `areal serve` ahead of time. Only endpoint and credentials change. Without `--agent`, a single deployed Profile is selected automatically; multiple Profiles require explicit selection. Cold connections have a three-minute deadline.
+GUI, CLI, and TUI can connect to the same native AReaL WebSocket service. Arena provisions a workspace and UPFS; a remote machine or Docker host runs `areal serve` ahead of time. Only endpoint and credentials change. Without `--agent`, CLI/TUI select a single deployed Profile automatically. With zero or multiple Profiles they retain the server default configuration without guessing a candidate. Use `--agent id@revision` to pin a Profile. GUI Cloud requires at most one deployed Profile. Cold connections have a three-minute deadline.
 
 ```sh
 # TUI; change only endpoint and credential file for a direct remote server
@@ -176,7 +176,7 @@ areal exec --endpoint ws://127.0.0.1:18457/ --auth-file /private/remote-auth.jso
 
 Credentials use the native security/auth.json shape, with `principals[0].token`. Servers must offer compatible `areal.core.v1` capabilities; this is not a claim of complete OpenAI Codex extension support. The following `areal cloud` command remains the legacy batch HTTP compatibility entry, not native remote mode.
 
-Remote CLI resume selects `areal/thread/observe` when advertised. With older Core versions it reads state through `thread/read` and subscribes when submitting the next turn, without taking over an existing desktop tool host through `thread/resume`. The legacy read and subscription are not atomic; permission and network failures do not trigger fallback retries.
+Remote CLI and GUI Cloud resume select `areal/thread/observe` when advertised. With older Core versions they read state through `thread/read` (GUI explicitly requests complete Turn history) and subscribe when submitting the next turn, without taking over an existing desktop tool host through `thread/resume`. The legacy read and subscription are not atomic; permission and network failures do not trigger fallback retries.
 
 ## Cloud
 

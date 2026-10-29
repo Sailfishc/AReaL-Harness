@@ -133,24 +133,36 @@ test("原生 WS 协议夹具：并发创建去重、流式投影、重启复用�
 
 async function recoveryFixture(t, onObserve = (_socket, reply, thread) => reply({ thread })) {
   const thread = { id: "recovery-thread", turns: [], status: { type: "idle" } };
-  const state = { thread, connections: 0, queries: 0, observe: onObserve };
+  const state = {
+    thread,
+    connections: 0,
+    queries: 0,
+    observe: onObserve,
+    methods: ["areal/thread/start", "areal/thread/observe"],
+    requests: [],
+  };
   const http = createServer();
   const ws = new WebSocketServer({ server: http });
   ws.on("connection", (socket) => {
     state.connections++;
     socket.on("message", (raw) => {
-      const { id, method } = JSON.parse(raw);
+      const { id, method, params } = JSON.parse(raw);
       if (!id) return;
+      state.requests.push({ id, method, params });
       const reply = (result) => socket.send(JSON.stringify({ id, result }));
       if (method === "initialize") return reply({});
       if (method === "areal/capabilities")
         return reply({
           apiVersion: "areal.core.v1",
-          methods: ["areal/thread/start", "areal/thread/observe"],
+          methods: state.methods,
         });
       if (method === "areal/profile/list") return reply({ data: [] });
       if (method === "areal/thread/start") return reply({ thread });
       if (method === "areal/thread/observe") return state.observe(socket, reply, thread);
+      if (method === "thread/read") {
+        assert.equal(params.includeTurns, true);
+        return state.observe(socket, reply, thread);
+      }
       assert.equal(method, "turn/start");
       state.queries++;
       const turn = { id: `new-${state.queries}`, status: "completed", items: [] };
@@ -187,6 +199,51 @@ async function recoveryFixture(t, onObserve = (_socket, reply, thread) => reply(
   await manager.create({ projectId: "project", requestId: randomUUID() });
   return { ...state, state, manager, record: manager.records[0], ws };
 }
+
+test("旧 Core 恢复完整历史仅用 thread/read，不接管工具宿主或重发查询", async (t) => {
+  const { manager, record, state } = await recoveryFixture(t);
+  manager.live.get(record.id).session.client.close();
+  state.methods = ["areal/thread/start", "thread/read", "thread/resume"];
+  state.thread.turns = [
+    {
+      id: "legacy-turn",
+      status: "completed",
+      items: [{ id: "legacy-answer", type: "agentMessage", text: "LEGACY_HISTORY" }],
+    },
+  ];
+  await manager.open(record, true);
+  assert.equal(
+    manager.projection("project").threads[state.thread.id].turns[0].items[0].text,
+    "LEGACY_HISTORY",
+  );
+  assert.equal(state.requests.filter((r) => r.method === "thread/read").length, 1);
+  assert.equal(state.requests.filter((r) => r.method === "thread/resume").length, 0);
+  assert.equal(state.queries, 0);
+  state.observe = (socket) =>
+    socket.send(
+      JSON.stringify({
+        id: state.requests.at(-1).id,
+        error: { code: -32003, message: "legacy read denied" },
+      }),
+    );
+  await assert.rejects(manager.open(record, true), /legacy read denied/);
+  assert.equal(state.requests.filter((r) => r.method === "thread/read").length, 2);
+  assert.equal(state.requests.filter((r) => r.method === "thread/resume").length, 0);
+  assert.equal(state.queries, 0);
+});
+
+test("非 UUID 创建标识在持久化或连接 workspace 前被拒绝", () => {
+  const manager = new CloudConversations({ saved: [{ id: "project" }] });
+  for (const requestId of [
+    "-".repeat(36),
+    "a".repeat(36),
+    "1234567-12345-1234-1234-123456789abc",
+  ]) {
+    assert.throws(() => manager.create({ projectId: "project", requestId }), /标识无效/);
+  }
+  assert.equal(manager.records.length, 0);
+  assert.equal(manager.creating.size, 0);
+});
 
 test("observe 快照与完成通知同批到达时保留最终历史", async (t) => {
   const { manager, record, state } = await recoveryFixture(t);

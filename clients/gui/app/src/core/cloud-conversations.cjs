@@ -202,7 +202,7 @@ class CloudConversations {
     const id = request.requestId;
     if (!this.backend.saved.some((project) => project.id === request.projectId))
       throw new Error("请先选择项目");
-    if (typeof id !== "string" || !/^[0-9a-f-]{36}$/.test(id))
+    if (typeof id !== "string" || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(id))
       throw new Error("Cloud 创建请求标识无效");
     const pending = this.creating.get(id);
     if (pending) return pending;

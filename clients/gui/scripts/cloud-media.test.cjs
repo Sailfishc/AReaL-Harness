@@ -39,11 +39,24 @@ test("Cloud media preserves workspace path, credentials and thread query, and tr
     mime: "image/png",
     bytes: new Uint8Array([1, 2, 3]),
   };
-  assert.equal((await mediaCommand(project, request, {})).uri, "areal://blob/abc");
-  assert.deepEqual(seen[0], {
-    path: "/openapi/v1/app-server/work/areal/blobs?threadId=thread",
-    auth: "Bearer test-token",
-  });
+  for (const prefix of ["/", "/proxy/core/", "/openapi/v1/app-server/work/"]) {
+    project.endpoint = `ws://127.0.0.1:${server.address().port}${prefix}`;
+    assert.equal((await mediaCommand(project, request, {})).uri, "areal://blob/abc");
+    assert.deepEqual(seen.at(-1), {
+      path: `${prefix}areal/blobs?threadId=thread`,
+      auth: "Bearer test-token",
+    });
+    const read = await mediaCommand(
+      project,
+      { ...request, operation: "read", uri: "areal://blob/abc" },
+      {},
+    );
+    assert.ok(read.bytes.length > 0);
+    assert.deepEqual(seen.at(-1), {
+      path: `${prefix}areal/blobs/abc?threadId=thread`,
+      auth: "Bearer test-token",
+    });
+  }
   malformed = true;
   await assert.rejects(mediaCommand(project, request, {}), (e) => e.submissionUnknown === true);
   await assert.rejects(mediaCommand(project, { ...request, threadId: "other" }, {}), /所属会话/);

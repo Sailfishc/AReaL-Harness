@@ -238,17 +238,13 @@ async fn execute_connected(args: &Cli, local: &local::Local) -> Result<(i32, Vec
         .await?;
     }
     let mut profile = local.profile.clone();
-    // 远端部署一个 Profile 时使用它，避免绕过服务端 Harness 材料。
+    // 唯一 Profile 自动绑定；多个候选沿用服务端默认值，不替调用方猜选。
     if args.endpoint.is_some() && args.resume.is_none() && profile.is_none() {
         let catalog = rpc.call("areal/profile/list", json!({})).await?;
         let profiles = catalog["data"]
             .as_array()
             .context("invalid profile catalog")?;
-        ensure!(
-            profiles.len() <= 1,
-            "remote server requires an explicit default Agent Profile"
-        );
-        if let Some(entry) = profiles.first() {
+        if let [entry] = profiles.as_slice() {
             profile = Some(json!({"id":entry["id"],"revision":entry["revision"]}));
         }
     }

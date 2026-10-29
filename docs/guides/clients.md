@@ -165,7 +165,7 @@ TUI 默认启用鼠标捕获，支持点击和滚动。需要终端原生拖选�
 
 GUI Cloud 设置使用固定服务地址 `/openapi/v1/app-server/`，保存时不连接；新会话 UUID 自动作为 workspace，具体生命周期见 [GUI 指南](../../clients/gui/README.md#cloud-后端配置)。CLI/TUI 的 `--endpoint` 继续填写含 workspace 的完整原生 endpoint。
 
-GUI、CLI 与 TUI 可连接同一 AReaL 原生 WS 服务。Arena 负责工作区分配与 UPFS；远程机器或 Docker 负责预先运行 `areal serve`。客户端协议相同，仅地址和认证文件不同。远端未指定 `--agent` 且只部署一个 Profile 时自动使用它；多个 Profile 必须显式选择。连接冷启动超时为三分钟。
+GUI、CLI 与 TUI 可连接同一 AReaL 原生 WS 服务。Arena 负责工作区分配与 UPFS；远程机器或 Docker 负责预先运行 `areal serve`。客户端协议相同，仅地址和认证文件不同。CLI/TUI 未指定 `--agent` 且只部署一个 Profile 时自动使用它；没有或存在多个 Profile 时沿用服务端默认配置，不猜选候选。需要固定某个 Profile 时显式传 `--agent id@revision`。GUI Cloud 要求服务端至多部署一个 Profile。连接冷启动超时为三分钟。
 
 ```sh
 # TUI；替换地址和认证文件即可直连远程机器
@@ -176,7 +176,7 @@ areal exec --endpoint ws://127.0.0.1:18457/ --auth-file /private/remote-auth.jso
 
 认证文件沿用原生 `security/auth.json` 的 `principals[0].token` 格式。远端部署必须提供兼容的 `areal.core.v1` 能力；这不表示支持 OpenAI Codex 的全部扩展。下面的 `areal cloud` 保留为原有批任务 HTTP 兼容入口，不是原生远端模式。
 
-远端 CLI 恢复线程时按能力选择 `areal/thread/observe`；旧 Core 使用 `thread/read` 读取状态，提交新 Turn 时订阅事件，不通过 `thread/resume` 接管已有桌面工具宿主。旧版读取与订阅不是原子快照；权限或网络错误不会触发降级重试。
+远端 CLI 与 GUI Cloud 恢复线程时按能力选择 `areal/thread/observe`；旧 Core 使用 `thread/read` 读取状态（GUI 显式读取完整 Turn 历史），提交新 Turn 时订阅事件，不通过 `thread/resume` 接管已有桌面工具宿主。旧版读取与订阅不是原子快照；权限或网络错误不会触发降级重试。
 
 ## Cloud
 

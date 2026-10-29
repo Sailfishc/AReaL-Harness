@@ -236,6 +236,7 @@ impl Engine {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis();
+        // 持久时间只精确到秒，取该秒末尾以免高估空闲时长、提前回收。
         let persisted_idle = wall_now.saturating_sub((latest_activity.max(0) as u128 + 1) * 1000);
         status["idleForMs"] = json!(
             idle_clock

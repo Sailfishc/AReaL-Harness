@@ -145,7 +145,12 @@ class CloudSession {
     if (client.capabilities?.methods?.includes("areal/thread/observe")) {
       return client.request("areal/thread/observe", { threadId: this.binding.threadId }, options);
     }
-    return client.request("thread/resume", { threadId: this.binding.threadId }, options);
+    // 旧 Core 只读恢复，不通过 thread/resume 接管已有桌面工具宿主。
+    return client.request(
+      "thread/read",
+      { threadId: this.binding.threadId, includeTurns: true },
+      options,
+    );
   }
 
   /** @param {import("./media.cjs").MessageInput[]} input @param {{signal?:AbortSignal}} [options] */

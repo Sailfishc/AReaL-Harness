@@ -3,7 +3,7 @@ import { DraftAttachment } from "./MessageAttachment.js";
 import { AttachmentIcon } from "./interfaceIcons.js";
 import { uploadComposerFiles } from "./ComposerUploads.js";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { Action, Data } from "./services.js";
 import { Button } from "./components/ui/button.js";
 import { Input } from "./components/ui/input.js";
@@ -52,7 +52,6 @@ export function CloudComposer({
     setError("");
   };
   const [busy, setBusy] = useState(false);
-  const [connectionAttempt, setConnectionAttempt] = useState(0);
   const [error, setErrorState] = useState<string | UiMessage>(() => draftErrors.get(key) ?? "");
   const setError = (message: string | UiMessage) => {
     if (message) draftErrors.set(key, message);
@@ -60,37 +59,6 @@ export function CloudComposer({
     setErrorState(message);
   };
   const [unknown, setUnknown] = useState(() => localStorage.getItem(`${key}:unknown`) === "true");
-  useEffect(() => {
-    if (thread || !onOpen) return;
-    let active = true;
-    setBusy(true);
-    const requestId = localStorage.getItem(`${key}:create`) ?? crypto.randomUUID();
-    localStorage.setItem(`${key}:create`, requestId);
-    void action("cloudSession", { operation: "create", projectId: project.id, requestId })
-      .then((created) => {
-        if (!active) return;
-        localStorage.setItem(
-          `areal-cloud-draft:${project.id}:${created.threadId}`,
-          localStorage.getItem(key) ?? "",
-        );
-        if (fileDrafts.has(key))
-          fileDrafts.set(
-            `areal-cloud-draft:${project.id}:${created.threadId}`,
-            fileDrafts.get(key)!,
-          );
-        localStorage.removeItem(`${key}:create`);
-        return onOpen(project.id, created.threadId);
-      })
-      .catch((cause) => {
-        if (active) setError(cause.message);
-      })
-      .finally(() => {
-        if (active) setBusy(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [project.id, thread?.id, connectionAttempt]);
   const running = thread?.turns?.find((turn: Data) => turn.status === "inProgress");
   const reconnect = async () => {
     if (busy || !thread) return;
@@ -156,8 +124,16 @@ export function CloudComposer({
           localStorage.setItem(`areal-cloud-draft:${project.id}:${target}:unknown`, "true");
       }
       if (target && !thread) {
-        fileDrafts.set(`areal-cloud-draft:${project.id}:${target}`, files);
-        draftErrors.set(`areal-cloud-draft:${project.id}:${target}`, failure.message);
+        const targetKey = `areal-cloud-draft:${project.id}:${target}`;
+        localStorage.setItem(targetKey, text);
+        fileDrafts.set(targetKey, files);
+        draftErrors.set(targetKey, failure.message);
+        // 创建已完成，失败草稿归属该会话；后续新聊天必须生成独立的创建标识。
+        localStorage.removeItem(key);
+        localStorage.removeItem(`${key}:create`);
+        localStorage.removeItem(`${key}:unknown`);
+        fileDrafts.delete(key);
+        draftErrors.delete(key);
         await onOpen?.(project.id, target);
       }
     } finally {
@@ -290,17 +266,6 @@ export function CloudComposer({
             {t("cloud.acknowledgeUnknown")}
           </Button>
         </p>
-      )}
-      {!thread && !busy && error && (
-        <Button
-          type="button"
-          onClick={() => {
-            setError("");
-            setConnectionAttempt((value) => value + 1);
-          }}
-        >
-          {t("cloud.retryConnection")}
-        </Button>
       )}
       {thread && !thread.cloud?.connected && (
         <Button type="button" disabled={busy} onClick={() => void reconnect()}>

@@ -23,6 +23,7 @@ let allocations = 0,
   queries = 0,
   deferNext = false,
   malformedNext = false,
+  rejectNext = false,
   page,
   browser,
   publishing = Promise.resolve();
@@ -59,6 +60,11 @@ sockets.on("connection", (socket, request) => {
     if (method === "areal/thread/observe") return reply({ thread: state.thread });
     assert.equal(method, "turn/start");
     assert.equal(params.threadId, state.thread.id);
+    if (rejectNext) {
+      rejectNext = false;
+      socket.send(JSON.stringify({ id, error: { code: -32000, message: "fixture rejection" } }));
+      return;
+    }
     queries++;
     const turn = {
       id: `turn-${queries}`,
@@ -241,14 +247,17 @@ try {
   assert.equal(calls.length, 0);
   await page.screenshot({ path: join(scratch, "saved-without-connection.png") });
   await page.getByRole("button", { name: "返回应用", exact: true }).click();
-  await page.getByRole("status").filter({ hasText: "Cloud 已连接" }).waitFor();
-  assert.equal(allocations, 1);
-  const first = manager.records[0];
-  assert.equal(first.binding.workspace, first.id);
+  await page.getByTestId("cloud-chat-input").waitFor();
+  await page.getByRole("status").filter({ hasText: "发送消息时恢复" }).waitFor();
+  assert.equal(allocations, 0);
+  assert.equal(manager.records.length, 0);
+  await page.screenshot({ path: join(scratch, "draft-without-allocation.png") });
   await page.getByTestId("cloud-chat-input").fill("first query");
   await page.getByTestId("cloud-chat-send").click();
   await page.getByText("QUERY_OK_1", { exact: true }).waitFor();
   assert.equal(allocations, 1);
+  const first = manager.records[0];
+  assert.equal(first.binding.workspace, first.id);
   await page.screenshot({ path: join(scratch, "connected-session.png") });
   // 显式模拟回收：保留权威 thread（UPFS），关闭执行实例与连接。
   workspaces.get(first.id).alive = false;
@@ -320,11 +329,63 @@ try {
   assert.equal(queries, 5);
   await page.screenshot({ path: join(scratch, "unknown-receipt-draft.png") });
   await page.getByRole("button", { name: "新聊天", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: "发送消息时恢复" }).waitFor();
+  assert.equal(allocations, 2);
+  assert.equal(manager.records.length, 1);
+  await page.screenshot({ path: join(scratch, "new-chat-without-allocation.png") });
+  await page.getByTestId("cloud-chat-input").fill("new workspace query");
+  await page.getByTestId("cloud-chat-send").click();
+  await page.getByText("QUERY_OK_6", { exact: true }).waitFor();
   await page.getByRole("status").filter({ hasText: "Cloud 已连接" }).waitFor();
   assert.equal(allocations, 3);
   assert.equal(manager.records.length, 2);
   assert.notEqual(manager.records[0].binding.workspace, manager.records[1].binding.workspace);
-  assert.equal(queries, 5);
+  assert.equal(queries, 6);
+  // 首次提交被拒或结果未知后，失败草稿只属于已创建的 Thread，不污染下一次新聊天。
+  for (const outcome of ["rejected", "unknown"]) {
+    await page.getByRole("button", { name: "新聊天", exact: true }).click();
+    const recordsBefore = manager.records.length;
+    const allocationsBefore = allocations;
+    await page.getByTestId("cloud-chat-input").fill(`first send ${outcome}`);
+    rejectNext = outcome === "rejected";
+    malformedNext = outcome === "unknown";
+    await page.getByTestId("cloud-chat-send").click();
+    await page
+      .getByRole("alert")
+      .filter({ hasText: outcome === "unknown" ? "提交结果未知" : "fixture rejection" })
+      .waitFor();
+    assert.equal(manager.records.length, recordsBefore + 1);
+    assert.equal(allocations, allocationsBefore + 1);
+    const failed = manager.records.at(-1);
+    const failedQueries = workspaces.get(failed.id).thread.turns.length;
+    assert.equal(await page.getByTestId("cloud-chat-input").innerText(), `first send ${outcome}`);
+    await page.waitForFunction(
+      (key) =>
+        [key, `${key}:create`, `${key}:unknown`].every((entry) => !localStorage.getItem(entry)),
+      `areal-cloud-draft:${projectId}:new`,
+    );
+    await page.screenshot({ path: join(scratch, `first-send-${outcome}.png`) });
+    await page.getByRole("button", { name: "新聊天", exact: true }).click();
+    await page.getByRole("status").filter({ hasText: "发送消息时恢复" }).waitFor();
+    assert.equal(allocations, allocationsBefore + 1);
+    assert.equal(
+      await page.getByTestId("cloud-chat-input").getAttribute("contenteditable"),
+      "true",
+    );
+    assert.equal((await page.getByTestId("cloud-chat-input").innerText()).trim(), "");
+    const nextQuery = queries + 1;
+    await page.getByTestId("cloud-chat-input").fill(`fresh workspace after ${outcome}`);
+    await page.getByTestId("cloud-chat-send").click();
+    await page.getByText(`QUERY_OK_${nextQuery}`, { exact: true }).waitFor();
+    await page.getByRole("status").filter({ hasText: "Cloud 已连接" }).waitFor();
+    assert.equal(manager.records.length, recordsBefore + 2);
+    assert.equal(allocations, allocationsBefore + 2);
+    const fresh = manager.records.at(-1);
+    assert.notEqual(failed.binding.workspace, fresh.binding.workspace);
+    assert.equal(workspaces.get(fresh.id).thread.turns.length, 1);
+    assert.equal(workspaces.get(failed.id).thread.turns.length, failedQueries);
+    await page.screenshot({ path: join(scratch, `fresh-workspace-after-${outcome}.png`) });
+  }
   assert.deepEqual(errors, []);
   await writeFile(
     join(scratch, "evidence.json"),
