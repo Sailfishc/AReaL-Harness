@@ -342,7 +342,7 @@ PR #111 在初始 G0 快照后整合历史恢复与定时任务所有权。以�
 
 推送 GUI/Core 集成分支前，获取实际目标引用并准备锁定依赖，运行 `make check-changed CI_BASE=upstream-readonly/main`；按需使用 `make ci-preflight CI_BASE=upstream-readonly/main` 完整本机验收。共享计划包含适用的 Rust/SDK、schema、静态检查、生产构建与预算、Portable/Core 契约、原生与 Electron smoke。GUI 普通检查使用 Node 24.22.1；Relay 合同使用 Node 24.2.0，本机可通过 `AREAL_RELAY_NODE_BIN` 指定其可执行文件。完整本机验收执行当前平台全部适用项；快检仍列出未执行的完整验收项，Linux 容器和其他平台列为远端必需项，不计作本地通过。
 
-本机预检使用项目 Python 环境：`export PATH="$PWD/.venv/bin:$PATH"`。能力探针要求 Python 至少 3.11，且具备 `tomllib` 和 tar 解包过滤；缺失时提前 blocked。Cargo 自身管理 verify/native 的可变构建目录与重建，产物哈希冻结限于发布给其他 job 的 GUI bundle；该 bundle 的消费者仍逐文件复核哈希。
+本机预检使用项目工具链：`export PATH="$PWD/.venv/bin:$PWD/.local/tools/node/bin:$PATH"`。Git 提交与推送 hook 自动按此顺序优先使用仓库内工具，无需先激活终端环境。Python 放在 `.venv`，Node 24.22.1 的官方发行包解压到 `.local/tools/node`（可执行文件为 `.local/tools/node/bin/node`）；这两个目录均被 Git 忽略。缺少仓库内工具时使用调用者的 PATH，版本不足仍由能力探针明确阻塞。能力探针要求 Python 至少 3.11，且具备 `tomllib` 和 tar 解包过滤；缺失时提前 blocked。Cargo 自身管理 verify/native 的可变构建目录与重建，产物哈希冻结限于发布给其他 job 的 GUI bundle；该 bundle 的消费者仍逐文件复核哈希。
 
 本地与 CI 通过 `scripts/ci-preflight.py --groups <组名>` 执行同一计划，`--plan` 只展示。`make ci-gui-static CI_BASE=<ref>` 运行 Portable 的提交阶段，`make ci-gui-portable CI_BASE=<ref>` 运行完整 Portable 组，`make ci-core-contracts CI_BASE=<ref>` 连同产物依赖运行 Core 契约。`make ci-gui-health` 保留轻量健康入口。显式 `AREAL_CORE_BIN` 必须与刚构建的 Core 哈希一致；macOS 原生执行按固定产物路径流程准备。CI 只有同一 run/attempt 的产物依赖报告可跨 job 使用，消费者重新核对产物哈希。最终 gate 独立重算计划，严格核对结果全集、子测试全集和源码/计划/run/attempt 身份，缺项或意外 skip 拒绝放行。
 
