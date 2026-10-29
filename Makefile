@@ -17,7 +17,7 @@ endif
 
 .PHONY: help fetch build release check fmt fmt-check lint test test-core \
 	test-protocol test-concurrency verify smoke server tui schemas docs clean \
-	capacity capacity-primitives capacity-core perf runtime test-runtime runtime-smoke verify-runtime \
+	capacity capacity-primitives capacity-core perf runtime test-runtime runtime-smoke verify-runtime git-auth-smoke \
 	cordis-pin update-cordis sdk-test harness harness-smoke verify-harness \
 	setup setup-node sdk-build script-test launcher-test workgroup-smoke unified-execution-smoke delegation-permissions-smoke capacity-workgroup local-service-smoke upgrade-smoke tui-upgrade-smoke \
 	verify-native integration-boundaries ci-preflight ci-gui-static ci-gui-health \
@@ -116,7 +116,7 @@ workflow-lint: ## 校验 GitHub Actions workflow
 hooks-install: ## 显式安装仓库的推送前门禁
 	python3 scripts/git-hooks.py install --base "$(CI_BASE)"
 
-check-changed: ## 本地影响范围快检；显式 CI_BASE，ARGS=--plan 仅输出计划
+check-changed: ## 受影响快检加失败专项；显式 CI_BASE，ARGS=--plan 仅输出计划
 	python3 scripts/check-changed.py --base "$(CI_BASE)" $(ARGS)
 
 ci-gui-static: ## 共享计划的 GUI 提交前静态、类型、生产构建与预算检查
@@ -145,7 +145,7 @@ ci-core-contracts: ## 构建匹配输入并执行全部 Core 合同；固定 Cor
 	@test -n "$(CI_BASE)" || { echo 'CI_BASE is required' >&2; exit 1; }
 	python3 scripts/ci-preflight.py --base "$(CI_BASE)" --groups core-contracts --with-dependencies
 
-ci-preflight: ## 推送前完整门禁与逐阶段报告；显式 CI_BASE，不替代完整 CI
+ci-preflight: ## 按需完整本机验收与逐阶段报告；显式 CI_BASE，不替代完整 CI
 	@test -n "$(CI_BASE)" || { echo 'CI_BASE is required' >&2; exit 1; }
 	python3 scripts/ci-preflight.py --base "$(CI_BASE)"
 
@@ -187,6 +187,7 @@ harness-smoke: build sdk-build ## 原生 SDK 与完整读改测试/强杀恢复
 	node scripts/permissions-smoke.mjs
 	node scripts/permission-modes-smoke.mjs
 	node scripts/permission-presets-smoke.mjs
+	node scripts/git-auth-smoke.mjs
 	python3 scripts/tui-local-smoke.py
 	node scripts/local-service-smoke.mjs
 
@@ -198,6 +199,9 @@ delegation-permissions-smoke: build ## 验证只读强约束、不可用准入�
 
 local-service-smoke: build ## 验证共享服务、多个窗口与宿主故障恢复
 	node scripts/local-service-smoke.mjs
+
+git-auth-smoke: build ## 验证共享服务的 Git 身份、SSH agent 与 HTTPS 认证及失败保护
+	node scripts/git-auth-smoke.mjs
 
 upgrade-smoke: ## 构建真实 CLI 并隔离验证升级、旧版本保留与 Homebrew 保护
 	cargo build --locked -p areal-cli
