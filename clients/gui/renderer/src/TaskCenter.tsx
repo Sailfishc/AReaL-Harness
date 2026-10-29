@@ -1,12 +1,12 @@
 import { observeResize } from "@areal/ui/observe-resize";
 import { Input } from "@areal/ui";
-import { ScheduledWorkspace } from "@areal/ui/experimental";
 import { recoveredOutcome, recoveryMessage, type RecoveryFailure } from "./recoveryPresentation.js";
 import { FeedbackNotice } from "./FeedbackNotice.js";
 import {
   activeScheduledTask,
   scheduledTaskStatus,
   ScheduledTaskControls,
+  ScheduledWorkspace,
 } from "./ScheduledTasks.js";
 import { ScheduledTaskEditDialog } from "./ScheduledTaskEditDialog.js";
 import {

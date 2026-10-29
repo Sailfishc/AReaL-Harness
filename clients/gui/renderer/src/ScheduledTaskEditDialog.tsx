@@ -97,7 +97,7 @@ export function ScheduledTaskEditDialog({
     <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
       <DialogContent className="scheduled-edit max-w-md" data-scheduled-edit={task.id}>
         <DialogTitle>{t("operations.schedules.editTitle")}</DialogTitle>
-        <label className="scheduled-edit-field">
+        <label className="flex flex-col gap-1 text-ui-sm">
           <span>{t("operations.schedules.objective")}</span>
           <Textarea
             id="scheduled-edit-objective"
@@ -106,8 +106,8 @@ export function ScheduledTaskEditDialog({
             onChange={(event) => set({ objective: event.target.value })}
           />
         </label>
-        <div className="scheduled-edit-group">
-          <div className="scheduled-edit-row">
+        <div className="grid gap-2 rounded-control border border-border p-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-ui-sm">
             <span id="scheduled-edit-repeat">{t("operations.schedules.repeat")}</span>
             <Select
               value={form.repeat}
@@ -130,11 +130,12 @@ export function ScheduledTaskEditDialog({
             </Select>
           </div>
           {form.repeat === "interval" && (
-            <div className="scheduled-edit-row">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-ui-sm">
               <span id="scheduled-edit-every">{t("operations.schedules.every")}</span>
-              <span className="scheduled-edit-inline">
+              <span className="flex flex-wrap items-center gap-1">
                 <Input
                   id="scheduled-edit-every-count"
+                  className="w-20"
                   aria-labelledby="scheduled-edit-every"
                   type="number"
                   min={1}
@@ -166,12 +167,12 @@ export function ScheduledTaskEditDialog({
           )}
           {form.repeat === "weekly" && (
             <div
-              className="scheduled-edit-row"
+              className="flex flex-wrap items-center justify-between gap-2 text-ui-sm"
               role="group"
               aria-label={t("operations.schedules.onDays")}
             >
               <span>{t("operations.schedules.onDays")}</span>
-              <span className="scheduled-edit-days">
+              <span className="flex flex-wrap items-center gap-1">
                 {weekdayIds.map((id, index) => {
                   const day = index + 1;
                   const on = form.weekdays.includes(day);
@@ -197,7 +198,7 @@ export function ScheduledTaskEditDialog({
             </div>
           )}
           {(form.repeat === "daily" || form.repeat === "weekly") && (
-            <label className="scheduled-edit-row">
+            <label className="flex flex-wrap items-center justify-between gap-2 text-ui-sm">
               <span>{t("operations.schedules.at")}</span>
               <Input
                 id="scheduled-edit-time"
@@ -208,7 +209,7 @@ export function ScheduledTaskEditDialog({
             </label>
           )}
           {form.repeat === "once" && (
-            <label className="scheduled-edit-row">
+            <label className="flex flex-wrap items-center justify-between gap-2 text-ui-sm">
               <span>{t("operations.schedules.date")}</span>
               <Input
                 id="scheduled-edit-at"

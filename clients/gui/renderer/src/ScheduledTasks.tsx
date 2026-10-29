@@ -20,6 +20,9 @@ import {
 import { ScheduledTaskEditDialog } from "./ScheduledTaskEditDialog.js";
 import type { Action, Data } from "./services.js";
 
+// 定时任务页与会话共用同一处实验组件入口，毕业前只在这里登记一次。
+export { ScheduledWorkspace };
+
 export const settledRun = (run: Data) =>
   ["completed", "failed", "cancelled", "skipped"].includes(run.status) &&
   !(run.workers ?? []).some((worker: Data) => !worker.settled);

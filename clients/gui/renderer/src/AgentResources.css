@@ -307,36 +307,6 @@
   color: var(--color-foreground-subtle);
   overflow-wrap: anywhere;
 }
-.scheduled-edit-field,
-.scheduled-edit-row {
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--spacing-inline) / 2);
-  font-size: var(--text-ui-sm);
-}
-.scheduled-edit-group {
-  display: grid;
-  gap: var(--spacing-inline);
-  padding: var(--spacing-inline);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
-}
-.scheduled-edit-row {
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-}
-.scheduled-edit-inline,
-.scheduled-edit-days {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: calc(var(--spacing-inline) / 2);
-}
-.scheduled-edit-inline input {
-  width: 5rem;
-}
 
 /* Production hosts compose the same package card and history reader as the catalog. */
 .task-resources-popup > .areal-task-context {
