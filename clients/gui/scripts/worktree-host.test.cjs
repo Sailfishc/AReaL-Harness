@@ -50,6 +50,9 @@ async function setup(t, { gitRepo = true } = {}) {
       blocking() {
         return false;
       },
+      schedulingSuppressed() {
+        return false;
+      },
       activeTargets: new Set(),
       generation: "fixture",
     };
