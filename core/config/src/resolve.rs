@@ -185,6 +185,11 @@ const ENV: &[(&str, &str, &str)] = &[
         "limits.max_empty_completion_retries",
     ),
     (
+        "AREAL_HARNESS_MAX_GOAL_REPORT_ROUNDS",
+        "",
+        "limits.max_goal_report_rounds",
+    ),
+    (
         "AREAL_HARNESS_CONTEXT_REFERENCE_TOKENS",
         "",
         "limits.context_reference_tokens",
@@ -464,6 +469,7 @@ pub(crate) fn valid(field: &str, entry: &Entry) -> Result<()> {
         }
         "max_retries"
         | "max_completion_retries"
+        | "max_goal_report_rounds"
         | "max_empty_completion_retries"
         | "max_repeated_tool_failures" => {
             if !value.bytes().all(|b| b.is_ascii_digit())
@@ -684,6 +690,7 @@ pub(crate) fn load_mode(
         ("model.responses_websocket", "false"),
         ("model.responses_prompt_cache", "false"),
         ("limits.max_completion_retries", "0"),
+        ("limits.max_goal_report_rounds", "0"),
         ("limits.goal_recover_unknown_model_usage", "false"),
         ("limits.max_empty_completion_retries", "0"),
         ("limits.context_observation_tokens", "0"),
@@ -1140,6 +1147,10 @@ pub(crate) fn load_mode(
             .parse()
             .unwrap(),
         max_completion_retries: values["limits.max_completion_retries"]
+            .value
+            .parse()
+            .unwrap(),
+        max_goal_report_rounds: values["limits.max_goal_report_rounds"]
             .value
             .parse()
             .unwrap(),

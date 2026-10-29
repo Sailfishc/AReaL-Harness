@@ -290,6 +290,8 @@ impl Engine {
         let mut media_output_bytes = 0;
         let mut tool_count = 0;
         let mut completion_retries = 0;
+        let mut goal_report_only = false;
+        let mut goal_report_rounds = 0;
         let mut recovery_hint: Option<String> = None;
         let mut output_handoff = false;
         let mut previous_usage = None;
@@ -387,10 +389,42 @@ impl Engine {
                     state.thread.clone(),
                 )
             };
+            // 报告是否缺失与通用恢复额度无关；报告成功后由既有 Turn/Goal 提交链结算。
+            let goal_report_pending = thread.parent_thread_id.is_none()
+                && thread.goals.goal.as_ref().is_some_and(|goal| {
+                    goal.status == areal_protocol::goals::GoalStatus::Active
+                        && !goal.waiting_for_input
+                        && !goal.waiting_for_agents
+                        && goal.report_turn_id.as_deref()
+                            != thread.turns.last().map(|turn| turn.id.as_str())
+                });
+            if goal_report_only {
+                anyhow::ensure!(!cancel.is_cancelled(), "cancelled");
+                if !goal_report_pending {
+                    // 有效报告仍须经过正常的子任务/工作组结算、Stop hook 与最终答复封口。
+                    goal_report_only = false;
+                } else if goal_report_rounds >= self.limits.max_goal_report_rounds {
+                    return Err(crate::outcome::goal_report_missing(
+                        goal_report_rounds,
+                        self.limits.max_goal_report_rounds,
+                        "report_phase_exhausted",
+                    )
+                    .into());
+                }
+            }
             // 工具声明参与缓存前缀；收尾轮仅禁用调用，不移除 schema。
-            let tool_definitions = self
+            let mut tool_definitions = self
                 .visible_tools(cell, &configuration, thread.desktop.is_some(), &thread)
                 .await;
+            if goal_report_only {
+                let name = if thread.goals.goal.as_ref().is_some_and(|g| g.limits_pending) {
+                    "goal_set_limits"
+                } else {
+                    "goal_update"
+                };
+                // 只收窄已授权工具，不借报告阶段增加目录、权限或预算。
+                tool_definitions.retain(|tool| tool["function"]["name"] == name);
+            }
             // 使用现有请求上下文提供指引，保持持久工具定义及模型收到的声明不变。
             let browser_instructions = tool_definitions.iter()
                 .any(|tool| tool["function"]["name"] == "browser_v1")
@@ -663,7 +697,26 @@ impl Engine {
             // 本地重建未发送请求时不消费一次性恢复提示，也不增加求解轮数。
             recovery_hint = None;
             let tools_enabled = !final_round && !output_handoff && !tool_definitions.is_empty();
+            if goal_report_only {
+                if !tools_enabled
+                    || (tool_limit > 0 && tool_count >= tool_limit)
+                    || model
+                        .capabilities()
+                        .declared
+                        .as_ref()
+                        .is_some_and(|c| !c.tools)
+                {
+                    return Err(crate::outcome::goal_report_missing(
+                        goal_report_rounds,
+                        self.limits.max_goal_report_rounds,
+                        "report_tool_unavailable",
+                    )
+                    .into());
+                }
+                goal_report_rounds += 1;
+            }
             let tool_limits = model::ToolCallLimits {
+                require_call: goal_report_only,
                 max_calls: if tools_enabled {
                     (if tool_limit > 0 {
                         tool_limit.saturating_sub(tool_count)
@@ -671,6 +724,7 @@ impl Engine {
                         usize::MAX
                     })
                     .min(self.limits.max_response_tool_calls)
+                    .min(if goal_report_only { 1 } else { usize::MAX })
                 } else {
                     0
                 },
@@ -886,6 +940,33 @@ impl Engine {
                         ) => match next { Ok(next) => next, Err(_) => Some(Err(response_deadline.idle_error("model"))) },
                     };
                     let Some(delta) = next else {
+                        // 等待整个成功流结算 usage 后再拒绝非法报告工具，绝不执行其参数。
+                        if goal_report_only
+                            && calls.iter().any(|call| {
+                                !tool_definitions
+                                    .iter()
+                                    .any(|tool| tool["function"]["name"] == call.name)
+                            })
+                        {
+                            operation.finish(Some("unexpected_report_tool"));
+                            drop(operation);
+                            drop(model_span);
+                            drop(stream);
+                            let error = anyhow::Error::new(crate::outcome::goal_report_missing(
+                                goal_report_rounds,
+                                self.limits.max_goal_report_rounds,
+                                "unexpected_report_tool",
+                            ));
+                            self.discard_completion(
+                                cell,
+                                &completion_items,
+                                &calls,
+                                &error,
+                                (goal_report_rounds, "goalReport"),
+                            )
+                            .await?;
+                            return Err(error);
+                        }
                         let state = cell.state.lock().await;
                         let steered = !steer.is_empty();
                         let blocked_report = state.thread.goals.goal.as_ref().is_some_and(|g| {
@@ -904,23 +985,30 @@ impl Engine {
                                 .handles
                                 .pending_verifications
                                 .is_empty();
-                        // 显式完成恢复可在无工具收尾前提醒根 Goal 报告进度；不代写报告或放宽暂停保护。
-                        let missing_goal_report = calls.is_empty()
-                            && visible_output
+                        let goal_report_missing = calls.is_empty()
                             && !steered
                             && !pending_verification
                             && !final_round
                             && !output_handoff
-                            && completion_retries < self.limits.max_completion_retries
                             && state.thread.parent_thread_id.is_none()
                             && state.thread.goals.goal.as_ref().is_some_and(|goal| {
                                 goal.status == areal_protocol::goals::GoalStatus::Active
+                                    && !goal.waiting_for_input
+                                    && !goal.waiting_for_agents
                                     && goal.report_turn_id.as_deref() != Some(turn_id.as_str())
                             });
+                        let report_phase =
+                            goal_report_missing && self.limits.max_goal_report_rounds > 0;
+                        // 未启用报告阶段时保留旧恢复和默认暂停契约。
+                        let missing_goal_report = goal_report_missing
+                            && visible_output
+                            && completion_retries < self.limits.max_completion_retries;
                         drop(state);
                         // 明确拒收的响应仍保留观测内容，但不能成为可蒸馏的 accepted completion。
                         operation.finish(if steered {
                             Some("completion_steered")
+                        } else if report_phase {
+                            Some("missing_goal_report")
                         } else if calls.is_empty() && !visible_output {
                             Some("empty_completion")
                         } else if pending_verification {
@@ -940,6 +1028,25 @@ impl Engine {
                             drop(state);
                             complete_reasoning(cell, &thread_id, &turn_id, &reasoning_items).await;
                             complete_item(cell, &thread_id, &turn_id, &item_id).await;
+                            continue 'restart;
+                        }
+                        if report_phase {
+                            drop(state);
+                            let error = anyhow::Error::new(crate::outcome::goal_report_missing(
+                                goal_report_rounds,
+                                self.limits.max_goal_report_rounds,
+                                "report_required",
+                            ));
+                            self.discard_completion(
+                                cell,
+                                &completion_items,
+                                &[],
+                                &error,
+                                (goal_report_rounds, "goalReport"),
+                            )
+                            .await?;
+                            goal_report_only = true;
+                            recovery_hint = Some("This is a bounded Goal progress-report phase. Use the current authoritative Goal revision provided in context. If limitsPending is true, confirm only the user's explicit limits with goal_set_limits first. Otherwise call goal_update now: continue with concrete remaining work, complete only with verified evidence and no remaining work, or blocked with an actual blocker. Do not perform more task actions in this phase or replay confirmed work. A normal text answer is not a Goal report. After an accepted report, provide the final handoff without repeating task actions. A continue report starts the next Goal Turn after normal settlement, under the same remaining root budget.".to_owned());
                             continue 'restart;
                         }
                         if calls.is_empty() && !visible_output {

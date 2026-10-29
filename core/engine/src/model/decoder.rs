@@ -1283,6 +1283,7 @@ mod tests {
     #[test]
     fn responses_final_reasoning_and_usage_survive_a_tool_budget_error() {
         let mut decoder = Decoder::Responses(ResponsesDecoder::new(ToolCallLimits {
+            require_call: false,
             max_calls: 0,
             ..ToolCallLimits::default()
         }));
@@ -1671,6 +1672,7 @@ mod tool_call_tests {
                 for max_buffer_bytes in [size + 4, size + 5] {
                     for chat in [false, true] {
                         let limits = ToolCallLimits {
+                            require_call: false,
                             max_calls,
                             max_buffer_bytes,
                         };

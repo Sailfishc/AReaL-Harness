@@ -149,7 +149,7 @@ Responses 摘要通过可选 `reasoning_summary` / `reasoningSummary` 显式开�
 
 隔离 worker 的模型失败状态只保留当前调用的结果；Engine 已恢复的旧网络错误不能在最终成功后触发新一代执行。恢复请求仍完整计量，历史 UNKNOWN 不会因恢复成功而清零。
 
-watchdog 保留同一请求的 messages、tools、采样参数与模型轮次，不消耗 `max_completion_retries`；重试不会再次预留 Agent 逻辑请求额度，Workgroup 仍计入每次实际请求及部署预算。250 ms 指数退避封顶 30 秒，释放失败流持有的共享模型许可后等待；取消与显式任务预算仍能结束等待，求解请求还响应 steer。Core 审计并丢弃失败响应的文本、上下文与未执行工具调用，恢复该响应占用的输出字节额度，保留此前已执行工具和已观测 usage。发布 `areal/model/completionDiscarded`（新增 `retryKind=network|completion`）及 `areal/model/watchdogRetry {threadId,turnId,purpose:solve|summary,retry,delayMs}`。这里的丢弃不回滚已执行工具，也不重启整个 Turn。 这两个事件也包含在 `areal/capabilities.notifications` 与公开 JSON Schema 中；摘要重试的 `turnId` 可为 null。
+watchdog 保留同一请求的 messages、tools、采样参数与模型轮次，不消耗 `max_completion_retries`；重试不会再次预留 Agent 逻辑请求额度，Workgroup 仍计入每次实际请求及部署预算。250 ms 指数退避封顶 30 秒，释放失败流持有的共享模型许可后等待；取消与显式任务预算仍能结束等待，求解请求还响应 steer。Core 审计并丢弃失败响应的文本、上下文与未执行工具调用，恢复该响应占用的输出字节额度，保留此前已执行工具和已观测 usage。发布 `areal/model/completionDiscarded`（新增 `retryKind=network|completion|goalReport`）及 `areal/model/watchdogRetry {threadId,turnId,purpose:solve|summary,retry,delayMs}`。这里的丢弃不回滚已执行工具，也不重启整个 Turn。 这两个事件也包含在 `areal/capabilities.notifications` 与公开 JSON Schema 中；摘要重试的 `turnId` 可为 null。
 
 SSE 错误 `server_is_overloaded` 和 `service_unavailable_error` 保留为可重试的过载/暂不可用分类；鉴权、额度等明确永久错误仍优先禁止重试。分类只决定网络 watchdog 的候选范围，不绕过 Goal 的未知消费检查。
 
@@ -166,6 +166,8 @@ Responses 的函数参数在成功终态结算最终用量后才进行 JSON 校�
 显式开启完成恢复时，活跃根 Goal 的无工具回复若尚未提交本 Turn 的 `goal_update`，也可使用同一有限额度获得一次协议提醒。Core 只丢弃该回复并要求模型读取当前 Goal、报告真实进度；不代写报告、假定完成或重放此前工具。收尾轮、输出交接及待观察的验证优先沿用各自约束；恢复额度耗尽后仍保留 `max_unreported_turns` 暂停保护。默认额度 0 和普通 Turn 行为不变。
 
 Chat 工具 index 缺失、null、非整数类型、负数、超出 u64 范围或片段非对象时，使用明确的内部协议错误，只进入上述有限恢复，不进入网络 watchdog，也不作为 Workgroup 推理检查点。Core 不猜测编号或片段归属；数量、参数和缓冲预算错误不自动恢复。失败响应的模型视图被丢弃，已有确认工具、steer 和已观测 usage 保留。解析错误在已排队事件交付后立即传播；同事件或前序事件的已解析 usage 只累计一次，直接 EOF 保留原始错误类型。
+
+`limits.max_goal_report_rounds` 默认为 0，范围 0–8，显式启用独立的有界 Goal 报告阶段。活跃根 Goal 在无工具结束且本 Turn 缺少报告时（含纯推理或空白回复），Core 仅保留已授权的 `goal_update`；若 `limitsPending` 则先仅保留 `goal_set_limits`。内置 HTTP 使用 `tool_choice="required"`、禁止并行且最多一次调用；自定义 Model 通过 `ToolCallLimits.require_call` 获得此要求。成功流完整结算后，Core 在执行前拒绝目录外调用。当前 Goal revision 随请求提供，报告仍须满足既有计划、验证和输入检查；有效报告后恢复正常结算、Stop hook 与最终交接。额度耗尽明确返回 `GOAL_PROGRESS_UNREPORTED`，不把缺少报告的回合记为正常完成。报告检测不依赖通用响应恢复额度，所有请求仍计入原根预算，不代写报告、增加权限或重放已确认操作；默认 0 保留旧行为。
 
 Rust `Model::chat_with_limits(messages, tools, purpose, ToolCallLimits, cap)` 显式传递请求预算，内置 HTTP、共享池和 Worker 包装器均转发。可选的输出 token 上限与工具预算一起经过 Goal 计量传递。默认实现委托 `chat_limited`，保持已有自定义 Model 实现可编译，并拒绝不受支持的非空 token 上限；自定义模型自行约束内部缓冲，Engine 仍在工具执行前检查其输出。摘要使用零调用预算。`Limits` 新增 `max_tool_buffer_bytes`，`NativeFactory`/`NativeExecutor` 新增 `tool_call_limits`，显式结构体初始化需补充字段；构造器提供默认值。Rust Limits 同时区分可选累计预算与单响应资源保护。
 

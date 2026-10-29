@@ -49,6 +49,7 @@ fn engine_limits(config: &ResolvedCoreConfig) -> Limits {
         context_output_reserve_tokens: config.context_output_reserve_tokens,
         context_recent_bytes: config.context_recent_bytes,
         max_completion_retries: config.max_completion_retries,
+        max_goal_report_rounds: config.max_goal_report_rounds,
         goal_recover_unknown_model_usage: config.goal_recover_unknown_model_usage,
         max_empty_completion_retries: config.max_empty_completion_retries,
         context_observation_tokens: config.context_observation_tokens,
@@ -583,7 +584,7 @@ async fn serve(
             let factory = Arc::new(NativeFactory {
                 worker_limits: limits.clone(),
                 watchdog_disable: config.watchdog_disable,
-                tool_call_limits: areal_engine::model::ToolCallLimits { max_calls: config.max_response_tool_calls, max_buffer_bytes: config.max_tool_buffer_bytes },
+                tool_call_limits: areal_engine::model::ToolCallLimits { require_call: false, max_calls: config.max_response_tool_calls, max_buffer_bytes: config.max_tool_buffer_bytes },
                 catalog:Some(Arc::downgrade(&engine)),
                 model: model.clone(),
                 runtime: binary,
@@ -610,7 +611,7 @@ async fn serve(
                 let workspace = workspace.canonicalize()?;
                 if !binary.starts_with(&workspace) && !helper.starts_with(&workspace) {
                     let factory = Arc::new(NativeFactory { worker_limits: limits.clone(), watchdog_disable: config.watchdog_disable,
-                        tool_call_limits: areal_engine::model::ToolCallLimits { max_calls: config.max_response_tool_calls, max_buffer_bytes: config.max_tool_buffer_bytes },
+                        tool_call_limits: areal_engine::model::ToolCallLimits { require_call: false, max_calls: config.max_response_tool_calls, max_buffer_bytes: config.max_tool_buffer_bytes },
                         catalog: Some(Arc::downgrade(&engine)), model: model.clone(), runtime: binary, file_helper: helper,
                         toolchain: args.workgroup_toolchain.clone() });
                     engine.attach_automatic_workgroups(Service::open_automatic(&config.data_dir.join("executions"), &workspace, factory, limits.model_concurrency)?)?;

@@ -325,6 +325,7 @@ pub struct ResolvedCoreConfig {
     pub command_stdin_closed: bool,
     pub max_empty_completion_retries: usize,
     pub max_completion_retries: usize,
+    pub max_goal_report_rounds: usize,
     pub goal_recover_unknown_model_usage: bool,
     pub watchdog_disable: bool,
     pub network_retry_mode: NetworkRetryMode,
@@ -398,6 +399,7 @@ impl ResolvedCoreConfig {
             serde_json::json!(self.context_observation_tokens);
         result["limits"]["max_empty_completion_retries"] =
             serde_json::json!(self.max_empty_completion_retries);
+        result["limits"]["max_goal_report_rounds"] = serde_json::json!(self.max_goal_report_rounds);
         result["limits"]["goal_recover_unknown_model_usage"] =
             serde_json::json!(self.goal_recover_unknown_model_usage);
         if sources {

@@ -761,6 +761,7 @@ async fn tool_schema_is_stable_when_http_calls_are_disabled() {
                     tools.clone(),
                     RequestPurpose::Solve,
                     ToolCallLimits {
+                        require_call: false,
                         max_calls: count,
                         ..Default::default()
                     },
@@ -777,6 +778,43 @@ async fn tool_schema_is_stable_when_http_calls_are_disabled() {
         assert_eq!(seen[0]["messages"], seen[1]["messages"]);
         assert_eq!(seen[0]["input"], seen[1]["input"]);
         assert_eq!(seen[1]["tool_choice"], "none");
+        let events = model
+            .chat_with_limits(
+                vec![Message::text("user", "report")],
+                tools.clone(),
+                RequestPurpose::Solve,
+                ToolCallLimits {
+                    require_call: true,
+                    max_calls: 1,
+                    ..Default::default()
+                },
+                None,
+            )
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+        assert!(events.iter().all(Result::is_ok));
+        let required = rx.recv().await.unwrap();
+        assert_eq!(required["tool_choice"], "required");
+        assert_eq!(required["parallel_tool_calls"], false);
+        assert_eq!(required["tools"], seen[0]["tools"]);
+        assert!(
+            model
+                .chat_with_limits(
+                    vec![Message::text("user", "contradictory budget")],
+                    tools.clone(),
+                    RequestPurpose::Solve,
+                    ToolCallLimits {
+                        require_call: true,
+                        max_calls: 0,
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .await
+                .is_err()
+        );
         let model = HttpModel::with_protocol(
             format!("http://{address}/"),
             "violates-choice".into(),
@@ -790,6 +828,7 @@ async fn tool_schema_is_stable_when_http_calls_are_disabled() {
                 tools.clone(),
                 RequestPurpose::Solve,
                 ToolCallLimits {
+                    require_call: false,
                     max_calls: 0,
                     ..Default::default()
                 },

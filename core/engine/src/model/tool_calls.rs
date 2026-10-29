@@ -4,9 +4,11 @@ use super::*;
 
 pub const MAX_TOOL_ARGUMENT_BYTES: usize = 64 * 1024;
 
-/// 宿主传入的本地请求预算，不发送给模型供应商。零调用额度用于摘要等禁用工具的请求。
+/// 宿主传入的请求策略。零调用额度禁用工具；require_call 映射到受支持 Provider 的结构化调用要求。
 #[derive(Clone, Copy, Debug)]
 pub struct ToolCallLimits {
+    /// 仅求解请求使用；不能扩大已有工具目录或调用预算。
+    pub require_call: bool,
     pub max_calls: usize,
     pub max_buffer_bytes: usize,
 }
@@ -14,6 +16,7 @@ pub struct ToolCallLimits {
 impl Default for ToolCallLimits {
     fn default() -> Self {
         Self {
+            require_call: false,
             max_calls: 128,
             max_buffer_bytes: 4 * 1024 * 1024,
         }

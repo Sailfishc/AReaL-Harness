@@ -624,7 +624,7 @@ pub fn projections() -> (Value, Value) {
     notifications.insert("areal/context/compacted".into(),object(json!({"threadId":string,"beforeBytes":number,"afterBytes":number,"durationMs":number,"usage":nullable(schema::<ModelUsage>())})));
     notifications.insert(
         "areal/model/completionDiscarded".into(),
-        object(json!({"threadId":string,"itemIds":array(string.clone()),"retry":{"type":"integer","minimum":1},"retryKind":{"enum":["network","completion"]}})),
+        object(json!({"threadId":string,"itemIds":array(string.clone()),"retry":{"type":"integer","minimum":1},"retryKind":{"enum":["network","completion","goalReport"]}})),
     );
     notifications.insert(
         "areal/model/watchdogRetry".into(),

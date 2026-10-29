@@ -367,6 +367,7 @@ fn walk(
                     | "max_repeated_tool_failures"
                     | "max_empty_completion_retries"
                     | "max_completion_retries"
+                    | "max_goal_report_rounds"
             ]
             | [
                 "model",

@@ -68,6 +68,18 @@ pub(crate) fn turn_error(error: &anyhow::Error) -> TurnError {
     }
 }
 
+pub(crate) fn goal_report_missing(rounds: usize, limit: usize, reason: &str) -> TerminalFailure {
+    TerminalFailure::new(
+        "Goal progress report was not accepted within the configured report phase",
+        outcome(
+            "GOAL_PROGRESS_UNREPORTED",
+            "agent",
+            "core_goal_report_phase",
+            json!({"reportRounds":rounds,"maxReportRounds":limit,"reason":reason}),
+        ),
+    )
+}
+
 pub(crate) fn infrastructure(message: impl Into<String>, source: &str, reason: &str) -> TurnError {
     TurnError {
         message: message.into(),

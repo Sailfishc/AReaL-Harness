@@ -1236,6 +1236,10 @@ impl Model for HttpModel {
             limits.max_calls = 0;
             tools.clear();
         }
+        anyhow::ensure!(
+            !limits.require_call || (limits.max_calls > 0 && !tools.is_empty()),
+            "required model tool call is unavailable under current permissions or budget"
+        );
         self.preflight_media(&messages, purpose).await?;
         let mut body = self.request_body(messages).await.map_err(|error| {
             if let Some(size) = error.downcast_ref::<request_budget::RequestTooLarge>() {
@@ -1329,6 +1333,9 @@ impl Model for HttpModel {
                 .is_none_or(|capabilities| capabilities.tools)
         {
             body["tool_choice"] = json!("none");
+        } else if limits.require_call {
+            body["tool_choice"] = json!("required");
+            body["parallel_tool_calls"] = json!(false);
         }
         if self.options.responses_prompt_cache
             && let Some(key) = affinity::prompt_cache_key(
