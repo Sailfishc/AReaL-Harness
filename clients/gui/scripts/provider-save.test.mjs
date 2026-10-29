@@ -981,3 +981,15 @@ test("a stale default-refresh response cannot overwrite a replacement owner's ca
   await f.service.reconcileProject(f.project);
   assert.deepEqual(f.project.models, [{ id: "replacement-model" }]);
 });
+
+test("Fast defaults survive provider save at provider and model scopes", async () => {
+  const f = fixture();
+  f.request.provider.parameters = { serviceTier: "fast", reasoningEffort: "high" };
+  f.request.provider.models[0].parameters = { serviceTier: "default", reasoningEffort: "low" };
+  const result = await f.service.command(f.request);
+  assert.deepEqual(result.data[0].parameters, { serviceTier: "fast", reasoningEffort: "high" });
+  assert.deepEqual(result.data[0].models[0].parameters, {
+    serviceTier: "default",
+    reasoningEffort: "low",
+  });
+});

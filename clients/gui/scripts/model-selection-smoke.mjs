@@ -28,6 +28,7 @@ await mkdir(join(userHome, ".areal"), { recursive: true });
 execFileSync("git", ["init", "-b", "main"], { cwd: workspace, stdio: "ignore" });
 const requests = [];
 const modelRequests = [];
+const wireTiers = [];
 const probeRequests = [];
 let releaseHeldReply;
 const server = createServer(async (request, response) => {
@@ -67,10 +68,19 @@ const server = createServer(async (request, response) => {
       effort: payload.reasoning_effort ?? null,
       hasEffort: Object.hasOwn(payload, "reasoning_effort"),
     });
+    wireTiers.push({
+      value: payload.service_tier ?? null,
+      present: Object.hasOwn(payload, "service_tier"),
+    });
     const lastMessage = JSON.stringify(payload.messages?.at(-1));
     if (lastMessage?.includes("LAST_MODEL_ACCEPTED_FAILURE")) {
       response.writeHead(400, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ error: { message: "Deterministic failure after admission" } }));
+      return;
+    }
+    if (lastMessage?.includes("FAST_UNSUPPORTED_TIER")) {
+      response.writeHead(400, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: { message: "Unsupported service tier" } }));
       return;
     }
     if (lastMessage?.includes("LAST_MODEL_HOLD_REPLY"))
@@ -86,6 +96,7 @@ const server = createServer(async (request, response) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const config = join(userHome, ".areal", "config.toml");
 const composerPicker = process.argv.includes("--composer-picker");
+const composerFast = process.argv.includes("--composer-fast");
 await writeFile(
   config,
   `schema_version=1\n[model]\ncatalog_version=1\nprovider="theta"\nname="theta-model"\n` +
@@ -101,14 +112,14 @@ await writeFile(
   (await readFile(config, "utf8")) +
     `\n[model.providers.env]\nname="env"\nenabled=false\nendpoint="http://127.0.0.1:${server.address().port}/v1/chat/completions"\nprotocol="chat-completions"\napi_key_env="AREAL_CREDENTIAL_fixture_env"\nmodels=[{id="env-model",enabled=true}]\n`,
 );
-if (composerPicker) {
+if (composerPicker || composerFast) {
   await writeFile(
     config,
     `schema_version=1\n[model]\ncatalog_version=1\nprovider="alpha"\nname="alpha-model"\n` +
       ["alpha", "beta"]
         .map(
           (id) =>
-            `\n[model.providers.${id}]\nname="${id}"\nendpoint="http://127.0.0.1:${server.address().port}/v1/chat/completions"\nprotocol="chat-completions"\nmodels=[{id="${id}-model",enabled=true,capabilities={tools=true,vision=true,reasoning=true,reasoning_effort_options=["low","high"]}}]\n`,
+            `\n[model.providers.${id}]\nname="${id}"\nendpoint="http://127.0.0.1:${server.address().port}/v1/chat/completions"\nprotocol="chat-completions"\nmodels=[{id="${id}-model",enabled=true${composerFast && id === "alpha" ? ',parameters={service_tier="fast"}' : ""},capabilities={tools=true,vision=true,reasoning=true,reasoning_effort_options=["low","high"]}}]\n`,
         )
         .join(""),
   );
@@ -472,7 +483,7 @@ async function launch() {
     if (preferences.nextPromptSuggestions === false && !picker) return false;
     localStorage.setItem(key, JSON.stringify({ ...preferences, nextPromptSuggestions: false }));
     return true;
-  }, composerPicker);
+  }, composerPicker || composerFast);
   if (preferencesChanged) {
     await page.reload();
     await page.getByTestId("areal-workbench").waitFor({ timeout: 120000 });
@@ -1593,6 +1604,198 @@ async function verifyComposerPicker() {
     "provider navigation and independent effort selection; unsupported effort rejected with draft retained; supported effort reaches local provider",
   );
 }
+async function verifyComposerFast() {
+  await until(
+    (s) =>
+      fixtureProject(s)?.state?.connected &&
+      fixtureProject(s).models.some((m) => m.providerId === "beta" && m.available),
+    "fast fixture catalog ready",
+  );
+  const chooseModel = async (provider) => {
+    await button("选择模型").click();
+    const menu = page.getByRole("dialog", { name: "选择模型", exact: true });
+    await menu.getByRole("tab", { name: provider, exact: true }).click();
+    await menu.getByRole("radio", { name: `${provider}-model`, exact: true }).click();
+  };
+  const openEffort = async () => {
+    await button("选择思考强度").click();
+    const menu = page.getByRole("dialog", { name: "选择思考强度", exact: true });
+    await menu.waitFor();
+    return menu;
+  };
+  const send = async (text, model, effort, tier, present = true) => {
+    const before = modelRequests.length;
+    await page.getByTestId("chat-input").fill(text);
+    await button("发送").click();
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="areal-workbench"]')?.dataset.threadId,
+    );
+    const threadId = await page.getByTestId("areal-workbench").getAttribute("data-thread-id");
+    await until(
+      (s) =>
+        fixtureProject(s)?.state?.threads?.[threadId]?.turns?.at(-1)?.status === "completed" &&
+        modelRequests.length === before + 1,
+      text,
+    );
+    assert.deepEqual(modelRequests.at(-1), { model, effort, hasEffort: effort !== null });
+    assert.deepEqual(wireTiers.at(-1), { value: tier, present });
+    return threadId;
+  };
+  assert.equal(await button("选择模型").locator(".composer-model-name").innerText(), "alpha-model");
+  await send("Unspecified tier inherits provider fast", "alpha-model", null, "fast");
+  await chooseModel("beta");
+  await send("Inherited fast survives existing thread model change", "beta-model", null, "fast");
+  await createProjectConversation(page, "workspace");
+  await chooseModel("beta");
+  await send("Unspecified tier remains omitted", "beta-model", null, null, false);
+  await createProjectConversation(page, "workspace");
+  await chooseModel("beta");
+  let menu = await openEffort();
+  const fast = menu.locator(".composer-fast-toggle");
+  await fast.click();
+  await assertFastPressed(fast, true);
+  await menu.getByRole("button", { name: "高", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await button("选择思考强度").getByText(/Fast/).waitFor();
+  const thread = await send("Fast high draft", "beta-model", "high", "fast");
+  menu = await openEffort();
+  await menu.getByRole("slider", { name: "选择思考强度", exact: true }).fill("2");
+  await page.keyboard.press("Escape");
+  await send("Fast low existing thread", "beta-model", "low", "fast");
+  await chooseModel("alpha");
+  await send("Fast survives model change", "alpha-model", null, "fast");
+  menu = await openEffort();
+  await menu.getByRole("button", { name: "低", exact: true }).click();
+  await page.waitForFunction(
+    () => document.querySelector(".composer-fast-toggle")?.getAttribute("aria-disabled") !== "true",
+  );
+  await menu.locator(".composer-fast-toggle").click();
+  await assertFastPressed(menu.locator(".composer-fast-toggle"), false);
+  await page.keyboard.press("Escape");
+  await send("Explicit default overrides provider fast", "alpha-model", "low", "default");
+  menu = await openEffort();
+  await menu.locator(".composer-fast-toggle").click();
+  await assertFastPressed(menu.locator(".composer-fast-toggle"), true);
+  await page.keyboard.press("Escape");
+  await send("Persist fast", "alpha-model", "low", "fast");
+  const beforeRestart = modelRequests.length;
+  await closeGui();
+  app = undefined;
+  await stopService();
+  await launch();
+  await until((s) => fixtureProject(s)?.state?.connected, "fast cold reopen");
+  await selectConversation(page, thread);
+  await button("选择思考强度").getByText(/Fast/).waitFor();
+  assert.equal(modelRequests.length, beforeRestart, "reopening does not replay requests");
+  await send("Persisted fast after restart", "alpha-model", "low", "fast");
+  const computedFonts = {};
+  for (const theme of ["dark", "light"]) {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
+    await button("设置").click();
+    await button("外观").click();
+    await page.getByRole("combobox", { name: "界面主题", exact: true }).click();
+    await page
+      .getByRole("option", { name: theme === "dark" ? "深色" : "浅色", exact: true })
+      .click();
+    await button("返回应用").click();
+    await resizeConversation(app, page, 640, 800);
+    assert.equal(
+      await page.evaluate(() =>
+        getComputedStyle(document.documentElement).getPropertyValue("--ui-font-size").trim(),
+      ),
+      "18px",
+    );
+    menu = await openEffort();
+    await assertFastPressed(menu.locator(".composer-fast-toggle"), true);
+    await menu.locator(".composer-fast-toggle").click();
+    await assertFastPressed(menu.locator(".composer-fast-toggle"), false);
+    await page.mouse.move(0, 0);
+    await menu.locator(".composer-fast-toggle").hover();
+    await page
+      .getByRole("tooltip")
+      .filter({ hasText: /更多额度或费用/ })
+      .waitFor();
+    computedFonts[theme] = await menu.locator(".composer-fast-toggle").evaluate((element) => ({
+      toggle: getComputedStyle(element).fontSize,
+      popover: getComputedStyle(element.closest('[role="dialog"]')).fontSize,
+    }));
+    assert.ok(parseFloat(computedFonts[theme].toggle) > 0);
+    assert.ok(parseFloat(computedFonts[theme].popover) > 0);
+    await page.screenshot({
+      path: join(scratch, `fast-tooltip-640-18-${theme}.png`),
+      animations: "disabled",
+    });
+    await menu.locator(".composer-fast-toggle").click();
+    await assertFastPressed(menu.locator(".composer-fast-toggle"), true);
+    await page.screenshot({
+      path: join(scratch, `fast-on-640-18-${theme}.png`),
+      animations: "disabled",
+    });
+    await page.keyboard.press("Escape");
+  }
+  await writeFile(
+    join(scratch, "fast-computed-fonts.json"),
+    JSON.stringify(computedFonts, null, 2),
+  );
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
+  menu = await openEffort();
+  await page.waitForFunction(() => {
+    const element = document.querySelector('.composer-effort-menu[role="dialog"]');
+    if (!element) return false;
+    const style = getComputedStyle(element);
+    const bounds = element.getBoundingClientRect();
+    return (
+      style.opacity === "1" &&
+      style.visibility === "visible" &&
+      bounds.width > 0 &&
+      bounds.height > 0
+    );
+  });
+  await page.screenshot({ path: join(scratch, "fast-wide.png"), animations: "disabled" });
+  await page.keyboard.press("Escape");
+  await openSideChat(page);
+  const side = page.getByTestId("side-chat-pane").filter({ visible: true });
+  await side.getByRole("button", { name: "选择思考强度", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "选择思考强度", exact: true })
+    .locator(".composer-fast-toggle")
+    .waitFor();
+  const sideFast = page
+    .getByRole("dialog", { name: "选择思考强度", exact: true })
+    .locator(".composer-fast-toggle");
+  await page.waitForFunction(
+    () => document.querySelector(".composer-fast-toggle")?.getAttribute("aria-disabled") !== "true",
+  );
+  const sideWasFast = (await sideFast.getAttribute("aria-pressed")) === "true";
+  await sideFast.click();
+  await assertFastPressed(sideFast, !sideWasFast);
+  await page.keyboard.press("Escape");
+  await page
+    .getByTestId("chat-view")
+    .getByRole("button", { name: "选择思考强度", exact: true })
+    .filter({ hasText: /Fast/ })
+    .waitFor();
+  const beforeFailure = modelRequests.length;
+  await page.getByTestId("chat-input").first().fill("FAST_UNSUPPORTED_TIER");
+  await page.getByRole("button", { name: "发送", exact: true }).first().click();
+  await until(
+    (s) => fixtureProject(s)?.state?.threads?.[thread]?.turns?.at(-1)?.status === "failed",
+    "unsupported tier reaches failed state",
+  );
+  assert.equal(modelRequests.length, beforeFailure + 1, "unsupported tier is not retried");
+  assert.deepEqual(wireTiers.at(-1), { value: "fast", present: true });
+  checks.push(
+    "Fast tier is independent of effort and model, reaches local provider, overrides provider default, and persists across cold restart; main and Side controls are available",
+  );
+}
+async function assertFastPressed(toggle, pressed) {
+  await toggle.waitFor();
+  await page.waitForFunction(
+    ([expected]) =>
+      document.querySelector(".composer-fast-toggle")?.getAttribute("aria-pressed") === expected,
+    [String(pressed)],
+  );
+}
 async function runFullModelSelection() {
   const ready = await until(
     (s) => fixtureProject(s)?.state?.connected && fixtureProject(s).models.length === 3,
@@ -2359,7 +2562,9 @@ try {
   await launch();
   await button("打开项目").click();
   await createProjectConversation(page, "workspace");
-  if (composerPicker) {
+  if (composerFast) {
+    await verifyComposerFast();
+  } else if (composerPicker) {
     await verifyComposerPicker();
   } else {
     await runFullModelSelection();
@@ -2458,6 +2663,7 @@ try {
       .update(await readFile(coreBinary))
       .digest("hex") === coreSha256;
   await writeFile(join(scratch, "model-requests.json"), JSON.stringify(modelRequests, null, 2));
+  await writeFile(join(scratch, "wire-tiers.json"), JSON.stringify(wireTiers, null, 2));
   await writeFile(join(scratch, "probe-requests.json"), JSON.stringify(probeRequests, null, 2));
   if (!coreUnchanged) {
     errors.push("Core binary changed during acceptance");

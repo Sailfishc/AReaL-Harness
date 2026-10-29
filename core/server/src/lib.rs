@@ -733,6 +733,7 @@ fn configured_models(
         temperature: value.temperature,
         max_output_tokens: value.max_output_tokens,
         reasoning_effort: value.reasoning_effort.clone(),
+        service_tier: value.service_tier.clone(),
         reasoning_summary: None,
     };
     let mut result = areal_engine::desktop::ConfiguredModels {
@@ -829,6 +830,7 @@ fn configured_models(
                     temperature: config.model.temperature,
                     max_output_tokens: config.model.max_output_tokens,
                     reasoning_effort: config.model.reasoning_effort.clone(),
+                    service_tier: config.model.service_tier.clone(),
                     reasoning_summary: config.model.reasoning_summary.clone(),
                 },
             );

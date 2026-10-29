@@ -371,6 +371,11 @@ pub(crate) fn valid(field: &str, entry: &Entry) -> Result<()> {
                 return Err(reject("unsupported reasoning summary"));
             }
         }
+        "service_tier" => {
+            if !matches!(value.as_str(), "fast" | "default") {
+                return Err(reject("unsupported service tier"));
+            }
+        }
         "reasoning_effort" | "summary_reasoning_effort" => {
             if !matches!(
                 value.as_str(),
@@ -1026,6 +1031,7 @@ pub(crate) fn load_mode(
             reasoning_effort: values
                 .get("model.reasoning_effort")
                 .map(|e| e.value.clone()),
+            service_tier: values.get("model.service_tier").map(|e| e.value.clone()),
             temperature: values
                 .get("model.temperature")
                 .map(|e| e.value.parse().unwrap()),

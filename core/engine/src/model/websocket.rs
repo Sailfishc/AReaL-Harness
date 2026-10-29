@@ -524,6 +524,7 @@ mod tests {
             .with_options(ModelOptions {
                 responses_websocket: true,
                 responses_prompt_cache: true,
+                service_tier: Some("fast".into()),
                 ..Default::default()
             })
             .unwrap()
@@ -537,6 +538,7 @@ mod tests {
         );
         let first = rx.recv().await.unwrap();
         assert!(first.get("previous_response_id").is_none());
+        assert_eq!(first["service_tier"], "fast");
         assert_eq!(first["sessionHeader"], "thread");
         assert!(first["prompt_cache_key"].is_string());
         history.extend([
@@ -552,9 +554,16 @@ mod tests {
         let second = rx.recv().await.unwrap();
         assert_eq!(first["prompt_cache_key"], second["prompt_cache_key"]);
         assert_eq!(second["previous_response_id"], "resp_fixture");
+        assert_eq!(second["service_tier"], "fast");
         assert_eq!(second["input"].as_array().unwrap().len(), 1);
         assert_eq!(first["connection"], second["connection"]);
-        let changed = model.clone().with_temperature(Some(0.5)).unwrap();
+        let changed = model
+            .clone()
+            .with_options(ModelOptions {
+                service_tier: Some("default".into()),
+                ..model.options.clone()
+            })
+            .unwrap();
         history.extend([
             Message::text("assistant", "ok"),
             Message::text("user", "third"),
@@ -567,6 +576,7 @@ mod tests {
         );
         let third = rx.recv().await.unwrap();
         assert!(third.get("previous_response_id").is_none());
+        assert_eq!(third["service_tier"], "default");
         assert_eq!(third["input"].as_array().unwrap().len(), 5);
         assert_ne!(third["connection"], second["connection"]);
         assert!(

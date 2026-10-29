@@ -164,6 +164,7 @@ impl StreamError {
             },
             parameter: match value["param"].as_str() {
                 Some("reasoning.effort" | "reasoning_effort") => Some("reasoning.effort"),
+                Some("service_tier") => Some("service_tier"),
                 _ => None,
             },
             private_detail: PrivateErrorDetail(private_detail),
@@ -220,10 +221,18 @@ async fn http_failure(mut response: reqwest::Response) -> anyhow::Error {
     .await
     .ok()
     .flatten();
-    let guidance = if detail.as_ref().is_some_and(unsupported_reasoning_parameter) {
-        "; reasoning effort was rejected: choose a supported effort or service default in the model menu, or edit the provider/model configuration"
-    } else {
-        ""
+    let guidance = match detail
+        .as_ref()
+        .filter(|detail| unsupported_parameter(detail))
+        .and_then(|detail| detail.parameter)
+    {
+        Some("reasoning.effort") => {
+            "; reasoning effort was rejected: choose a supported effort or service default in the model menu, or edit the provider/model configuration"
+        }
+        Some("service_tier") => {
+            "; service tier was rejected: turn Fast mode off in the model menu, or edit the provider/model configuration"
+        }
+        _ => "",
     };
     HttpFailure {
         status,
@@ -234,8 +243,8 @@ async fn http_failure(mut response: reqwest::Response) -> anyhow::Error {
     .into()
 }
 
-fn unsupported_reasoning_parameter(detail: &StreamError) -> bool {
-    detail.parameter == Some("reasoning.effort")
+fn unsupported_parameter(detail: &StreamError) -> bool {
+    matches!(detail.parameter, Some("reasoning.effort" | "service_tier"))
         && matches!(
             detail.code.as_deref(),
             Some("unsupported_parameter" | "unsupported_value")
@@ -245,7 +254,7 @@ fn unsupported_reasoning_parameter(detail: &StreamError) -> bool {
 fn stream_outcome(detail: &StreamError, source: &str) -> areal_protocol::TurnOutcome {
     let labels = [&detail.code, &detail.error_type, &detail.reason];
     let has = |name: &str| labels.iter().any(|v| v.as_deref() == Some(name));
-    let (code, class) = if unsupported_reasoning_parameter(detail) {
+    let (code, class) = if unsupported_parameter(detail) {
         ("MODEL_PARAMETER_UNSUPPORTED", "infrastructure")
     } else if has("context_length_exceeded") {
         ("LLM_CONTEXT_WINDOW_EXCEEDED", "agent")
@@ -732,6 +741,7 @@ pub struct ModelOptions {
     pub capabilities: Option<areal_protocol::desktop::ModelCapabilityConfig>,
     pub context_window: Option<areal_protocol::context::ContextWindow>,
     pub reasoning_effort: Option<String>,
+    pub service_tier: Option<String>,
     pub summary_reasoning_effort: Option<String>,
     pub summary_max_output_tokens: Option<u64>,
     pub reasoning_summary: Option<String>,
@@ -755,6 +765,7 @@ impl Default for ModelOptions {
             capabilities: None,
             context_window: None,
             reasoning_effort: None,
+            service_tier: None,
             summary_reasoning_effort: None,
             summary_max_output_tokens: None,
             reasoning_summary: None,
@@ -848,6 +859,13 @@ impl HttpModel {
     }
 
     pub fn with_options(mut self, mut options: ModelOptions) -> Result<Self> {
+        anyhow::ensure!(
+            options
+                .service_tier
+                .as_deref()
+                .is_none_or(|tier| matches!(tier, "fast" | "default")),
+            "invalid service tier"
+        );
         if let Some(capabilities) = &options.capabilities {
             if let Some(efforts) = &capabilities.reasoning_effort_options {
                 anyhow::ensure!(
@@ -1118,6 +1136,7 @@ impl Model for HttpModel {
                         .reasoning_effort
                         .clone()
                         .or(self.options.reasoning_effort.clone()),
+                    service_tier: p.service_tier.clone().or(self.options.service_tier.clone()),
                     reasoning_summary: p
                         .reasoning_summary
                         .clone()
@@ -1236,6 +1255,9 @@ impl Model for HttpModel {
                 error
             }
         })?;
+        if let Some(tier) = &self.options.service_tier {
+            body["service_tier"] = json!(tier);
+        }
         if let Some(temperature) = self.temperature.or(self.options.temperature) {
             body["temperature"] = json!(temperature);
         }
@@ -2037,50 +2059,56 @@ mod reasoning_parameter_tests {
     use super::*;
 
     #[tokio::test]
-    async fn unsupported_effort_http_error_has_safe_guidance_correlation_and_private_detail_without_retry()
+    async fn unsupported_parameters_http_error_has_safe_guidance_correlation_and_private_detail_without_retry()
      {
-        use axum::{Router, http::StatusCode, routing::post};
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        let calls = Arc::new(AtomicUsize::new(0));
-        let seen = calls.clone();
-        let app = Router::new().route("/", post(move || {
+        for (parameter, guidance) in [
+            ("reasoning.effort", "service default"),
+            ("service_tier", "Fast mode off"),
+        ] {
+            use axum::{Router, http::StatusCode, routing::post};
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            let calls = Arc::new(AtomicUsize::new(0));
+            let seen = calls.clone();
+            let app = Router::new().route("/", post(move || {
             let seen = seen.clone();
             async move {
                 seen.fetch_add(1, Ordering::SeqCst);
                 (StatusCode::BAD_REQUEST, [("x-request-id", "req_fixture_400")],
-                    json!({"error":{"code":"unsupported_value","param":"reasoning.effort","message":"private-provider-marker"}}).to_string())
+                    json!({"error":{"code":"unsupported_value","param":parameter,"message":"private-provider-marker"}}).to_string())
             }
         }));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint = format!("http://{}/", listener.local_addr().unwrap());
-        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let directory = tempfile::tempdir().unwrap();
-        let mut model = HttpModel::new(endpoint, "custom".into(), None)
-            .unwrap()
-            .with_audit_directory(directory.path().to_owned());
-        model.client = reqwest::Client::builder().no_proxy().build().unwrap();
-        let error = match model
-            .chat(vec![Message::text("user", "hello")], vec![])
-            .await
-        {
-            Ok(_) => panic!("unsupported parameter must fail"),
-            Err(error) => error,
-        };
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-        assert!(error.to_string().contains("service default"));
-        assert!(!format!("{error:?}").contains("private-provider-marker"));
-        let outcome = terminal_outcome(&error).unwrap();
-        assert_eq!(outcome.code, "MODEL_PARAMETER_UNSUPPORTED");
-        assert_eq!(outcome.details.unwrap()["requestId"], "req_fixture_400");
-        let journal = std::fs::read_to_string(directory.path().join("requests.jsonl")).unwrap();
-        assert!(!journal.contains("private-provider-marker"));
-        let record: Value = serde_json::from_str(journal.lines().last().unwrap()).unwrap();
-        assert!(
-            std::fs::read_to_string(record["errorDetailFile"].as_str().unwrap())
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let endpoint = format!("http://{}/", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let directory = tempfile::tempdir().unwrap();
+            let mut model = HttpModel::new(endpoint, "custom".into(), None)
                 .unwrap()
-                .contains("private-provider-marker")
-        );
-        server.abort();
-        let _ = server.await;
+                .with_audit_directory(directory.path().to_owned());
+            model.client = reqwest::Client::builder().no_proxy().build().unwrap();
+            let error = match model
+                .chat(vec![Message::text("user", "hello")], vec![])
+                .await
+            {
+                Ok(_) => panic!("unsupported parameter must fail"),
+                Err(error) => error,
+            };
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+            assert!(error.to_string().contains(guidance));
+            assert!(!format!("{error:?}").contains("private-provider-marker"));
+            let outcome = terminal_outcome(&error).unwrap();
+            assert_eq!(outcome.code, "MODEL_PARAMETER_UNSUPPORTED");
+            assert_eq!(outcome.details.as_ref().unwrap()["parameter"], parameter);
+            assert_eq!(outcome.details.unwrap()["requestId"], "req_fixture_400");
+            let journal = std::fs::read_to_string(directory.path().join("requests.jsonl")).unwrap();
+            assert!(!journal.contains("private-provider-marker"));
+            let record: Value = serde_json::from_str(journal.lines().last().unwrap()).unwrap();
+            assert!(
+                std::fs::read_to_string(record["errorDetailFile"].as_str().unwrap())
+                    .unwrap()
+                    .contains("private-provider-marker")
+            );
+            server.abort();
+            let _ = server.await;
+        }
     }
 }

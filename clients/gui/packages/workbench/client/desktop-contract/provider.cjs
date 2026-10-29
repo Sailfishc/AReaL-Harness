@@ -2,7 +2,7 @@
 "use strict";
 
 /** @typedef {Record<string,unknown>} Fields */
-/** @typedef {{temperature?:number|null,maxOutputTokens?:number|null,contextWindowTokens?:number|null,reasoningEffort?:string|null,reasoningSummary?:string|null}} ModelParameters */
+/** @typedef {{temperature?:number|null,maxOutputTokens?:number|null,contextWindowTokens?:number|null,reasoningEffort?:string|null,reasoningSummary?:string|null,serviceTier?:'fast'|'default'|null}} ModelParameters */
 /** @typedef {{tools:boolean,vision:boolean,reasoning:boolean,reasoningEffortOptions?:string[]}} ModelCapabilities */
 /** @typedef {{providerId:string,modelId:string}} ModelRef */
 /** @typedef {{id:string,enabled:boolean,displayName?:string,parameters:ModelParameters,capabilities?:ModelCapabilities}} ModelConfig */
@@ -42,7 +42,8 @@ function parameters(value) {
     ) &&
     ["reasoningEffort", "reasoningSummary"].every(
       (key) => value[key] == null || typeof value[key] === "string",
-    )
+    ) &&
+    (value.serviceTier == null || value.serviceTier === "fast" || value.serviceTier === "default")
   );
 }
 /** @param {unknown} value @returns {value is ModelCapabilities} */
@@ -263,13 +264,17 @@ function modelParameters(raw = {}) {
   if (
     Object.keys(raw).some(
       (key) =>
-        !["temperature", "maxOutputTokens", "contextWindowTokens", "reasoningEffort"].includes(
-          key,
-        ) || raw[key] === undefined,
+        ![
+          "temperature",
+          "maxOutputTokens",
+          "contextWindowTokens",
+          "reasoningEffort",
+          "serviceTier",
+        ].includes(key) || raw[key] === undefined,
     )
   )
     throw new Error("模型参数无效");
-  const { temperature, maxOutputTokens, contextWindowTokens, reasoningEffort } = raw;
+  const { temperature, maxOutputTokens, contextWindowTokens, reasoningEffort, serviceTier } = raw;
   if (
     (temperature != null &&
       (typeof temperature !== "number" ||
@@ -281,6 +286,7 @@ function modelParameters(raw = {}) {
         !Number.isSafeInteger(maxOutputTokens) ||
         maxOutputTokens <= 0)) ||
     (contextWindowTokens != null && !validContextWindow(contextWindowTokens)) ||
+    (serviceTier != null && serviceTier !== "fast" && serviceTier !== "default") ||
     (reasoningEffort != null &&
       (typeof reasoningEffort !== "string" ||
         !["default", "none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(
@@ -293,6 +299,7 @@ function modelParameters(raw = {}) {
     ...(maxOutputTokens == null ? {} : { maxOutputTokens }),
     ...(contextWindowTokens == null ? {} : { contextWindowTokens }),
     ...(reasoningEffort == null ? {} : { reasoningEffort }),
+    ...(serviceTier == null ? {} : { serviceTier }),
   };
 }
 
@@ -322,7 +329,7 @@ function modelCapabilities(raw) {
 }
 
 /** @typedef {'none'|'minimal'|'low'|'medium'|'high'|'xhigh'|'max'} ReasoningEffort */
-/** @typedef {Pick<ModelParameters,'temperature'|'maxOutputTokens'|'contextWindowTokens'> & {reasoningEffort?:ReasoningEffort|'default'|null}} ModelInputParameters */
+/** @typedef {Pick<ModelParameters,'temperature'|'maxOutputTokens'|'contextWindowTokens'|'serviceTier'> & {reasoningEffort?:ReasoningEffort|'default'|null}} ModelInputParameters */
 /** @typedef {Pick<ModelCapabilities,'tools'|'vision'|'reasoning'> & {reasoningEffortOptions?:ReasoningEffort[]}} ModelInputCapabilities */
 /** @typedef {{id?:string,name:string,baseUrl:string,protocol:'chatCompletions'|'responses',enabled?:boolean,models:Array<{id:string,displayName?:string,enabled?:boolean,parameters?:ModelInputParameters,capabilities?:ModelInputCapabilities}>,parameters?:ModelInputParameters}} ProviderDraft */
 /** @typedef {{baseUrl:string,protocol:'chatCompletions'|'responses',credential:{kind:'none'}|{kind:'draft',value:string}|{kind:'saved',providerId:string,expectedRevision:string}}} DiscoveryConnection */

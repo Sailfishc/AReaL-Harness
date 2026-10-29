@@ -52,3 +52,36 @@ describe("desktop draft explicit effort", () => {
     expect(draftModelSelection(remembered, undefined, null, { [value]: "max" }).effort).toBe("max");
   });
 });
+
+describe("desktop draft Fast intent", () => {
+  const fastProject = {
+    ...project,
+    models: [
+      { ...model, parameters: { reasoningEffort: "low", serviceTier: "fast" } },
+      { ...model, providerId: "relay", parameters: { reasoningEffort: "high" } },
+    ],
+  };
+
+  it("inherits configured Fast independently from effort", () => {
+    expect(draftModelSelection(fastProject, undefined, value, { [value]: "max" })).toMatchObject({
+      effort: "max",
+      serviceTier: "fast",
+    });
+  });
+
+  it("keeps explicit Off over configured Fast", () => {
+    expect(draftModelSelection(fastProject, undefined, value, {}, "default")).toMatchObject({
+      effort: "low",
+      serviceTier: "default",
+    });
+  });
+
+  it("carries explicit Fast across model changes without changing effort", () => {
+    expect(
+      draftModelSelection(fastProject, undefined, "relay/family/shared-model", {}, "fast"),
+    ).toMatchObject({ effort: "high", serviceTier: "fast" });
+    expect(
+      draftModelSelection(fastProject, undefined, "relay/family/shared-model", {}).serviceTier,
+    ).toBeUndefined();
+  });
+});

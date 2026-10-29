@@ -118,6 +118,8 @@ target/debug/areal service bind --workspace /absolute/workspace \
 
 模型目录 `reasoningEffortOptions` 只列已声明或已核实的档位；未知时返回空列表。`capabilities.reasoningEffortOptions` 省略表示未知，显式空列表表示无可选强度。Core 在最终参数合并后阻止已知非法值，供应商目录仍可用于修正。配置 `reasoningEffort: "default"` 明确覆盖继承默认，HTTP 请求省略强度；null／省略仍继承。识别出的参数拒绝使用 `MODEL_PARAMETER_UNSUPPORTED`，只公开白名单参数和关联 `requestId`；原始供应商错误保存在私有本机诊断，不自动改参重发。
 
+`parameters.serviceTier` 独立于推理强度，可设为 `"fast"` 或 `"default"`。`"fast"` 请求供应商 Fast 优先服务；`"default"` 显式覆盖继承的 Fast 设置并请求标准服务。null／省略仍继承模型、供应商或上游项目默认。Core 在 Chat Completions、Responses HTTP 与 Responses WebSocket 请求中按原值发送 `service_tier`，仅配置时发送。不预判模型或供应商支持情况，供应商拒绝按现有失败路径上报；可识别的 `service_tier` 参数拒绝使用 `MODEL_PARAMETER_UNSUPPORTED`，不改参重发。请求 Fast 不保证实际加速。会话配置和快照保留该值，旧快照缺失此字段时仍可读取。旧客户端省略该字段时沿用原行为；包含该字段的新请求和快照需要支持 `serviceTier` 的 Core。
+
 ### 派生会话与数据兼容性
 
 `areal/capabilities.features.conversationDerivationV1` 默认返回 `preview:false`、实际方法集合、Fork 边界、`sharedCurrent`、可用的 Side `workspaceAccess` 和有效限额，无需开发环境开关。客户端按当前连接的公开能力启用创建入口。

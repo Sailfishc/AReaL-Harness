@@ -325,6 +325,12 @@
               "null"
             ]
           },
+          "serviceTier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "temperature": {
             "format": "double",
             "type": [
@@ -3635,6 +3641,12 @@
                     "null"
                   ]
                 },
+                "serviceTier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "temperature": {
                   "format": "double",
                   "type": [
@@ -5194,6 +5206,12 @@
                   ]
                 },
                 "reasoningSummary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "serviceTier": {
                   "type": [
                     "string",
                     "null"
@@ -7562,6 +7580,12 @@
                   ]
                 },
                 "reasoningSummary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "serviceTier": {
                   "type": [
                     "string",
                     "null"
@@ -12782,6 +12806,12 @@
                     "null"
                   ]
                 },
+                "serviceTier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "temperature": {
                   "format": "double",
                   "type": [
@@ -15108,6 +15138,12 @@
                     "null"
                   ]
                 },
+                "serviceTier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "temperature": {
                   "format": "double",
                   "type": [
@@ -16791,6 +16827,12 @@
                     "null"
                   ]
                 },
+                "serviceTier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "temperature": {
                   "format": "double",
                   "type": [
@@ -17834,6 +17876,12 @@
               "null"
             ]
           },
+          "serviceTier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "temperature": {
             "format": "double",
             "type": [
@@ -18529,6 +18577,12 @@
             ]
           },
           "reasoningSummary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serviceTier": {
             "type": [
               "string",
               "null"
@@ -22036,6 +22090,12 @@
                     "null"
                   ]
                 },
+                "serviceTier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "temperature": {
                   "format": "double",
                   "type": [
@@ -23743,6 +23803,12 @@
               ]
             },
             "reasoningSummary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "serviceTier": {
               "type": [
                 "string",
                 "null"
@@ -25830,6 +25896,12 @@
                 "null"
               ]
             },
+            "serviceTier": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "temperature": {
               "format": "double",
               "type": [
@@ -26043,6 +26115,12 @@
               ]
             },
             "reasoningSummary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "serviceTier": {
               "type": [
                 "string",
                 "null"
@@ -26339,6 +26417,12 @@
               ]
             },
             "reasoningSummary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "serviceTier": {
               "type": [
                 "string",
                 "null"
@@ -31326,6 +31410,12 @@
                       "null"
                     ]
                   },
+                  "serviceTier": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "temperature": {
                     "format": "double",
                     "type": [
@@ -34785,6 +34875,12 @@
                         "null"
                       ]
                     },
+                    "serviceTier": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "temperature": {
                       "format": "double",
                       "type": [
@@ -37097,6 +37193,12 @@
                       ]
                     },
                     "reasoningSummary": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "serviceTier": {
                       "type": [
                         "string",
                         "null"
@@ -42332,6 +42434,12 @@
                     ]
                   },
                   "reasoningSummary": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "serviceTier": {
                     "type": [
                       "string",
                       "null"
@@ -57802,6 +57910,12 @@
                     "null"
                   ]
                 },
+                "serviceTier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "temperature": {
                   "format": "double",
                   "type": [
@@ -60116,6 +60230,12 @@
                     "null"
                   ]
                 },
+                "serviceTier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "temperature": {
                   "format": "double",
                   "type": [
@@ -62362,6 +62482,12 @@
                       "null"
                     ]
                   },
+                  "serviceTier": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "temperature": {
                     "format": "double",
                     "type": [
@@ -62653,6 +62779,12 @@
                 "null"
               ]
             },
+            "serviceTier": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "temperature": {
               "format": "double",
               "type": [
@@ -62817,6 +62949,12 @@
               ]
             },
             "reasoningSummary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "serviceTier": {
               "type": [
                 "string",
                 "null"
@@ -63517,6 +63655,12 @@
               ]
             },
             "reasoningSummary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "serviceTier": {
               "type": [
                 "string",
                 "null"
@@ -64337,6 +64481,12 @@
                 "null"
               ]
             },
+            "serviceTier": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "temperature": {
               "format": "double",
               "type": [
@@ -65147,6 +65297,12 @@
               ]
             },
             "reasoningSummary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "serviceTier": {
               "type": [
                 "string",
                 "null"
@@ -65967,6 +66123,12 @@
                 "null"
               ]
             },
+            "serviceTier": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "temperature": {
               "format": "double",
               "type": [
@@ -66777,6 +66939,12 @@
               ]
             },
             "reasoningSummary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "serviceTier": {
               "type": [
                 "string",
                 "null"
@@ -67617,6 +67785,12 @@
               ]
             },
             "reasoningSummary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "serviceTier": {
               "type": [
                 "string",
                 "null"
@@ -71514,6 +71688,12 @@
                     "null"
                   ]
                 },
+                "serviceTier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "temperature": {
                   "format": "double",
                   "type": [
@@ -73825,6 +74005,12 @@
                       ]
                     },
                     "reasoningSummary": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "serviceTier": {
                       "type": [
                         "string",
                         "null"
@@ -76630,6 +76816,12 @@
                     "null"
                   ]
                 },
+                "serviceTier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "temperature": {
                   "format": "double",
                   "type": [
@@ -78939,6 +79131,12 @@
                   ]
                 },
                 "reasoningSummary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "serviceTier": {
                   "type": [
                     "string",
                     "null"
@@ -92970,6 +93168,12 @@
                 "null"
               ]
             },
+            "serviceTier": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "temperature": {
               "format": "double",
               "type": [
@@ -95331,6 +95535,12 @@
                     "null"
                   ]
                 },
+                "serviceTier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "temperature": {
                   "format": "double",
                   "type": [
@@ -97004,6 +97214,12 @@
                   ]
                 },
                 "reasoningSummary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "serviceTier": {
                   "type": [
                     "string",
                     "null"
@@ -99879,6 +100095,12 @@
                   ]
                 },
                 "reasoningSummary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "serviceTier": {
                   "type": [
                     "string",
                     "null"
@@ -103409,6 +103631,12 @@
                     "null"
                   ]
                 },
+                "serviceTier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "temperature": {
                   "format": "double",
                   "type": [
@@ -105781,6 +106009,12 @@
                     "null"
                   ]
                 },
+                "serviceTier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "temperature": {
                   "format": "double",
                   "type": [
@@ -107457,6 +107691,12 @@
                       ]
                     },
                     "reasoningSummary": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "serviceTier": {
                       "type": [
                         "string",
                         "null"
@@ -120025,6 +120265,12 @@
                       "null"
                     ]
                   },
+                  "serviceTier": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "temperature": {
                     "format": "double",
                     "type": [
@@ -123467,6 +123713,12 @@
                   ]
                 },
                 "reasoningSummary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "serviceTier": {
                   "type": [
                     "string",
                     "null"
@@ -127050,6 +127302,12 @@
                     "null"
                   ]
                 },
+                "serviceTier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "temperature": {
                   "format": "double",
                   "type": [
@@ -130526,6 +130784,12 @@
                     "null"
                   ]
                 },
+                "serviceTier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "temperature": {
                   "format": "double",
                   "type": [
@@ -132858,6 +133122,12 @@
                   ]
                 },
                 "reasoningSummary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "serviceTier": {
                   "type": [
                     "string",
                     "null"
@@ -135966,6 +136236,12 @@
               "null"
             ]
           },
+          "serviceTier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "temperature": {
             "format": "double",
             "type": [
@@ -138275,6 +138551,12 @@
             ]
           },
           "reasoningSummary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serviceTier": {
             "type": [
               "string",
               "null"

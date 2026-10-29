@@ -201,6 +201,8 @@ thread/configure 使用 expectedRevision，仅空闲且不压缩时生效。rese
 
 可选 `parameters.reasoningSummary` 接受 `auto` / `concise` / `detailed`，仅用于 Responses，按 Provider 默认 → Thread 参数合并；Provider/服务默认与 Thread 都未配置时不启用摘要请求。`areal/model/list.parameterCapabilities` 只在 Responses Provider 下包含 `reasoningSummary`，表示适配器支持传参，不保证供应商的每个模型都支持所选模式。`areal/model/list.reasoningEffortOptions` 返回自定义能力声明的允许值，未声明时返回现有 HTTP 适配器允许的 `none/minimal/low/medium/high/xhigh`（其他适配器为空），同样不保证远端每个模型都支持。Composer 从目录读取这些选项，通过原会话配置提交参数。事件与分段规则见 [Core 思考进度](core.md#思考进度)。
 
+可选 `parameters.serviceTier` 接受 `fast` / `default`，独立于推理强度。`fast` 请求优先服务，`default` 显式关闭并覆盖继承值；null／省略仍继承默认。`areal/model/list.parameterCapabilities` 包含 `serviceTier`，表示适配器可传参。Core 在 Chat Completions、Responses HTTP 和 WebSocket 中发送对应的 `service_tier`，供应商自行决定是否支持，不保证实际加速。该值沿会话配置和快照持久化；拒绝与继承规则见[本地服务模型配置](local-service.md)。
+
 options.readOnly 收窄 Scope 写根和网络；toolAllowlist 收窄 Profile；preapprovedTools 不能取消部署强制审批，且只匹配当前工具名；预批准读取工具不会豁免它触发的 hook。maxModelRounds 为 1–1024，最后一轮仅交接，不等于团队请求预算。Profile/Workflow 定义使用不可变 id/revision；Skill 引用不冻结资源内容，见下文。
 
 `features.automaticSessionName` 表示支持 `options.automaticSessionName: boolean`；`areal/thread/start` 与 `areal/thread/configure` 使用同一选项，省略或 true 保留自动命名，false 禁止后续命名请求。配置替换时客户端应保留已有选择；来源 Turn 的冻结配置、在途请求和恢复边界见 [Core 会话名称](core.md#会话名称)。

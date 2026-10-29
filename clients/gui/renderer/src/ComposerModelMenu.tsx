@@ -1,4 +1,5 @@
 import { Input } from "@areal/ui";
+import { Zap } from "lucide-react";
 import { useId, useRef, useState } from "react";
 import { useI18n } from "./i18n/IntlProvider.js";
 import { MenuChevronIcon, MenuSelectedIcon } from "./interfaceIcons.js";
@@ -62,6 +63,8 @@ export function ComposerModelMenu({
   disabled,
   pending = false,
   effort,
+  serviceTier,
+  onServiceTierChange,
   onEffortChange,
   onChange,
   onClose,
@@ -71,6 +74,8 @@ export function ComposerModelMenu({
   disabled?: boolean;
   pending?: boolean;
   effort?: string;
+  serviceTier?: string;
+  onServiceTierChange?: (value: "fast" | "default") => void | Promise<void>;
   onEffortChange?: (value: string) => void | Promise<void>;
   onChange: (value: string) => void;
   onClose: () => void;
@@ -98,6 +103,8 @@ export function ComposerModelMenu({
   const model = options.find((option) => option.value === value);
   const label = model?.label ?? t("chat.composer.chooseModel");
   const identityLabel = model?.providerId ? `${label} · ${model.providerId}` : label;
+  const fast = serviceTier === "fast";
+  const fastAction = t(fast ? "chat.composer.disableFast" : "chat.composer.enableFast");
   const selectedEffort = effort && effort !== "default" ? effort : undefined;
   const index = efforts.findIndex((item) => item === selectedEffort);
   const sliderIndex = pointerIndex ?? index;
@@ -173,9 +180,6 @@ export function ComposerModelMenu({
           }
         >
           <span className="composer-model-name">{label}</span>
-          {model?.providerId && (
-            <span className="composer-model-provider">· {model.providerId}</span>
-          )}
           {model?.unavailableReason && (
             <span
               className="text-destructive"
@@ -281,14 +285,15 @@ export function ComposerModelMenu({
                 type="button"
                 variant="ghost"
                 aria-label={t("chat.composer.chooseEffort")}
-                title={effortLabel}
+                title={fast ? `Fast · ${effortLabel}` : effortLabel}
                 disabled={disabled || pending}
                 aria-busy={pending || undefined}
                 className="composer-model-trigger composer-effort-trigger"
               />
             }
           >
-            <span>{effortLabel}</span>
+            {fast && <Zap size={14} className="composer-fast-indicator" aria-hidden="true" />}
+            <span>{fast ? `Fast · ${effortLabel}` : effortLabel}</span>
             <MenuChevronIcon size={14} aria-hidden="true" />
           </PopoverTrigger>
           <PopoverContent
@@ -302,7 +307,36 @@ export function ComposerModelMenu({
               return false;
             }}
           >
-            <div className="composer-effort-center">
+            {onServiceTierChange && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="composer-fast-toggle"
+                      aria-label={fastAction}
+                      aria-pressed={fast}
+                      aria-disabled={pending || undefined}
+                      disabled={disabled}
+                      onClick={() => {
+                        if (!pending) void onServiceTierChange(fast ? "default" : "fast");
+                      }}
+                    />
+                  }
+                >
+                  <Zap size={16} aria-hidden="true" />
+                </TooltipTrigger>
+                <TooltipContent role="tooltip" sideOffset={8}>
+                  {fastAction}
+                </TooltipContent>
+              </Tooltip>
+            )}
+            <div
+              className="composer-effort-center"
+              data-fast-toggle={onServiceTierChange ? "true" : undefined}
+            >
               <strong>{effortLabel}</strong>
               <div className="composer-model-source">{identityLabel}</div>
             </div>

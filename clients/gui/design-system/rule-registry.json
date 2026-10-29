@@ -3099,7 +3099,7 @@
       "title": "桌面 Composer 的模型和思考强度使用相邻的独立 Popover",
       "owner": "clients/gui/packages/ui/src/conversation/composer-surface/composer-surface.md#输入区与面板组合",
       "strength": "default",
-      "textSha256": "decc612fc6c3543159bc4b7eecbf4a30066cf3f5da261012e222c2432652a930"
+      "textSha256": "1ecf0c9e8063f255d683805166bc700fefb0c5c11a6c781f1ef627b6edb8c961"
     },
     {
       "id": "R-LAYOUT-013",

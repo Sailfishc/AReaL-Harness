@@ -1470,3 +1470,64 @@ fn model_capabilities_preserve_explicit_false_and_reasoning_options() {
         Some("max")
     );
 }
+
+#[test]
+fn service_tier_catalog_overrides_and_round_trip_preserve_independent_effort() {
+    let root = tempfile::tempdir().unwrap();
+    let mut i = inputs(root.path());
+    i.overrides = ConfigOverrides::default();
+    let text = "schema_version=2\n[model]\nprovider='custom'\nname='opaque'\n[model.providers.custom]\nendpoint='http://127.0.0.1:9/v1/responses'\nprotocol='responses'\nparameters={service_tier='fast',reasoning_effort='low'}\nmodels=[{id='opaque',parameters={service_tier='default',reasoning_effort='high'}}]\n";
+    write(&mut i, text);
+    let config = load_config(&i).unwrap();
+    assert_eq!(config.model.service_tier.as_deref(), Some("default"));
+    assert_eq!(config.model.reasoning_effort.as_deref(), Some("high"));
+    let mut document = models::read(&i, &[]).unwrap();
+    document.data[0].models[0].parameters.service_tier = Some("fast".into());
+    let saved = models::write(
+        &i,
+        models::ModelConfigurationUpdate {
+            expected_revision: document.revision,
+            data: document.data,
+            default_model: document.default_model,
+        },
+        &[],
+    )
+    .unwrap();
+    assert_eq!(
+        saved.data[0].models[0].parameters.service_tier.as_deref(),
+        Some("fast")
+    );
+    let config = load_config(&i).unwrap();
+    assert_eq!(config.model.service_tier.as_deref(), Some("fast"));
+    assert_eq!(config.model.reasoning_effort.as_deref(), Some("high"));
+    let saved_text = fs::read_to_string(i.config_file.as_ref().unwrap()).unwrap();
+    assert!(saved_text.contains("service_tier"));
+    for invalid in ["priority", "auto", "flex", "unknown"] {
+        write(
+            &mut i,
+            &text.replace(
+                "service_tier='default'",
+                &format!("service_tier='{invalid}'"),
+            ),
+        );
+        assert_eq!(failure(&i).kind, ConfigErrorKind::InvalidValue);
+    }
+    write(
+        &mut i,
+        &text.replace(
+            "provider='custom'",
+            "provider='custom'\nservice_tier='fast'",
+        ),
+    );
+    assert_eq!(
+        load_config(&i).unwrap().model.service_tier.as_deref(),
+        Some("fast")
+    );
+    write(
+        &mut i,
+        &text
+            .replace("service_tier='fast',", "")
+            .replace("service_tier='default',", ""),
+    );
+    assert!(load_config(&i).unwrap().model.service_tier.is_none());
+}

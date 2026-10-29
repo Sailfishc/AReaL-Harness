@@ -45,6 +45,7 @@ export function subscriptionRequest(body, hints = {}) {
     store: false,
     include: ["reasoning.encrypted_content"],
     ...(body.tools ? { tools: body.tools } : {}),
+    ...(body.service_tier !== undefined ? { service_tier: body.service_tier } : {}),
     ...(body.parallel_tool_calls !== undefined
       ? { parallel_tool_calls: body.parallel_tool_calls }
       : {}),
@@ -81,7 +82,6 @@ export function openaiRequest(body, hints) {
     throw new Error("ChatGPT 不支持此请求参数；请修改配置后重试");
   const value = subscriptionRequest(body, hints);
   if (body.parallel_tool_calls !== undefined) value.parallel_tool_calls = body.parallel_tool_calls;
-  if (body.service_tier !== undefined) value.service_tier = body.service_tier;
   if (value.tools?.length) {
     if (value.tools.some((t) => t.type !== "function")) throw new Error("Unsupported OpenAI tool");
     value.tools = [

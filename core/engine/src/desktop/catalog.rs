@@ -520,6 +520,7 @@ impl Engine {
                 })),
                 context_window_tokens: parameters.context_window_tokens,
                 reasoning_effort: parameters.reasoning_effort.clone(),
+                service_tier: parameters.service_tier.clone(),
                 reasoning_summary: parameters.reasoning_summary.clone(),
                 max_output_tokens: parameters.max_output_tokens,
                 max_retries: 0,
@@ -1273,6 +1274,7 @@ pub(crate) fn merge_model_parameters(
         temperature: parameters.temperature.or(defaults.temperature),
         max_output_tokens: parameters.max_output_tokens.or(defaults.max_output_tokens),
         reasoning_effort: parameters.reasoning_effort.or(defaults.reasoning_effort),
+        service_tier: parameters.service_tier.or(defaults.service_tier),
         reasoning_summary: parameters.reasoning_summary.or(defaults.reasoning_summary),
     }
 }

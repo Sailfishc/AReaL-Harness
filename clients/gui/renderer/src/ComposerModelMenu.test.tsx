@@ -37,12 +37,14 @@ describe("composer model provider identity", () => {
     expect(catalog).toEqual(original);
   });
 
-  it.each(["direct", "relay"])("shows the selected %s provider beside the model", (provider) => {
-    const markup = render(`${provider}/family/shared-model`);
-    expect(markup).toContain(`title="Shared model · ${provider}"`);
-    expect(markup).toContain(`composer-model-provider">· ${provider}</span>`);
-    expect(markup).not.toContain(`· ${provider === "direct" ? "relay" : "direct"}</span>`);
-  });
+  it.each(["direct", "relay"])(
+    "shows only the model name for %s while keeping its provider in the title",
+    (provider) => {
+      const markup = render(`${provider}/family/shared-model`);
+      expect(markup).toContain(`title="Shared model · ${provider}"`);
+      expect(markup.replace(/<[^>]*>/g, "")).toBe("Shared model");
+    },
+  );
 
   it("shows an independent effort trigger for a non-reasoning model and preserves custom values", () => {
     const markup = renderToStaticMarkup(
@@ -73,5 +75,24 @@ describe("composer model provider identity", () => {
       }),
     );
     expect(markup).not.toContain('class="composer-model-provider"');
+  });
+});
+
+describe("composer confirmed Fast status", () => {
+  it.each([undefined, "default", "fast"])("shows requested Fast only for %s", (serviceTier) => {
+    const markup = renderToStaticMarkup(
+      createElement(ComposerModelMenu, {
+        options: catalog.map(composerModelOption),
+        value: "direct/family/shared-model",
+        effort: "max",
+        serviceTier,
+        onServiceTierChange: vi.fn(),
+        onEffortChange: vi.fn(),
+        onChange: vi.fn(),
+        onClose: vi.fn(),
+      }),
+    );
+    expect(markup.includes("Fast · chat.composer.effort.max")).toBe(serviceTier === "fast");
+    expect(markup).toContain('aria-label="chat.composer.chooseEffort"');
   });
 });

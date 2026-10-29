@@ -438,6 +438,14 @@ export const commonMessages = {
   "chat.composer.effort.high": { "zh-CN": "高", en: "High" },
   "chat.composer.effort.xhigh": { "zh-CN": "极高", en: "Extra high" },
   "chat.composer.effort.max": { "zh-CN": "最高", en: "Maximum" },
+  "chat.composer.enableFast": {
+    "zh-CN": "开启 Fast，可能消耗更多额度或费用",
+    en: "Enable Fast. May use more quota or cost more",
+  },
+  "chat.composer.disableFast": {
+    "zh-CN": "关闭 Fast，使用标准额度和费用",
+    en: "Disable Fast. Use standard quota and pricing",
+  },
   "chat.composer.chooseEffort": { "zh-CN": "选择思考强度", en: "Choose reasoning effort" },
   "chat.composer.workspaceFiles": {
     "zh-CN": "工作区文件与文件夹",

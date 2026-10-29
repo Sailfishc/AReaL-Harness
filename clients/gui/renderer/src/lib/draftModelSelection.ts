@@ -7,6 +7,7 @@ export function draftModelSelection(
   chosenProfile: Data | undefined,
   model: string | null,
   efforts: Record<string, string>,
+  requestedServiceTier?: "fast" | "default",
 ) {
   const initialSelection = resolveNewConversationModel(
     project.models,
@@ -39,5 +40,6 @@ export function draftModelSelection(
         ? "effort-unsupported"
         : ""
       : "";
-  return { effectiveModel, currentModel, effort, notice };
+  const serviceTier = requestedServiceTier ?? currentModel?.parameters?.serviceTier;
+  return { effectiveModel, currentModel, effort, serviceTier, notice };
 }

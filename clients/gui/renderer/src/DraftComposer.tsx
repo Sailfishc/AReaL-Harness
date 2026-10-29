@@ -163,17 +163,24 @@ export function DraftComposer({
       ? JSON.parse(localStorage.getItem(`${key}:efforts`) ?? "{}")
       : {},
   );
+  const [requestedServiceTier, setRequestedServiceTier] = useState<"fast" | "default" | undefined>(
+    () => {
+      const saved = localStorage.getItem(`${key}:service-tier`);
+      return saved === "fast" || saved === "default" ? saved : undefined;
+    },
+  );
   const unavailableProfile = !!(profileSelection || project.defaultProfile) && !chosenProfile;
   const setPlanMode = (enabled: boolean) => {
     setPlan(enabled);
     localStorage.setItem(`${key}:plan`, String(enabled));
   };
   const [model, setModel] = useState<string | null>(() => localStorage.getItem(`${key}:model`));
-  const { effectiveModel, currentModel, effort, notice } = draftModelSelection(
+  const { effectiveModel, currentModel, effort, serviceTier, notice } = draftModelSelection(
     project,
     chosenProfile,
     model,
     efforts,
+    requestedServiceTier,
   );
   const preferenceNotice = notice ? t("chat.composer.previousEffortUnsupported") : "";
   const [unknown, setUnknown] = useState(() => localStorage.getItem(`${key}:pending-create`));
@@ -334,9 +341,11 @@ export function DraftComposer({
     localStorage.removeItem(`${key}:plan`);
     localStorage.removeItem(`${key}:model`);
     localStorage.removeItem(`${key}:efforts`);
+    localStorage.removeItem(`${key}:service-tier`);
     localStorage.removeItem(`${key}:profile`);
     setModel(null);
     setEfforts({});
+    setRequestedServiceTier(undefined);
     setPermission(defaultPermissionPreset.current);
     setPlan(false);
     setProfileSelection("");
@@ -451,6 +460,7 @@ export function DraftComposer({
       const parameters = { ...chosenModel.parameters };
       delete parameters.reasoningEffort;
       if (effort) parameters.reasoningEffort = effort;
+      if (requestedServiceTier) parameters.serviceTier = requestedServiceTier;
       if (chosenModel.capabilities?.reasoning === false) delete parameters.reasoningSummary;
       creationAttempted = true;
       const creationRequest = {
@@ -1015,6 +1025,11 @@ export function DraftComposer({
                 value={effectiveModel}
                 disabled={modelSelectionDisabled}
                 effort={effort}
+                serviceTier={serviceTier}
+                onServiceTierChange={(value) => {
+                  setRequestedServiceTier(value);
+                  localStorage.setItem(`${key}:service-tier`, value);
+                }}
                 onEffortChange={(value) => {
                   setModel(effectiveModel);
                   localStorage.setItem(`${key}:model`, effectiveModel);

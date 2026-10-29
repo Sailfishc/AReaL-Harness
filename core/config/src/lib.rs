@@ -216,6 +216,8 @@ pub struct SelectedModelConfig {
     pub api_key_env: Option<String>,
     pub reasoning_effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary_reasoning_effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary_max_output_tokens: Option<u64>,
@@ -360,7 +362,7 @@ impl ResolvedCoreConfig {
             "tools": { "extensions_file": self.tool_extensions_file },
             "model": { "provider": self.model.provider, "name": self.model.name,
                 "endpoint": endpoint.as_str(), "protocol": self.model.protocol,
-                "api_key_env": self.model.api_key_env, "reasoning_effort": self.model.reasoning_effort, "summary_reasoning_effort":self.model.summary_reasoning_effort,"summary_max_output_tokens":self.model.summary_max_output_tokens,
+                "api_key_env": self.model.api_key_env, "reasoning_effort": self.model.reasoning_effort, "service_tier": self.model.service_tier, "summary_reasoning_effort":self.model.summary_reasoning_effort,"summary_max_output_tokens":self.model.summary_max_output_tokens,
                 "reasoning_summary": self.model.reasoning_summary,
                 "responses_websocket": self.model.responses_websocket,
                 "responses_prompt_cache": self.model.responses_prompt_cache,

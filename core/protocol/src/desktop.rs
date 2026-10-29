@@ -392,6 +392,8 @@ pub struct ModelParameters {
     pub context_window_tokens: Option<usize>,
     pub reasoning_effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_summary: Option<String>,
 }
 

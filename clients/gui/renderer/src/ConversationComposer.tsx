@@ -74,6 +74,7 @@ export function ConversationComposer({
     else options.unshift(historical);
   }
   const effort = config?.resolvedParameters?.reasoningEffort ?? config?.parameters?.reasoningEffort;
+  const serviceTier = config?.resolvedParameters?.serviceTier ?? config?.parameters?.serviceTier;
   return (
     <ChatPromptEditor
       {...editor}
@@ -85,11 +86,17 @@ export function ConversationComposer({
               disabled={modelDisabled}
               pending={modelPending}
               effort={effort}
+              serviceTier={serviceTier}
+              onServiceTierChange={(value) =>
+                onConfigureModel({
+                  parameters: { ...config?.parameters, serviceTier: value },
+                })
+              }
               value={value}
               options={options}
               onEffortChange={(value) =>
                 onConfigureModel({
-                  parameters: { ...modelConfig?.parameters, reasoningEffort: value },
+                  parameters: { ...config?.parameters, reasoningEffort: value },
                 })
               }
               onChange={(nextValue) => {
@@ -106,7 +113,10 @@ export function ConversationComposer({
                     model: model.providerId
                       ? { providerId: model.providerId, modelId: model.modelId }
                       : null,
-                    parameters: { reasoningEffort: resolveModelEffort(model) ?? null },
+                    parameters: {
+                      reasoningEffort: resolveModelEffort(model) ?? null,
+                      ...(serviceTier == null ? {} : { serviceTier }),
+                    },
                   });
               }}
               onClose={() => editor.inputApiRef?.current?.focus()}

@@ -64,10 +64,6 @@
   flex: 1 1 auto;
   min-width: 0;
 }
-.composer-model-trigger .composer-model-provider {
-  max-width: 45%;
-  color: var(--color-foreground-subtle);
-}
 .composer-model-trigger > svg {
   flex-shrink: 0;
 }
@@ -173,4 +169,19 @@
 .composer-editor .lexical-chat-input[data-touch-input="true"] {
   font-size: var(--text-ui-xl);
   line-height: var(--line-height-ui);
+}
+
+.composer-effort-menu .composer-fast-toggle {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  color: var(--color-foreground-subtle);
+}
+.composer-effort-menu .composer-fast-toggle[aria-pressed="true"],
+.composer-fast-indicator {
+  color: var(--color-brand);
+}
+
+.composer-effort-menu .composer-effort-center[data-fast-toggle="true"] {
+  padding-inline: 28px;
 }

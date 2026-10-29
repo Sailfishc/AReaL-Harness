@@ -393,6 +393,7 @@ fn walk(
                 "provider"
                     | "name"
                     | "reasoning_effort"
+                    | "service_tier"
                     | "reasoning_summary"
                     | "summary_reasoning_effort"
             ]

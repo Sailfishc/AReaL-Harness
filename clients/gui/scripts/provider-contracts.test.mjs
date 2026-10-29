@@ -621,3 +621,63 @@ test("projectless catalog uses declared API and fresh account efforts without a 
   );
   assert.equal(result.models[2].available, true);
 });
+
+test("both subscription transports preserve Fast, explicit Off and omission independently of effort", () => {
+  const request = { model: "opaque-model", input: [], stream: true, reasoning: { effort: "high" } };
+  for (const encode of [protocolAdapters.codex.encode, protocolAdapters.openai.encode]) {
+    for (const tier of ["fast", "default"]) {
+      const encoded = encode({ ...request, service_tier: tier });
+      assert.equal(encoded.service_tier, tier);
+      assert.deepEqual(encoded.reasoning, { effort: "high" });
+      assert.equal(encoded.model, "opaque-model");
+    }
+    assert.equal(Object.hasOwn(encode(request), "service_tier"), false);
+  }
+  assert.equal(Object.hasOwn(request, "service_tier"), false);
+});
+
+test("desktop provider parameter boundary preserves supported tiers and rejects other values", async () => {
+  const { modelParameters, parameters } =
+    await import("../packages/workbench/client/desktop-contract/provider.cjs");
+  for (const serviceTier of ["fast", "default"]) {
+    assert.deepEqual(modelParameters({ serviceTier, reasoningEffort: "max" }), {
+      serviceTier,
+      reasoningEffort: "max",
+    });
+    assert.equal(parameters({ serviceTier }), true);
+  }
+  assert.deepEqual(modelParameters({ serviceTier: null }), {});
+  assert.deepEqual(modelParameters({}), {});
+  for (const serviceTier of ["priority", "auto", "turbo", true, 1, {}]) {
+    assert.throws(() => modelParameters({ serviceTier }), /模型参数/);
+    assert.equal(parameters({ serviceTier }), false);
+  }
+});
+
+test("projectless catalog carries selected tier into named and implicit defaults", async () => {
+  const { ProjectlessWorkspaces } = await import("../app/src/core/projectless.cjs");
+  for (const serviceTier of ["fast", "default"]) {
+    const providers = {
+      config: {
+        current: async () => ({
+          effective: { model: { provider: "local", name: "one", service_tier: serviceTier } },
+          credentialStates: {},
+          data: [
+            {
+              id: "local",
+              enabled: true,
+              endpoint: "http://fixture.invalid/v1/responses",
+              parameters: { serviceTier: "fast" },
+              models: [{ id: "one", enabled: true, parameters: {} }],
+            },
+          ],
+        }),
+      },
+    };
+    const result = await new ProjectlessWorkspaces({ providers }).command({ operation: "catalog" });
+    assert.equal(result.models.length, 2);
+    assert.equal(result.models[0].providerId, null);
+    assert.equal(result.models[0].parameters.serviceTier, serviceTier);
+    assert.equal(result.models[1].parameters.serviceTier, serviceTier);
+  }
+});

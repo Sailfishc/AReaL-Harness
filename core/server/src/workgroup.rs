@@ -180,6 +180,7 @@ pub async fn run(command: Command, runtime_bin: PathBuf) -> Result<()> {
                 responses_websocket: config.model.responses_websocket,
                 responses_prompt_cache: config.model.responses_prompt_cache,
                 reasoning_effort: config.model.reasoning_effort.clone(),
+                service_tier: config.model.service_tier.clone(),
                 summary_reasoning_effort: config.model.summary_reasoning_effort.clone(),
                 summary_max_output_tokens: config.model.summary_max_output_tokens,
                 reasoning_summary: config.model.reasoning_summary.clone(),
