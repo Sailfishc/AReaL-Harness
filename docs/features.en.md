@@ -6,7 +6,7 @@ This page describes implemented behavior. Compilation, mechanism tests and real-
 
 | Capability | Implementation and entry point |
 |---|---|
-| Project instructions | Load `AGENTS.md` from workspace root to session cwd, with closer-directory precedence, per-Turn refresh and bounded Runtime reads. [Clients](guides/clients.en.md) |
+| Project instructions | Load instructions from workspace root to session cwd; prefer `AGENTS.override.md` over `AGENTS.md` per directory, with empty-file fallback and closer-directory precedence, per-Turn refresh and bounded Runtime reads. [Clients](guides/clients.en.md) |
 | Task Mode and channels | foreground/scheduled/background, durable TaskRuns, independent Inbox replies, headless without human waits, and unified TaskRun workers surviving coordinator Turns under shared budgets. Web includes task controls, schedule creation and an independent Inbox. [API](api/tasks.en.md) Schedules support explicit Run Now. It creates a separate manual Run while preserving pause state and the next scheduled time, using the original total budget. Lost responses are reconciled through the original receipt. |
 | Plugin component support | Plugin reports separately bind candidate and installed digests to component parser support, static required compatibility and activation prerequisites. MCP connection, authentication and Hook trust remain separate facts. [Plugins](guides/plugins.en.md) |
 | Browser automation | Reuses implemented ZCode commands for locators, iframes, CUA, screenshots, alert/confirm, downloads and WebM. All projects share persistent login data; settings provide explicit Chrome import and data clearing. Page control and approval remain chat-scoped, and UNKNOWN is never replayed. [Browser](api/browser.en.md) |

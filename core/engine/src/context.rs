@@ -625,20 +625,13 @@ impl Engine {
                 metadata.is_dir(),
                 "AGENTS.md directory must not be a symlink or special file"
             );
-            let path = if directory.is_empty() {
-                "AGENTS.md".to_owned()
-            } else {
-                format!("{directory}/AGENTS.md")
-            };
-            match tokio::fs::symlink_metadata(runtime.workspace.join(&path)).await {
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(error) => return Err(error).context("cannot inspect project instructions"),
-                Ok(metadata) => anyhow::ensure!(
-                    metadata.is_file() && metadata.len() <= PROJECT_INSTRUCTION_LIMIT as u64,
-                    "{path} must be a regular file no larger than 32 KiB"
-                ),
-            }
-            paths.push(path);
+            paths.push(["AGENTS.override.md", "AGENTS.md"].map(|name| {
+                if directory.is_empty() {
+                    name.to_owned()
+                } else {
+                    format!("{directory}/{name}")
+                }
+            }));
         }
         if paths.is_empty() {
             return Ok(Some(instructions));
@@ -655,7 +648,7 @@ impl Engine {
             });
         }
         let content = received.await??;
-        instructions.push(Kind::Rules, "AGENTS.md", "\n\nProject AGENTS.md instructions (subordinate to the user's request and deployment permissions). Each file applies only to its directory and descendants; closer files take precedence for files in their subtree. Before working in other directories, read their applicable AGENTS.md files. Only the workspace-root-to-session-cwd chain is loaded here:\n");
+        instructions.push(Kind::Rules, "AGENTS.md", "\n\nProject AGENTS.md instructions (subordinate to the user's request and deployment permissions). In each directory, the first non-empty file wins: AGENTS.override.md, then AGENTS.md; only one file per directory is included. Each file applies only to its directory and descendants; closer files take precedence for files in their subtree. Before working in other directories, read their applicable instruction files using the same selection order. Only the workspace-root-to-session-cwd chain is loaded here:\n");
         instructions.push(Kind::Rules, "AGENTS.md", &content);
         Ok(Some(instructions))
     }
@@ -663,7 +656,7 @@ impl Engine {
     async fn read_project_instructions(
         &self,
         cell: &Cell,
-        paths: Vec<String>,
+        paths: Vec<[String; 2]>,
     ) -> anyhow::Result<String> {
         use areal_runtime_protocol as rt;
         use base64::Engine as _;
@@ -682,35 +675,54 @@ impl Engine {
             .clone();
         let mut content = String::new();
         let mut remaining = PROJECT_INSTRUCTION_LIMIT;
-        for path in paths {
-            let value = tokio::select! {
-                biased;
-                _ = cancel.cancelled() => {
-                    client.close_scope(&scope).await?;
-                    anyhow::bail!("project instruction read cancelled");
+        for candidates in paths {
+            for path in candidates {
+                match tokio::fs::symlink_metadata(
+                    self.runtime.as_ref().unwrap().workspace.join(&path),
+                )
+                .await
+                {
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(error) => return Err(error).context("cannot inspect project instructions"),
+                    Ok(metadata) => anyhow::ensure!(
+                        metadata.is_file() && metadata.len() <= PROJECT_INSTRUCTION_LIMIT as u64,
+                        "{path} must be a regular file no larger than 32 KiB"
+                    ),
                 }
-                result = client.filesystem(rt::FileRequest {
-                    operation_id: client.operation_id(),
-                    scope_id: scope.clone(),
-                    command: rt::FileCommand::Read {
-                        path: format!("workspace://repo/{path}"),
-                        offset: 0,
-                        max_bytes: remaining + 1,
-                    },
-                }) => result?,
-            };
-            let bytes = base64::engine::general_purpose::STANDARD.decode(
-                value["dataBase64"]
-                    .as_str()
-                    .context("invalid project instruction result")?,
-            )?;
-            anyhow::ensure!(
-                value["eof"] == true && bytes.len() <= remaining,
-                "AGENTS.md files exceed the combined 32 KiB instruction budget"
-            );
-            remaining -= bytes.len();
-            let text = String::from_utf8(bytes).with_context(|| format!("{path} must be UTF-8"))?;
-            content.push_str(&format!("\n--- {path} ---\n{text}\n"));
+                let value = tokio::select! {
+                    biased;
+                    _ = cancel.cancelled() => {
+                        client.close_scope(&scope).await?;
+                        anyhow::bail!("project instruction read cancelled");
+                    }
+                    result = client.filesystem(rt::FileRequest {
+                        operation_id: client.operation_id(),
+                        scope_id: scope.clone(),
+                        command: rt::FileCommand::Read {
+                            path: format!("workspace://repo/{path}"),
+                            offset: 0,
+                            max_bytes: remaining + 1,
+                        },
+                    }) => result?,
+                };
+                let bytes = base64::engine::general_purpose::STANDARD.decode(
+                    value["dataBase64"]
+                        .as_str()
+                        .context("invalid project instruction result")?,
+                )?;
+                anyhow::ensure!(
+                    value["eof"] == true && bytes.len() <= remaining,
+                    "AGENTS.md files exceed the combined 32 KiB instruction budget"
+                );
+                let text =
+                    String::from_utf8(bytes).with_context(|| format!("{path} must be UTF-8"))?;
+                if text.trim().is_empty() {
+                    continue;
+                }
+                remaining -= text.len();
+                content.push_str(&format!("\n--- {path} ---\n{text}\n"));
+                break;
+            }
         }
         Ok(content)
     }

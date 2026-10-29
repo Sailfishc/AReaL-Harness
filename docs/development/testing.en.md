@@ -253,7 +253,7 @@ Outer-container relaxations apply only to the explicitly selected controlled pro
 
 macOS and Linux host checks share one matrix definition. `fail-fast: false` ensures a failure on one platform does not cancel coverage on the other. macOS uses `make setup-node` for native smoke and SDK Node dependencies; Linux `make setup` continues to install all locked formatting tools. Native validation runs Runtime, Harness, desktop API and Workgroup smoke in one child Make invocation, sharing one workspace build. Docker copies only the required CLI/TUI/Web clients and excludes GUI from its build context. Native Runtime and Harness coverage is retained.
 
-`harness-smoke.mjs` checks root/nested `AGENTS.md` ordering, unrelated-directory isolation, missing files, per-Turn refresh, the 32 KiB boundary, UTF-8 and symlink rejection through real Core/Runtime model requests.
+`harness-smoke.mjs` checks root/nested `AGENTS.md` and `AGENTS.override.md` replacement, empty-file fallback and ordering, unrelated-directory isolation, missing files, per-Turn refresh, the 32 KiB boundary, UTF-8 and symlink rejection through real Core/Runtime model requests.
 
 [CI](../../.github/workflows/ci.yml) runs native Harness checks on macOS, portable regression and Docker sandbox/file-ownership checks on Linux, and separate Rust/npm advisory checks. Actions are pinned by commit, repository permissions are read-only, and failures retain logs. Consult the run for the relevant commit for actual results.
 
