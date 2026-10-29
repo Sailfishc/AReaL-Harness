@@ -96,21 +96,24 @@ function MobileApp() {
               : "mobile.blocked";
   return (
     <main
-      className="mobile-page [&_h1]:[line-height:1.3] [&_h1]:font-semibold [&_h2]:[line-height:1.3] [&_h2]:font-semibold [&_h3]:[line-height:1.3] [&_h3]:font-semibold [&_[data-action=new-session]]:text-fixed-control [&_[data-action=new-session]]:font-semibold [&_[data-action=new-session]]:bg-primary [&_[data-action=new-session]]:text-primary-foreground flex flex-col gap-section [padding:calc(env(safe-area-inset-top)+var(--spacing-panel))_var(--spacing-panel)_calc(env(safe-area-inset-bottom)+var(--spacing-panel))] min-h-dvh box-border bg-background text-foreground font-sans text-fixed-body"
+      className="mobile-page data-[state=connected]:h-dvh data-[state=connected]:min-h-0 data-[state=connected]:overflow-hidden data-[state=connected]:[&>.mobile-stack]:flex-1 data-[state=connected]:[&>.mobile-stack]:min-h-0 [&_h1]:[line-height:1.3] [&_h1]:font-semibold [&_h2]:[line-height:1.3] [&_h2]:font-semibold [&_h3]:[line-height:1.3] [&_h3]:font-semibold [&_[data-action=new-session]]:text-fixed-control [&_[data-action=new-session]]:font-semibold [&_[data-action=new-session]]:bg-primary [&_[data-action=new-session]]:text-primary-foreground flex flex-col gap-section [padding:calc(env(safe-area-inset-top)+var(--spacing-panel))_var(--spacing-panel)_calc(env(safe-area-inset-bottom)+var(--spacing-panel))] min-h-dvh box-border bg-background text-foreground font-sans text-fixed-body"
       data-state={state.kind}
       data-workspace-page={state.kind === "connected" && !settings ? view.page.kind : undefined}
       data-remembered={state.kind === "connected" ? state.remembered : undefined}
     >
       {(state.kind !== "connected" || settings || view.page.kind === "projects") && (
-        <header className="mobile-header flex items-center justify-between gap-inline">
+        <header className="mobile-header shrink-0 min-h-[var(--size-touch-target)] flex items-center justify-between gap-inline">
           {state.kind === "connected" && !settings && (
-            <Monitor className="mobile-host-icon" aria-hidden="true" />
+            <Monitor
+              className="mobile-host-icon size-[var(--spacing-section)]"
+              aria-hidden="true"
+            />
           )}
           <div
             className={
               state.kind === "connected" && !settings
-                ? "mobile-host-copy [&_h1]:text-fixed-body"
-                : "mobile-host-copy"
+                ? "mobile-host-copy flex-1 min-w-0 [&_h1]:block [&_h1]:min-w-0 [&_h1]:max-w-full [&_h1]:truncate [&_h1]:text-fixed-body"
+                : "mobile-host-copy flex-1 min-w-0 [&_h1]:block [&_h1]:min-w-0 [&_h1]:max-w-full [&_h1]:truncate"
             }
           >
             <h1
@@ -133,15 +136,15 @@ function MobileApp() {
               )}
             </h1>
             {state.kind === "connected" && !settings && (
-              <p className="mobile-host-status text-foreground-subtle text-fixed-caption">
-                <span className="bg-success mobile-status-dot [border-radius:var(--radius-pill)]" />
+              <p className="mobile-host-status m-0 flex items-center gap-[calc(var(--spacing-inline)/2)] text-foreground-subtle text-fixed-caption">
+                <span className="bg-success mobile-status-dot inline-block size-[var(--size-status-dot)] [border-radius:var(--radius-pill)]" />
                 {t(statusKey)}
               </p>
             )}
           </div>
           {state.kind !== "unpaired" && state.kind !== "pairing" && (
             <Button
-              className="mobile-touch min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)]"
+              className="mobile-touch size-[var(--size-touch-target)] min-h-[var(--size-touch-target)] min-w-[var(--size-touch-target)] p-inline"
               variant="ghost"
               data-action="settings"
               aria-label={t(settings ? "mobile.back" : "mobile.settings")}

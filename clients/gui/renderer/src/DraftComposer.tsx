@@ -2,10 +2,7 @@ import type { DraftComposerProps } from "./draftComposerTypes.js";
 import { PendingMessageView } from "./UserMessageBody.js";
 import { setPendingMessage, usePendingMessage } from "./pendingMessage.js";
 import { Input } from "@areal/ui";
-import {
-  composerWorkspaceFiles,
-  validateWorkspaceFileReference,
-} from "./lib/workspaceFileComposer.js";
+import { useComposerWorkspaceFiles } from "./lib/workspaceFileComposer.js";
 import { imageAnnotationBlocked, useImageAnnotationRevision } from "./imageAnnotations.js";
 import { resolveDraftProfile } from "./ProfileDetails.js";
 import { draftModelSelection, modelValue } from "./lib/draftModelSelection.js";
@@ -18,7 +15,7 @@ import { ComposerPermissionMenu } from "./ComposerPermissionMenu.js";
 import { permissionOptions, planModeOptions, type PermissionPreset } from "./permissions.js";
 import { ComposerPlanMode } from "./ComposerPlanMode.js";
 import { FileTree, AttachmentIcon, GoalIcon, PlanModeIcon as Lightbulb } from "./interfaceIcons.js";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ChatPromptEditor } from "./prompt-editor/ChatPromptEditor.js";
 import {
   ComposerAttachment,
@@ -98,19 +95,7 @@ export function DraftComposer({
   worktree,
   onWorktreeCreated,
 }: DraftComposerProps) {
-  const workspaceFiles = useMemo(
-    () =>
-      project.root
-        ? composerWorkspaceFiles(
-            readAction,
-            project.id,
-            project.root,
-            project.core?.connectionGeneration,
-            draftKey ?? "new",
-          )
-        : undefined,
-    [readAction, project.id, project.root, project.core?.connectionGeneration, draftKey],
-  );
+  const workspaceFiles = useComposerWorkspaceFiles(readAction, project, draftKey ?? "new");
   const { t } = useI18n();
   const referenceEntries = conversationReferenceEntries(
     conversationReferences,
@@ -777,9 +762,7 @@ export function DraftComposer({
           workspacePath={project.root}
           enableWorkspaceFileDrop={!!project.root && !editLocked}
           enableExternalFileDrop={!editLocked}
-          validateWorkspaceFile={(payload) =>
-            validateWorkspaceFileReference(readAction, project.id, project.root, payload)
-          }
+          validateWorkspaceFile={workspaceFiles?.validate}
           onFileDrop={(files) => setFiles((current) => [...current, ...files])}
           onWorkspaceReferencePendingChange={setWorkspaceReferencePending}
           taskId={null}

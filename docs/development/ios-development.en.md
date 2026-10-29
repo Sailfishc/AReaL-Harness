@@ -48,7 +48,7 @@ Each attempt writes `.scratch/ios-development/browser/<attempt>/` with source SH
 
 This workflow draws on t3code's mobile lifecycle, reproducible scenes, and device evidence organization: script updates must handle connection ownership, native changes require rebuilding, and screenshots need device and scene attribution. Its Expo/React Native, Effect runtime, and device pool are not dependencies here. Vite page reloads and existing Remote gates serve those responsibilities.
 
-Relevant GUI, mobile, and Relay changes trigger `iOS development checks`: Linux runs mobile type checks, both browser paths, and production asset checks, then uploads evidence. Native builds and OS-version gates use the local entry points above; this CI does not establish native iOS or physical-device acceptance. The browser gate uses an independent Vite cache and removes it afterward to avoid sharing optimized dependencies with a daily development server.
+For relevant GUI, mobile, and Relay changes, the `Linux mobile browser contracts` job in `GUI checks` runs mobile type checks, both browser paths, and production asset checks. It executes the shared `mobile` group, uploads reports and evidence, and contributes required results to `GUI gate`. Native builds and OS-version gates use the local entry points above; this CI does not establish native iOS or physical-device acceptance. The browser gate uses an independent Vite cache and removes it afterward to avoid sharing optimized dependencies with a daily development server.
 
 ## Agent simulator tools
 

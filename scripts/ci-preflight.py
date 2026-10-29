@@ -108,7 +108,9 @@ def matching_core(root=ROOT):
 
 def environment(item, root):
     env = dict(os.environ)
-    relay = env.get("AREAL_RELAY_NODE_BIN")
+    relay = env.get("AREAL_RELAY_NODE_BIN") or env.get("AREAL_RELAY_NODE")
+    if relay:
+        env["AREAL_RELAY_NODE"] = str(Path(relay).resolve())
     if "node-24.2.0" in item["requires"] and relay:
         env["PATH"] = str(Path(relay).resolve().parent) + os.pathsep + env.get("PATH", "")
     env["AREAL_TEST_BIN_DIR"] = str(root / "target/debug")
@@ -141,6 +143,22 @@ def capabilities(root, env):
             )
         except OSError:
             return False
+
+    relay = env.get("AREAL_RELAY_NODE")
+    if relay and succeeds(
+        [relay, "-e", "process.exit(process.versions.node === '24.2.0' ? 0 : 1)"]
+    ):
+        found.add("relay-node-24.2.0")
+    for browser in ("chromium", "webkit"):
+        if succeeds(
+            [
+                "node",
+                "-e",
+                "const fs=require('node:fs'); const pw=require('./clients/gui/app/node_modules/playwright-core'); fs.accessSync(pw[process.argv[1]].executablePath(), fs.constants.X_OK)",
+                browser,
+            ]
+        ):
+            found.add("playwright-" + browser)
 
     if succeeds(
         [

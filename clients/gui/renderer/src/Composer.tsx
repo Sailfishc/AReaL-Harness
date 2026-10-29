@@ -1,5 +1,7 @@
+import { uploadComposerFiles } from "./ComposerUploads.js";
+export { uploadComposerFiles } from "./ComposerUploads.js";
+
 import { setPendingMessage, usePendingMessage } from "./pendingMessage.js";
-import type { Attachment } from "@areal/workbench/desktop-contract/conversation";
 import { Input } from "@areal/ui";
 import { ComposerActionButton } from "@areal/ui/experimental";
 import { parseMentionMarkdown } from "./mentions/mentionMarkdown.js";
@@ -14,10 +16,7 @@ import {
 import { parseSideSlashCommand } from "./sideSlashCommand.js";
 import { composerDraftStorage } from "./composerDraftStorage.js";
 import { composerPending } from "./composerPending.js";
-import {
-  composerWorkspaceFiles,
-  validateWorkspaceFileReference,
-} from "./lib/workspaceFileComposer.js";
+import { useComposerWorkspaceFiles } from "./lib/workspaceFileComposer.js";
 import { stripGenUiModelContext } from "@areal/gen-ui/contract";
 import { useI18n } from "./i18n/IntlProvider.js";
 import { FeedbackNotice } from "./FeedbackNotice.js";
@@ -26,7 +25,7 @@ import { CircleAlert } from "lucide-react";
 import { useComposerPrediction } from "./useComposerPrediction.js";
 import { ContextMeter } from "./ContextMeter.js";
 import { isOrdinaryConversation, interruptedConversationTurn } from "./ordinaryConversation.js";
-import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { McpComposerAttachments, useMcpDraft } from "./McpComposerAttachments.js";
 import { readMcpDraft, consumeMcpDraft, clearMcpDraft } from "./mcp-app-draft.js";
 import {
@@ -169,19 +168,7 @@ export function Composer({
   conversationReferences?: readonly ConversationReference[];
   onAnnotate?: (target: ImageAnnotationTarget) => void;
 }) {
-  const workspaceFiles = useMemo(
-    () =>
-      project.root
-        ? composerWorkspaceFiles(
-            readAction,
-            project.id,
-            project.root,
-            project.core?.connectionGeneration,
-            thread.id,
-          )
-        : undefined,
-    [readAction, project.id, project.root, project.core?.connectionGeneration, thread.id],
-  );
+  const workspaceFiles = useComposerWorkspaceFiles(readAction, project, thread.id);
   const { t } = useI18n();
   const referenceEntries = conversationReferenceEntries(
     conversationReferences,
@@ -953,7 +940,9 @@ export function Composer({
                 const storageKey = `areal-gui:workgroup:${project.id}`;
                 composerDraftStorage.setItem(storageKey, thread.desktop.workflowRun.workgroupId);
                 document.dispatchEvent(
-                  new CustomEvent("areal:workgroup-operation", { detail: storageKey }),
+                  new CustomEvent("areal:workgroup-operation", {
+                    detail: storageKey,
+                  }),
                 );
                 onPanel("工作组");
               }}
@@ -998,9 +987,7 @@ export function Composer({
           }
           enableWorkspaceFileDrop={!!project.root && !editorDisabled}
           enableExternalFileDrop={!editorDisabled}
-          validateWorkspaceFile={(payload) =>
-            validateWorkspaceFileReference(readAction, project.id, project.root, payload)
-          }
+          validateWorkspaceFile={workspaceFiles?.validate}
           onFileDrop={(files) => setFiles((current) => [...current, ...files])}
           onWorkspaceReferencePendingChange={setWorkspaceReferencePending}
           taskId={thread.id}
@@ -1259,7 +1246,9 @@ export function Composer({
                   aria-label={t("recovery.pendingAction")}
                   title={t("recovery.checkOriginal")}
                   onClick={() =>
-                    void readAction("reconcile", { projectId: project.id }).catch(() => {})
+                    void readAction("reconcile", {
+                      projectId: project.id,
+                    }).catch(() => {})
                   }
                 >
                   <CircleAlert size={16} />
@@ -1289,7 +1278,9 @@ export function Composer({
                     config?.profile?.readOnly === true
                   }
                   onExit={() => {
-                    void configure({ options: planModeOptions(false, config?.options) });
+                    void configure({
+                      options: planModeOptions(false, config?.options),
+                    });
                   }}
                 />
               )}
@@ -1557,41 +1548,4 @@ export function stageThreadDraft(
   composerDraftStorage.setItem(key, text);
   attachmentDrafts.set(key, files);
   return key;
-}
-
-// 发送和队列更新共用上传边界，编辑中现存 Core 引用不经过此函数。
-export async function uploadComposerFiles(
-  action: Action,
-  projectId: string,
-  threadId: string,
-  files: File[],
-) {
-  const attachments: Attachment[] = [];
-  for (const file of files) {
-    let bytes: Uint8Array;
-    try {
-      bytes = new Uint8Array(await file.arrayBuffer());
-    } catch (cause) {
-      const reason = cause instanceof Error ? cause.message : String(cause);
-      throw new Error(`无法读取附件 ${file.name}：${reason}`);
-    }
-    const media = await action("media", {
-      projectId,
-      threadId,
-      operation: "upload",
-      mime: file.type || "application/octet-stream",
-      bytes,
-    });
-    attachments.push({
-      type: media.mimeType.startsWith("image/")
-        ? "image"
-        : media.mimeType.startsWith("audio/")
-          ? "audio"
-          : "file",
-      url: media.uri,
-      name: file.name,
-      mimeType: media.mimeType,
-    });
-  }
-  return attachments;
 }

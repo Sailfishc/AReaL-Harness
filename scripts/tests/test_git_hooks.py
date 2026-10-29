@@ -168,6 +168,23 @@ class GitHooks(unittest.TestCase):
         self.assertIn("Untracked inputs", result.stderr)
         self.assertFalse((self.root / "preflight-ran").exists())
 
+    def test_prepush_cannot_inherit_plan_only_arguments(self):
+        makefile = self.root / "Makefile"
+        makefile.write_text(
+            makefile.read_text().replace(
+                "check-changed:\n", 'check-changed:\n\t@test "$(ARGS)" = ""\n'
+            )
+        )
+        self.git("add", "Makefile")
+        self.git("commit", "-qm", "require real quick execution")
+        self.assertEqual(self.install().returncode, 0)
+        self.env["ARGS"] = "--plan"
+        result = self.hook(
+            "pre-push", self.push_input(self.git("rev-parse", "HEAD").stdout.strip())
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.root / "preflight-ran").exists())
+
     def test_precommit_preserves_gui_and_workflow_failure_exit_codes(self):
         self.put("clients/gui/renderer/src/example.ts", "invalid\n")
         self.git("add", "clients/gui/renderer/src/example.ts")

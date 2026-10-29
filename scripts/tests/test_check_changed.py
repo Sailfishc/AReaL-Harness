@@ -4,6 +4,7 @@ from contextlib import redirect_stdout
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -19,6 +20,7 @@ spec.loader.exec_module(checks)
 
 class ChangedChecks(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch.dict(os.environ, {"GITHUB_EVENT_PATH": ""}))
         self.directory = tempfile.TemporaryDirectory(prefix="areal-changed-check-")
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
@@ -200,6 +202,7 @@ class ChangedChecks(unittest.TestCase):
             self.assertEqual(checks.main(["--base", self.base, "--plan"]), 0)
         value = json.loads(output.getvalue())
         self.assertEqual(value["plan"]["source"]["baseRevision"], self.base)
+        self.assertEqual(value["plan"]["source"]["headRevision"], self.base)
         self.assertEqual(value["plan"]["paths"], ["docs/new.md"])
         self.assertEqual(
             value["plan"]["source"]["inputHash"], checks.input_key(self.root, self.base)
