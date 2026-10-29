@@ -69,12 +69,13 @@ impl Engine {
                 if view["goal"]["id"].as_str() != Some(goal_id) {
                     self.edit_task(task_id, |t| {
                         let r = t.runs.last_mut().unwrap();
+                        // 定时运行没有可恢复的 Goal 时直接结算，否则后续触发会永久视为重叠。
                         r.status = if t.cancelled || r.reason.as_deref() == Some("stopRequested") {
-                            r.completed_at = Some(now());
                             RunStatus::Cancelled
                         } else {
-                            RunStatus::Blocked
+                            RunStatus::Failed
                         };
+                        r.completed_at = Some(now());
                         r.reason = Some("goalMissingOrReplaced".into());
                     })
                     .await?;
@@ -173,6 +174,11 @@ impl Engine {
                         }
                         return;
                     }
+                    let interrupted = matches!(
+                        r.reason.as_deref(),
+                        Some("serverRestarted" | "hostUnavailable")
+                    );
+                    let previous_reason = r.reason.clone();
                     r.status = if stop {
                         RunStatus::Cancelled
                     } else {
@@ -195,6 +201,11 @@ impl Engine {
                         Some("resumeRequested" | "stopRequested" | "hostUnavailable")
                     ) {
                         r.reason = goal.reason.clone();
+                    }
+                    // 被重启或 Host 离线打断的定时运行记为失败；受阻运行仍可重试，到下一次触发时再结算。
+                    if r.status == RunStatus::Paused && interrupted {
+                        r.status = RunStatus::Failed;
+                        r.reason = previous_reason;
                     }
                     if r.status.terminal() && r.completed_at.is_none() {
                         r.completed_at = Some(now());

@@ -99,11 +99,84 @@ async fn desktop_schedule_requires_host_skips_busy_and_pauses_only_future_runs()
         .await
         .unwrap();
     engine.advance_task(id).await.unwrap();
-    assert!(
-        !engine.task_read(id).await.unwrap().runs[0]
-            .status
-            .terminal()
-    );
+    let run = &engine.task_read(id).await.unwrap().runs[0];
+    assert_eq!(run.status, RunStatus::Failed);
+    assert_eq!(run.reason.as_deref(), Some("hostUnavailable"));
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn interrupted_schedule_run_fails_and_next_trigger_is_admitted() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Engine::open(dir.path(), Arc::new(Pending), Limits::default()).unwrap();
+    engine.task_modes.started.store(true, Ordering::Release);
+    let anchor = engine.create("/workspace".into()).await.unwrap();
+    let value = engine.task_create("fixture".into(), serde_json::from_value(json!({"requestId":"restart", "mode":"scheduled", "objective":"inspect", "threadId":anchor.id,"schedule":{"at":now()-100,"intervalSeconds":10}})).unwrap()).await.unwrap();
+    let id = value["id"].as_str().unwrap().to_string();
+    let host = Arc::new(Host {
+        closed: AtomicBool::new(false),
+    });
+    engine.register_schedule_host(host.clone()).await.unwrap();
+    engine.advance_task(&id).await.unwrap();
+    assert_eq!(engine.task_read(&id).await.unwrap().runs.len(), 1);
+    engine.shutdown().await;
+    drop(engine);
+
+    let engine = Engine::open(dir.path(), Arc::new(Pending), Limits::default()).unwrap();
+    engine.task_modes.started.store(true, Ordering::Release);
+    let run = engine.task_read(&id).await.unwrap().runs[0].clone();
+    assert_eq!(run.status, RunStatus::Paused);
+    assert_eq!(run.reason.as_deref(), Some("serverRestarted"));
+    engine.advance_task(&id).await.unwrap();
+    engine.wait(run.thread_id.as_ref().unwrap()).await.unwrap();
+    engine.advance_task(&id).await.unwrap();
+    let run = engine.task_read(&id).await.unwrap().runs[0].clone();
+    assert_eq!(run.status, RunStatus::Failed);
+    assert_eq!(run.reason.as_deref(), Some("serverRestarted"));
+    assert!(run.completed_at.is_some());
+
+    let host = Arc::new(Host {
+        closed: AtomicBool::new(false),
+    });
+    engine.register_schedule_host(host).await.unwrap();
+    engine
+        .edit_task(&id, |t| t.next_run_at = Some(now() - 1))
+        .await
+        .unwrap();
+    engine.advance_task(&id).await.unwrap();
+    let task = engine.task_read(&id).await.unwrap();
+    assert_eq!(task.runs.len(), 2);
+    assert_eq!(task.skipped_runs, 0);
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn stalled_schedule_run_is_settled_when_the_next_trigger_is_due() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Engine::open(dir.path(), Arc::new(Pending), Limits::default()).unwrap();
+    engine.task_modes.started.store(true, Ordering::Release);
+    let anchor = engine.create("/workspace".into()).await.unwrap();
+    let value = engine.task_create("fixture".into(), serde_json::from_value(json!({"requestId":"stalled", "mode":"scheduled", "objective":"inspect", "threadId":anchor.id,"schedule":{"at":now()+3600,"intervalSeconds":3600}})).unwrap()).await.unwrap();
+    let id = value["id"].as_str().unwrap().to_string();
+    engine
+        .edit_task(&id, |t| {
+            let mut run = new_run(None, now() - 7200);
+            run.status = RunStatus::Paused;
+            run.reason = Some("goalPaused".into());
+            t.runs.push(run);
+            t.next_run_at = Some(now() - 1);
+        })
+        .await
+        .unwrap();
+    engine.admit_schedule_due(&id, false, now()).await.unwrap();
+    assert_eq!(engine.task_read(&id).await.unwrap().runs.len(), 1);
+    engine.admit_schedule_due(&id, true, now()).await.unwrap();
+    let task = engine.task_read(&id).await.unwrap();
+    assert_eq!(task.runs.len(), 2);
+    assert_eq!(task.runs[0].status, RunStatus::Failed);
+    assert_eq!(task.runs[0].reason.as_deref(), Some("goalPaused"));
+    assert_eq!(task.runs[1].status, RunStatus::Queued);
+    assert_eq!(task.skipped_runs, 0);
     engine.shutdown().await;
 }
 
