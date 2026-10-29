@@ -47,10 +47,10 @@ async function setup(t, { gitRepo = true } = {}) {
     }
     b.lifecycleOperations = {
       assertProject() {},
-      schedulingSuppressed() {
+      blocking() {
         return false;
       },
-      blocking() {
+      schedulingSuppressed() {
         return false;
       },
       activeTargets: new Set(),
