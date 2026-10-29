@@ -462,7 +462,7 @@ async function startup() {
         (model) =>
           model.providerId === "areal_openai" &&
           model.modelId === "gpt-6.1-sol" &&
-          model.available !== false,
+          model.availability === "available",
       ),
     "Released subscription catalog eventually publishes available models",
   );
@@ -519,12 +519,8 @@ async function startup() {
           project?.state?.connected &&
           selected?.providerId === "areal_openai" &&
           selected.modelId === "gpt-6.1-sol" &&
-          !project.models?.some(
-            (model) =>
-              model.providerId === "areal_openai" &&
-              model.modelId === "gpt-6.1-sol" &&
-              model.available !== false,
-          ) &&
+          state.subscription?.authenticated === true &&
+          state.subscription?.availability === "checking" &&
           visible.includes(historyText) &&
           visible.includes(historyReply) &&
           visible.includes(draftText) &&
@@ -532,11 +528,11 @@ async function startup() {
           (await page.getByTestId("chat-input").count()) === 1 &&
           (await page.getByTestId("chat-input").innerText()) === subscriptionDraft &&
           (await page.getByTestId("chat-input").isEditable()) &&
-          (await page.getByTestId("chat-send-button").isDisabled()) &&
+          (await page.getByTestId("chat-send-button").isEnabled()) &&
           (await page.getByRole("button", { name: "模型", exact: true }).isEnabled())
         );
       },
-      "Subscription-selected restart restores editable history and draft with Send disabled until account model readiness",
+      "Subscription-selected restart restores history, draft and Send before account catalog readiness",
       15000,
     );
     await page.getByRole("button", { name: "模型", exact: true }).click();
@@ -554,15 +550,54 @@ async function startup() {
       "Opening model choices preserves the exact subscription draft",
     );
     assert.equal(
-      await page.getByTestId("chat-send-button").isDisabled(),
+      await page.getByTestId("chat-send-button").isEnabled(),
       true,
-      "The unavailable subscription selection cannot submit through Send",
+      "The checking subscription selection remains sendable",
     );
     assert.equal(
       requests.length,
       requestsBeforeSubscriptionRestart,
       "Subscription-selected restart and model choices never replay inference",
     );
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    await page
+      .locator(".settings-category-navigation")
+      .getByRole("button", { name: "模型设置", exact: true })
+      .click();
+    const subscriptionRow = page
+      .locator(".provider-navigation")
+      .getByRole("button", { name: "ChatGPT", exact: true });
+    await subscriptionRow.waitFor();
+    const grouping = await subscriptionRow.evaluate((element) => ({
+      group: element.closest("section")?.textContent,
+      text: element.textContent,
+      top: element.getBoundingClientRect().top,
+    }));
+    assert.ok(
+      grouping.group?.includes("已启用"),
+      "Validated durable authentication places ChatGPT in enabled providers before discovery finishes",
+    );
+    await page.screenshot({ path: join(scratch, "startup-subscription-settings-held.png") });
+    await writeFile(
+      join(scratch, "startup-subscription-settings-held.json"),
+      JSON.stringify({ grouping, snapshot: await snapshot() }, null, 2),
+    );
+    await page.getByRole("button", { name: "返回应用", exact: true }).click();
+    expected.set(subscriptionDraft, {
+      history: [historyText, draftText, subscriptionDraft],
+      reply: subscriptionReply,
+    });
+    await page.getByTestId("chat-send-button").click();
+    await until(
+      async () => await page.getByTestId("chat-send-button").isDisabled(),
+      "Subscription submission enters its first initialization barrier",
+    );
+    assert.equal(
+      requests.length,
+      requestsBeforeSubscriptionRestart,
+      "First initialization does not dispatch inference before catalog preparation",
+    );
+
     assert.ok(
       !(await audit()).some(
         (item) =>
@@ -589,7 +624,7 @@ async function startup() {
     await page.screenshot({ path: join(scratch, "startup-subscription-held.png") });
   }
   checks.push(
-    "Second cold restart restores the subscription-selected conversation, exact editable draft and visible history while Send is disabled and a normal-provider model remains selectable",
+    "Second cold restart restores the subscription selection, draft, history and enabled Send while account catalog discovery is held",
   );
   await rm(catalogGate);
   await until(
@@ -598,9 +633,9 @@ async function startup() {
         (model) =>
           model.providerId === "areal_openai" &&
           model.modelId === "gpt-6.1-sol" &&
-          model.available !== false,
-      ) && (await page.getByTestId("chat-send-button").isEnabled()),
-    "Released account catalog makes the persisted subscription selection sendable without restart",
+          model.availability === "available",
+      ),
+    "Released account catalog initializes the persisted subscription selection without restart",
   );
   assert.ok(
     (await audit()).some(
@@ -611,16 +646,6 @@ async function startup() {
     ),
     "Subscription readiness follows release of the second external catalog request",
   );
-  assert.equal(
-    await page.getByTestId("chat-input").innerText(),
-    subscriptionDraft,
-    "Catalog publication preserves the exact subscription draft",
-  );
-  expected.set(subscriptionDraft, {
-    history: [historyText, draftText, subscriptionDraft],
-    reply: subscriptionReply,
-  });
-  await page.getByTestId("chat-send-button").click();
   await until(
     async () =>
       requests.some((item) => item.text === subscriptionDraft) &&
@@ -865,10 +890,10 @@ async function send(mode, kind, history) {
     JSON.stringify({ sample, mode, background: mode === "held" && kind === "new" }),
   );
   await page.getByTestId("chat-input").fill(text);
-  assert.equal(
-    await page.getByTestId("chat-send-button").isEnabled(),
-    true,
+  await until(
+    () => page.getByTestId("chat-send-button").isEnabled(),
     "Send is enabled for the selected subscription model",
+    8000,
   );
   await page.getByTestId("chat-send-button").click();
   try {
@@ -1034,7 +1059,7 @@ try {
         (model) =>
           model.providerId === "areal_openai" &&
           model.modelId === "gpt-6.1-sol" &&
-          model.available !== false,
+          model.availability === "available",
       ),
     "Startup publishes the real subscription catalog",
   );
@@ -1087,14 +1112,13 @@ try {
       true,
       "Explicit status reports a catalog failure through its normal response",
     );
+    const failedSnapshot = await until(async () => {
+      const value = (await snapshot()).subscription;
+      return value?.modelError && !value.refreshing ? value : false;
+    }, "Background catalog rejection reaches the pushed subscription snapshot");
     assert.ok(
-      failedStatus.value.modelError,
-      "The real external GET rejection reaches account status",
-    );
-    assert.deepEqual(
-      failedStatus.value.models,
-      [],
-      "A failed explicit catalog discovery clears account models",
+      failedSnapshot.models.some((model) => model.id === "gpt-6.1-sol"),
+      "A failed refresh retains the last public catalog",
     );
     await writeFile(controlPath, JSON.stringify({ sample: "explicit-recovery", mode: "ready" }));
     const recoveredStatus = await page.evaluate(() =>
@@ -1105,18 +1129,19 @@ try {
       true,
       "The existing explicit status action remains usable after catalog failure",
     );
+    const recoveredSnapshot = await until(async () => {
+      const value = (await snapshot()).subscription;
+      return value?.availability === "available" && !value.refreshing && !value.modelError
+        ? value
+        : false;
+    }, "Explicit refresh restores pushed account readiness");
     assert.equal(
-      recoveredStatus.value.state,
-      "ready",
-      "Explicit refresh restores account readiness",
-    );
-    assert.equal(
-      recoveredStatus.value.catalog.source,
+      recoveredSnapshot.catalog.source,
       "account",
       "Explicit recovery retains account catalog provenance",
     );
     assert.equal(
-      recoveredStatus.value.catalog.fresh,
+      recoveredSnapshot.catalog.fresh,
       true,
       "Explicit recovery refreshes the real catalog",
     );
@@ -1126,7 +1151,7 @@ try {
           (model) =>
             model.providerId === "areal_openai" &&
             model.modelId === "gpt-6.1-sol" &&
-            model.available !== false,
+            model.availability === "available",
         ),
       "Explicit refresh republishes the subscription model",
     );
@@ -1135,7 +1160,7 @@ try {
       JSON.stringify({ failedStatus, recoveredStatus, audit: await audit() }, null, 2),
     );
     checks.push(
-      "Explicit catalog failure clears models and the existing status refresh recovers account readiness and model publication",
+      "Explicit catalog failure retains public models and the existing status refresh recovers account readiness and model publication",
     );
     await send("ready", "existing", finalHistory);
     assert.equal(
@@ -1150,6 +1175,10 @@ try {
   passed = true;
 } catch (error) {
   failure = error.stack;
+  if (page)
+    await writeFile(join(scratch, "failure-snapshot.json"), JSON.stringify(await snapshot())).catch(
+      () => {},
+    );
   console.error(failure);
   if (page) await captureSmokeFailure(page, scratch, error);
 } finally {
@@ -1201,7 +1230,7 @@ try {
         boundary: worktreeMode
           ? "Source Electron and isolated real Core services. Committed Git fixture, real Worktree creation, UI model selection and first prompt. Execution-owner AppProviders.applySubscription is held before real provider upsert. Real Core RPC dispatch, response and error records include logical and execution owner identities. Ordinary provider first prompt completes while subscription synchronization is held. Subscription first prompt waits for provider application and completes exactly once after release. Synthetic external grant, catalog and inference only. No environment scripts."
           : startupMode
-            ? "Source Electron and two fresh owned restarts with saved project, real Core history and persisted Composer drafts. Normal-provider selection remains sendable during held subscription discovery. Persisted subscription selection stays unavailable with editable draft and normal-model choices until catalog release, then sends without restart. Real AppProviders, CoreSubscription, OpenAIAccount and ModelCatalog. Synthetic in-memory grant and custom external catalog fetch held by independent file-gate samples. Native folder picker and application quit confirmation stubbed. Inference uses real normal-provider Core HTTP and subscription custom fetch transports."
+            ? "Source Electron and two fresh owned restarts with saved project, real Core history and persisted Composer drafts. Normal-provider selection remains sendable during held subscription discovery. Persisted subscription selection remains sendable with an editable draft during catalog refresh. The first submission waits for provider initialization and then sends once without restart. Real AppProviders, CoreSubscription, OpenAIAccount and ModelCatalog. Synthetic in-memory grant and custom external catalog fetch held by independent file-gate samples. Native folder picker and application quit confirmation stubbed. Inference uses real normal-provider Core HTTP and subscription custom fetch transports."
             : "Source Electron, real isolated Core, AppProviders, CoreSubscription, OpenAIAccount and ModelCatalog. Synthetic in-memory grant and custom external fetch. Native folder picker and application quit confirmation stubbed. Catalog expiry is injected at the send command boundary. Held case starts a real background catalog discovery. Rejected case arms a rejecting external GET that sending must not consult. Inference replies stay held until UI and authoritative Core admission assertions pass.",
         limits:
           "No real account, OAuth exchange, external network or packaged application acceptance. This is a dependency regression test, not a latency benchmark. Isolated state and evidence are retained; owned services must stop.",

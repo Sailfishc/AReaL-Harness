@@ -220,6 +220,8 @@ export async function buildDocuments(check = false) {
   const components = [];
   const documents = new Map([
     [resolve(root, "agent-guide.md"), "agent-guide.md"],
+    [resolve(root, "skills/areal-ui-guide/SKILL.md"), "areal-ui-guide.md"],
+    [resolve(root, "skills/areal-ui-critique/SKILL.md"), "areal-ui-critique.md"],
     [resolve(root, "README.md"), "README.md"],
     [resolve(root, "README.en.md"), "README.en.md"],
     [resolve(root, "token-reference.md"), "token-reference.md"],
@@ -318,7 +320,7 @@ export async function buildDocuments(check = false) {
     check,
   );
   const index =
-    `# ${pkg.name} ${pkg.version}\n\nLocal workspace package; private, not published.\n\n- [Agent guide](docs/ui/agent-guide.md): adoption order, source owners and verification.\n- [Token reference](docs/ui/tokens.md): every CSS variable with default value and purpose.\n` +
+    `# ${pkg.name} ${pkg.version}\n\nLocal workspace package; private, not published.\n\n- [Agent guide](docs/ui/agent-guide.md): adoption order, source owners and verification.\n- [Skill: areal-ui-guide](docs/ui/areal-ui-guide.md): reading order, override-your-priors table and component migration steps.\n- [Skill: areal-ui-critique](docs/ui/areal-ui-critique.md): evidence-first visual review in light and dark themes.\n- [Token reference](docs/ui/tokens.md): every CSS variable with default value and purpose.\n` +
     components
       .map(
         (component) =>

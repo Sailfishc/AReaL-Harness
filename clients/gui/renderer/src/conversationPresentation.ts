@@ -1,3 +1,4 @@
+import type { Translate } from "./i18n/IntlProvider.js";
 import type { Data } from "./services.js";
 
 export function goalBudgetMessage(reason: string | null | undefined): string | undefined {
@@ -67,6 +68,29 @@ const categoryLabels: Record<ToolKind, string> = {
   tool: "调用工具",
 };
 
+// 行动作的语义标识；文字由 chat.activity.action 按界面语言给出。
+const specificVerbs: Readonly<Record<string, string>> = {
+  skill_read: "skillRead",
+  plan_read: "planRead",
+  read_process: "readProcess",
+  terminate_process: "terminateProcess",
+  browser_v1: "browser",
+  agent_spawn: "agentSpawn",
+  agent_spawn_configured: "agentSpawn",
+  agent_wait: "agentWait",
+  agent_wait_any: "agentWait",
+};
+export function toolVerb(item: Data): string {
+  if (hasToolImage(item)) return "image";
+  if (Object.hasOwn(specificVerbs, item.tool)) return specificVerbs[item.tool];
+  if (item.tool === "fs_create") return "create";
+  return toolPresentation(item).kind;
+}
+type Tense = "running" | "done" | "plain";
+export function toolActionText(item: Data, tense: Tense, t: Translate): string {
+  return t("chat.activity.action", { tense, verb: toolVerb(item), name: item.tool ?? "" });
+}
+
 const exploreTools = new Set([
   "fs_read",
   "read_file",
@@ -110,8 +134,8 @@ export function activityStageIcon(stage: string | null): string {
 }
 
 /**
- * 把时间线行切成连续同一阶段的段：连续的读取、搜索、列目录合成一段“探索”，命令另起一段。
- * 只有普通工具调用参与合并；思考组、子代理创建等行各自成段，保持原有顺序。
+ * 两段可见文字之间的工具调用合成一组（CONV-ACTIVITY-01），不论读、改还是运行命令。
+ * 思考组、子代理创建与完成等行各自成段并打断分组，保持原有顺序。
  */
 export function activityRuns(
   rows: Data[],
@@ -119,7 +143,7 @@ export function activityRuns(
 ): { key: string | null; items: Data[] }[] {
   const runs: { key: string | null; items: Data[] }[] = [];
   for (const item of rows) {
-    const key = item.type === "dynamicToolCall" && !isBreaker(item) ? activityStage(item) : null;
+    const key = item.type === "dynamicToolCall" && !isBreaker(item) ? "工具" : null;
     const last = runs.at(-1);
     if (key !== null && last?.key === key) last.items.push(item);
     else runs.push({ key, items: [item] });
@@ -127,52 +151,54 @@ export function activityRuns(
   return runs;
 }
 
+// 组标题短语的固定顺序：改动最值得注意，其次是其他工具，再是探索，命令最后。
+const stageRank = (stage: string) =>
+  stage === "修改文件" ? 0 : stage === "探索" ? 2 : stage === "运行命令" ? 3 : 1;
+
+/** 组内出现的阶段，按标题顺序排列；同一顺位按首次出现。 */
+export function activityRunStages(run: { items: Data[] }): string[] {
+  const stages = [...new Set(run.items.map(activityStage))];
+  return stages.sort((a, b) => stageRank(a) - stageRank(b));
+}
+
 /**
- * 合并段的标题：动词短语加已完成子项的真实计数；计数为零就省略，失败数单独写出。
- * 段的进行与完成看阶段边界，不看瞬时子项：子项仍在运行，或它是运行中回合最新一段的最后一段
- * （后面还没有出现可见的其他内容），都算进行中，避免模型在两次调用之间思考时标题来回翻转。
+ * 组标题是过去式短语串，例如“已修改 2 个文件，已探索，已运行命令”。只有修改文件带去重后的
+ * 已完成文件数；其余阶段不计数。失败数单独写在末尾。进行中的状态只由回合末尾一行表达
+ * （CONV-STATUS-01），标题不随子项运行而切换时态。
  */
-export function activityRunLabel(run: { key: string | null; items: Data[] }, open = false): string {
-  const action = run.key ?? "执行活动";
+export function activityRunLabel(run: { key: string | null; items: Data[] }, t: Translate): string {
+  if (run.key === null) return t("chat.activity.run.generic", { tense: "done" });
   const views = run.items.map((item) => ({ item, view: toolPresentation(item) }));
-  const active = open || views.some(({ view }) => view.running);
-  const done = views.filter(({ view }) => view.status === "已完成").map(({ item }) => item);
   const failures = views.filter(({ view }) => view.failed).length;
-  const count = (tools: string[]) => done.filter((item) => tools.includes(item.tool)).length;
-  const failed = failures ? `${failures} 个失败` : "";
-  const join = (head: string, parts: string[]) => {
-    const tail = parts.filter(Boolean).join("，");
-    return tail ? `${head} · ${tail}` : head;
-  };
-  if (action === "探索") {
-    const files = count(["fs_read", "read_file"]);
-    const searches = count(["search_files"]);
-    const lists = count(["fs_list"]);
-    const skills = count(["skill_read"]);
-    const plans = count(["plan_read"]);
-    return join(active ? "正在探索" : "已探索", [
-      files ? `${files} 个文件` : "",
-      searches ? `${searches} 次搜索` : "",
-      lists ? `${lists} 个目录` : "",
-      skills ? `${skills} 个技能` : "",
-      plans ? "计划" : "",
-      failed,
-    ]);
-  }
-  if (action === "运行命令")
-    return active
-      ? join("正在运行命令", [failed])
-      : join(done.length ? `已运行 ${done.length} 条命令` : "已运行命令", [failed]);
-  if (action === "修改文件") {
-    const paths = new Set(done.map((item) => toolPresentation(item).detail).filter(Boolean));
-    return active
-      ? join("正在修改文件", [failed])
-      : join(paths.size ? `已修改 ${paths.size} 个文件` : "已修改文件", [failed]);
-  }
-  return join(`${active ? "正在" : "已"}${action}`, [
-    !active && done.length > 1 ? `${done.length} 次` : "",
-    failed,
-  ]);
+  const phrases = activityRunStages(run).map((stage) => {
+    if (stage === "修改文件") {
+      const paths = new Set(
+        views
+          .filter(({ item, view }) => view.state === "completed" && activityStage(item) === stage)
+          .map(({ view }) => view.detail)
+          .filter(Boolean),
+      );
+      return t("chat.activity.run.edits", { tense: "done", count: paths.size });
+    }
+    if (stage === "探索") return t("chat.activity.run.explore", { tense: "done" });
+    if (stage === "运行命令") return t("chat.activity.run.commands", { tense: "done" });
+    if (stage === "等待任务") return t("chat.activity.run.wait", { tense: "done" });
+    return toolActionText(
+      run.items.find((item) => activityStage(item) === stage)!,
+      "done",
+      t,
+    );
+  });
+  // 英文短语接在逗号后时首字母小写（“Edited 2 files, explored”）；中文不受影响。
+  const label = [...new Set(phrases)]
+    .map((phrase, index) => (index ? phrase.charAt(0).toLowerCase() + phrase.slice(1) : phrase))
+    .join(t("chat.activity.part.separator"));
+  return failures
+    ? t("chat.activity.run.withDetails", {
+        action: label,
+        parts: t("chat.activity.part.failures", { count: failures }),
+      })
+    : label;
 }
 
 /**
@@ -308,6 +334,21 @@ export function toolPresentation(item: Data) {
         : name.startsWith("agent_") && Object.hasOwn(specificActions, name)
           ? ""
           : String(target),
+    // 状态的语义值；文字由 chat.activity.status 按界面语言给出。status 保留中文供既有数据属性使用。
+    state: running
+      ? "running"
+      : failed
+        ? "failed"
+        : unsettled
+          ? "unsettled"
+          : stopped
+            ? "stopped"
+            : "completed",
+    // 文件与目录类行只显示末段名称，完整路径在悬停提示里。
+    path:
+      ["read", "edit", "list"].includes(kind) && typeof (args.path ?? args.file_path) === "string"
+        ? String(args.path ?? args.file_path)
+        : undefined,
     status: running
       ? "执行中"
       : failed
@@ -523,6 +564,7 @@ const turnOutcomeLabels: Readonly<Record<string, string>> = {
   AGENT_MAX_TURNS_EXCEEDED: "已达到模型执行轮数上限",
   AGENT_RUN_TIMEOUT: "已达到任务活动时间上限",
   LLM_RESPONSE_FAILED: "模型响应失败",
+  MODEL_PARAMETER_UNSUPPORTED: "模型不支持所选思考强度，请在模型菜单重新选择强度或服务默认",
   HARNESS_INTERNAL_ERROR: "Harness 内部错误",
 };
 

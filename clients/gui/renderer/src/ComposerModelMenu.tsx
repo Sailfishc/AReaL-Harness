@@ -20,6 +20,7 @@ export interface ComposerModelOption {
   label: string;
   efforts?: readonly string[];
   reasoning?: boolean;
+  effortsKnown?: boolean;
   unavailableReason?: string;
   historical?: boolean;
 }
@@ -29,8 +30,9 @@ export function composerModelOption(model: {
   modelId: string;
   displayName?: string;
   reasoningEffortOptions?: readonly string[];
-  capabilities?: { reasoning: boolean };
+  capabilities?: { reasoning: boolean; reasoningEffortOptions?: readonly string[] };
   available?: boolean;
+  availability?: "checking" | "available" | "unavailable";
   credentialState?: string;
 }): ComposerModelOption {
   return {
@@ -38,8 +40,12 @@ export function composerModelOption(model: {
     label: model.displayName ?? model.modelId,
     efforts: model.reasoningEffortOptions,
     reasoning: model.capabilities?.reasoning,
+    effortsKnown:
+      model.capabilities?.reasoningEffortOptions !== undefined ||
+      !!model.reasoningEffortOptions?.length,
     unavailableReason:
-      model.available === false
+      model.availability === "unavailable" ||
+      (model.available === false && model.availability !== "checking")
         ? model.credentialState === "unavailable"
           ? "缺少 API Key"
           : "模型不可用"
@@ -82,7 +88,11 @@ export function ComposerModelMenu({
   const reasoning = !!model && model.reasoning !== false;
   const efforts = model?.efforts ?? [];
   const selectedEffort =
-    effort && (!model?.efforts || efforts.includes(effort)) ? effort : undefined;
+    effort &&
+    effort !== "default" &&
+    (!(model?.effortsKnown ?? !!efforts.length) || efforts.includes(effort))
+      ? effort
+      : undefined;
   const index = selectedEffort ? efforts.indexOf(selectedEffort) : -1;
   const sliderIndex = pointerIndex ?? index;
   const commitEffort = async (next: number) => {
@@ -96,7 +106,12 @@ export function ComposerModelMenu({
     }
   };
   const feedbackIndex = Math.min(hoveredIndex ?? (sliderFocused ? index : -1), efforts.length - 1);
-  const effortLabel = selectedEffort ? (labels[selectedEffort] ?? selectedEffort) : unspecified;
+  const effortLabel =
+    effort === "default"
+      ? t("chat.composer.serviceDefault")
+      : selectedEffort
+        ? (labels[selectedEffort] ?? selectedEffort)
+        : unspecified;
   const modelLabel = `${label}${reasoning ? ` ${effortLabel}` : ""}`;
   const emptyGuidance = `${model ? `${modelLabel}. ` : ""}${t("chat.composer.noModelsGuidance")}`;
   // Native range thumbs travel between half-thumb insets, including both endpoints.
@@ -104,7 +119,7 @@ export function ComposerModelMenu({
     const fraction = Math.max(0, step) / Math.max(1, efforts.length - 1);
     return `calc(${fraction * 100}% + ${14 - fraction * 28}px)`;
   };
-  if (!availableOptions.length && (!model || model.unavailableReason))
+  if (!availableOptions.length && !model)
     return (
       <span
         className="composer-model-trigger composer-model-empty text-foreground-subtle text-ui-sm"
@@ -143,6 +158,15 @@ export function ComposerModelMenu({
         }
       >
         <span>{modelLabel}</span>
+        {model?.unavailableReason && (
+          <span
+            className="text-destructive"
+            title={model.unavailableReason}
+            aria-label={model.unavailableReason}
+          >
+            !
+          </span>
+        )}
         <MenuChevronIcon size={14} aria-hidden="true" />
       </PopoverTrigger>
       <PopoverContent
@@ -308,6 +332,24 @@ export function ComposerModelMenu({
             ) : reasoning ? (
               <p className="composer-effort-unavailable">此模型未提供可选强度</p>
             ) : null}
+            {reasoning &&
+              effort &&
+              effort !== "default" &&
+              !model?.effortsKnown &&
+              !efforts.length && (
+                <p className="composer-effort-unavailable">{t("chat.composer.effortUnverified")}</p>
+              )}
+            {reasoning && onEffortChange && (
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={disabled || pending}
+                aria-pressed={effort === "default"}
+                onClick={() => void onEffortChange("default")}
+              >
+                {t("chat.composer.serviceDefault")}
+              </Button>
+            )}
           </>
         ) : (
           <>

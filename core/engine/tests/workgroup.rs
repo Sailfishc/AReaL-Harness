@@ -2044,6 +2044,27 @@ async fn real_worker(stalled: Option<i32>, command_tools_only: bool) {
         )
         .await
         .unwrap();
+    if record.status != "completed" {
+        // 先保留权威回执，避免并行验收失败后只剩预算耗尽这一条表面错误。
+        let attempts: Vec<_> = std::fs::read_dir(root.join("bindings"))
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| {
+                let read = |path| std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+                let binding = read(entry.path().join("binding.json"));
+                let history = binding.as_ref().and_then(|binding| binding["threadId"].as_str()).and_then(|id| read(entry.path().join("history").join(format!("{id}.json"))));
+                serde_json::json!({"binding":binding,"result":read(entry.path().join("worker-result.json")),"turns":history.map(|history|history["thread"]["turns"].clone())})
+            })
+            .collect();
+        let preserved = temp.keep();
+        panic!(
+            "worker case stalled={stalled:?} command_tools_only={command_tools_only}: {record:?}; model usage={:?}; evidence={}; receipts={}",
+            model.usage(),
+            preserved.display(),
+            serde_json::json!(attempts)
+        );
+    }
     assert_eq!(
         record.status, "completed",
         "{:?} {:?}",

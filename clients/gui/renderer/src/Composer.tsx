@@ -1,3 +1,4 @@
+import { setPendingMessage, usePendingMessage } from "./pendingMessage.js";
 import type { Attachment } from "@areal/workbench/desktop-contract/conversation";
 import { Input } from "@areal/ui";
 import { ComposerActionButton } from "@areal/ui/experimental";
@@ -203,6 +204,11 @@ export function Composer({
     thread.id,
     configuration.requestId ?? null,
   );
+  const outgoing = usePendingMessage(key);
+  useEffect(() => {
+    // 待提交预览只清空现有编辑器，保留 Enter 发送时的焦点与选区所有权。
+    if (outgoing) api.current?.clear();
+  }, [outgoing]);
   const [files, setFiles] = useState<ComposerDraftAttachment[]>(
     () => attachmentDrafts.get(key) ?? [],
   );
@@ -286,15 +292,6 @@ export function Composer({
     await queueEditor.save();
   };
   const config = project.configurations?.[thread.id];
-  const configuredModel =
-    config?.model &&
-    project.models.find(
-      (item: Data) =>
-        item.providerId === config.model.providerId && item.modelId === config.model.modelId,
-    );
-  const modelUnavailable =
-    configuredModel?.available === false ||
-    (config?.model?.providerId === "areal_openai" && !configuredModel);
   const [mcpOpen, setMcpOpen] = useState(false);
 
   const skills = useComposerSkills({
@@ -467,7 +464,6 @@ export function Composer({
       await saveQueueEdit();
       return;
     }
-    if (modelUnavailable && !creatingGoal) return;
     if (
       !submittedInput.text.trim() &&
       !submittedInput.files.length &&
@@ -497,6 +493,16 @@ export function Composer({
         !matchMedia("(max-width: 640px)").matches,
       appEntries.map((entry) => entry.value),
     );
+    if (!sideCommand && !creatingGoal)
+      setPendingMessage(key, {
+        text: submittedInput.text,
+        files: submittedInput.files,
+        previousUserIds: (thread.turns ?? []).flatMap((turn: Data) =>
+          (turn.items ?? [])
+            .filter((item: Data) => item.type === "userMessage")
+            .map((item: Data) => item.id),
+        ),
+      });
     try {
       if (sideCommand && onSide) {
         await onSide(sideCommand.text);
@@ -565,12 +571,12 @@ export function Composer({
         composerDraftStorage.setItem(`${key}:pending`, error.requestId);
       }
     } finally {
+      setPendingMessage(key);
       markSending(key, false);
     }
   };
   const continueExecution = async () => {
-    if (desktopUnsupported || !canContinue || disabled || modelUnavailable || sending.has(key))
-      return;
+    if (desktopUnsupported || !canContinue || disabled || sending.has(key)) return;
     if (inspection.request()) return;
     markSending(key, true);
     setDeliveryError("");
@@ -863,7 +869,6 @@ export function Composer({
             size="sm"
             disabled={
               disabled ||
-              modelUnavailable ||
               desktopUnsupported ||
               !!input.text.trim() ||
               !!input.files.length ||
@@ -983,7 +988,7 @@ export function Composer({
           onFileDrop={(files) => setFiles((current) => [...current, ...files])}
           onWorkspaceReferencePendingChange={setWorkspaceReferencePending}
           taskId={thread.id}
-          initialValue={text}
+          initialValue={outgoing ? "" : text}
           inputApiRef={api}
           inputTestId={inputTestId}
           submitTestId={submitTestId}
@@ -1000,7 +1005,6 @@ export function Composer({
           submitDisabled={
             workspaceReferencePending ||
             disabled ||
-            (modelUnavailable && !queueEditor.edit && !creatingGoal) ||
             (desktopUnsupported && !queueEditor.edit && !creatingGoal) ||
             (taskManagement && !!running) ||
             annotationEditing ||
@@ -1015,9 +1019,7 @@ export function Composer({
           submitDisabledReason={
             desktopUnsupported && !queueEditor.edit && !creatingGoal
               ? t("backend.updateRequired")
-              : modelUnavailable && !queueEditor.edit && !creatingGoal
-                ? t("chat.composer.previousModelUnavailable")
-                : undefined
+              : undefined
           }
           submitting={busy && !configuring}
           submitLabel={inspection.submitLabel(!!queueEditor.edit, creatingGoal, canContinue)}
@@ -1047,6 +1049,7 @@ export function Composer({
             })),
           }}
           onChange={(value) => {
+            if (outgoing) return;
             setText(value);
             composerDraftStorage.setItem(key, value);
             composerDraftStorage.setItem(
@@ -1073,7 +1076,7 @@ export function Composer({
             composerPaste(event, (pasted) => setFiles((current) => [...current, ...pasted]))
           }
           topContent={
-            <>
+            <div hidden={!!outgoing}>
               {queueEditor.edit && (
                 <div className="composer-queue-edit-banner" aria-label="编辑排队消息">
                   <span>
@@ -1207,7 +1210,7 @@ export function Composer({
                   />
                 )}
               </div>
-            </>
+            </div>
           }
           promptHistory={(thread.turns ?? []).flatMap((t: Data) =>
             (t.items ?? [])
@@ -1359,7 +1362,6 @@ export function Composer({
                   title={desktopUnsupported ? t("backend.updateRequired") : undefined}
                   disabled={
                     disabled ||
-                    modelUnavailable ||
                     desktopUnsupported ||
                     taskManagement ||
                     (!input.text.trim() &&
@@ -1387,7 +1389,7 @@ export function Composer({
                   data-testid="chat-continue-button"
                   aria-describedby={desktopUnsupported ? compatibilityDescription : undefined}
                   title={desktopUnsupported ? t("backend.updateRequired") : undefined}
-                  disabled={disabled || modelUnavailable || desktopUnsupported}
+                  disabled={disabled || desktopUnsupported}
                   className="composer-primary-action"
                   onClick={() => void continueExecution()}
                 >

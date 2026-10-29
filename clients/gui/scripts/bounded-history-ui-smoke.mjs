@@ -176,6 +176,21 @@ try {
         Object.assign(thread, value);
         publish();
       };
+      window.setModelAvailability = (availability) => {
+        project.configurations[threadId] = {
+          model: { providerId: "areal_openai", modelId: "remembered-model" },
+        };
+        project.models = [
+          {
+            providerId: "areal_openai",
+            modelId: "remembered-model",
+            displayName: "Remembered model",
+            available: availability === "available",
+            availability,
+          },
+        ];
+        publish();
+      };
       window.activeHistory = false;
       window.setDeferredType = (type) => {
         thread.turns[0].items[1].originalType = type;
@@ -288,6 +303,34 @@ try {
   );
   await page.goto(origin);
   await page.getByText("LATEST_USER_SENTINEL", { exact: true }).waitFor();
+  const editor = page.getByTestId("chat-input");
+  await editor.fill("KEEP_DRAFT_WHILE_MODEL_CHECKING");
+  await page.evaluate(() => window.setModelAvailability("checking"));
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+  assert.equal(
+    await page.locator(".composer-submit-feedback").count(),
+    0,
+    "checking model does not show an unavailable warning",
+  );
+  assert.equal(
+    await page.getByTestId("chat-send-button").isEnabled(),
+    true,
+    "checking model does not block sending",
+  );
+  const beforeModelRefresh = await page.locator(".composer-dock").boundingBox();
+  await page.evaluate(() => window.setModelAvailability("available"));
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+  assert.equal(
+    (await page.locator(".composer-dock").boundingBox()).y,
+    beforeModelRefresh.y,
+    "model refresh preserves composer position",
+  );
+  await editor.fill("");
+  checks.push("model discovery does not block submission or move composer");
   const older = page.getByRole("button", { name: labels.older, exact: true });
   await older.waitFor({ timeout: 3000 });
   // 固定消息内容，只切换恢复/分页状态，避免把正文增长误判为控件引起的跳动。

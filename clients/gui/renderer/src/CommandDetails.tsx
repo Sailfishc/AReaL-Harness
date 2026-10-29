@@ -34,7 +34,12 @@ export function CommandDetails({ item }: { item: Data }) {
   return (
     <DetailsView
       heading={t("chat.command.details")}
-      status={view.status + (process.exitCode != null ? ` · 退出码 ${process.exitCode}` : "")}
+      status={
+        t("chat.activity.status", { state: view.state }) +
+        (process.exitCode != null
+          ? ` · ${t("chat.command.exitCode", { code: process.exitCode })}`
+          : "")
+      }
       failed={view.failed}
       directory={item.arguments?.cwd}
       command={command}

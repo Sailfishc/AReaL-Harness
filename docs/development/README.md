@@ -4,6 +4,14 @@
 
 先阅读[架构](../design/architecture.md)、[开发规范](../../AGENTS.md)和[Agent 改进目标与方法](agent-improvement.md)。所有命令从仓库根目录执行。
 
+[T3 Code 质量补充设计](t3code-quality-design.md)说明协议回放、可控时序、投影一致性、本地快检和 GUI 派生缓存的实现与验收边界；操作入口见[测试指南](testing.md)。
+
+## 并行修改与终验
+
+开始修改前核对 `git status --short`、当前分支和已有 worktree 的任务归属。当前 checkout 有其他活跃写任务时，优先复用本任务的独立 worktree；没有可复用目录时，从明确的已提交基线创建 `codex/` worktree。未提交改动由原任务提交或显式交接，不能仅因工作区暂时干净就认定无人写入。
+
+在选定 worktree 完成构建，再进入终验；同一个验收实例使用的源码、依赖与输出在其退出前固定。需要继续开发或构建时使用另一个 worktree。浏览器验收优先消费独立静态产物；必须使用 Vite 开发模式的计量场景在独立冻结 worktree 串行执行，避免类型生成或构建触发 HMR。操作与证据要求见[验证产物与启动诊断](testing.md#本地验证产物与启动诊断)。
+
 ## 环境
 
 | 依赖 | 要求 |
@@ -47,6 +55,7 @@ GUI 验收的服务清理检查复用产品的原生 Core 启动适配，并异�
 |---|---|
 | 格式 | `make fmt` / `make fmt-check` |
 | 静态检查 | `make lint` |
+| 本地改动快检 | `make check-changed CI_BASE=<ref>`；`ARGS=--plan` 仅输出计划，所选检查的结果与未执行条件分别报告 |
 | Rust / SDK / 脚本 | `make test` / `make sdk-test` / `make script-test` |
 | 常规回归 | `make verify` |
 | 原生集成 | `make verify-harness`，包含常规回归 |

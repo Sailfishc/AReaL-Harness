@@ -503,7 +503,6 @@ test("new connection discovers models before persistence and leaves default choi
       tools: true,
       vision: false,
       reasoning: true,
-      reasoningEffortOptions: ["low", "medium", "high", "xhigh"],
     });
   assert.equal(result.defaultModel, null);
   assert.equal(result.pendingApply, false);

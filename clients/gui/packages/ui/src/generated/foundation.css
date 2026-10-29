@@ -42,6 +42,14 @@
   --text-conversation: var(--content-font-size, 14px);
   --conversation-line: 1.43;
   --conversation-gap: 12px;
+  --activity-icon-size: 16px;
+  --activity-chevron-size: 14px;
+  --activity-icon-gap: 6px;
+  --activity-list-max-height: 240px;
+  --activity-list-fade: 24px;
+  --conversation-fade: 24px;
+  --focus-width: 2px;
+  --focus-offset: 2px;
   --radius-message: 16px;
   --text-ui-xl: calc(var(--ui-font-size) + 4px);
   --text-page-title: calc(var(--ui-font-size) + 8px);
@@ -115,6 +123,8 @@
   --browser-file-status-max-height: 112px;
   --browser-file-status-inline-gap: 6px;
   --browser-file-status-block-padding: 3px;
+  --size-status-dot: 7px;
+  --size-touch-target: 44px;
 }
 .dark {
   --color-destructive: #ff5c5c;

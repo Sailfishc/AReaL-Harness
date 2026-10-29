@@ -26,3 +26,4 @@ __pycache__/
 # Private LoopX project state and local tooling
 /.loopx/
 /.local/
+out

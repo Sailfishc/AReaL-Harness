@@ -69,7 +69,7 @@ async function fixture(t, { independent = true } = {}) {
     projectless: {
       records: { [allocationId]: { root, ...(!independent ? { existing: true } : {}) } },
     },
-    providers: { lastAcceptedModel: null },
+    providers: { lastAcceptedModel: null, catalog: (models) => models },
     resources: { beforeCreate: async () => {} },
     awaitingResponses: new WeakSet(),
     async save(name, value) {
@@ -1154,4 +1154,43 @@ test("shared schedule approval replies retain exact pending interaction and work
   interaction.turnId = registration.turnId;
   worker.goalOwner.goalId = "foreign-goal";
   await assert.rejects(respond());
+});
+
+test("legacy TaskDraft retains its remembered subscription model while discovery is pending", async (t) => {
+  const f = await fixture(t);
+  const { AppProviders } = require("../app/src/core/providers.cjs");
+  const providers = new AppProviders(f.backend, {});
+  providers.config.value = { data: [], revision: "fixture" };
+  providers.subscription = {
+    ...providers.subscription,
+    authenticated: true,
+    availability: "checking",
+  };
+  providers.lastAcceptedModel = {
+    model: { providerId: "areal_openai", modelId: "remembered" },
+    modelId: "remembered",
+    reasoningEffort: "high",
+    acceptedAt: 1,
+  };
+  let prepared = false;
+  providers.ensureSubscription = async () => {
+    prepared = true;
+  };
+  f.backend.providers = providers;
+  f.project.models = [
+    { providerId: "local", modelId: "other", providerRevision: 1, isDefault: true },
+  ];
+  const submit = f.backend.submit;
+  f.backend.submit = (...args) => {
+    if (args[1] === "areal/thread/start") assert.equal(prepared, true);
+    return submit(...args);
+  };
+  await manageTaskDraft(f.backend, f.project, {
+    operation: "taskDraftStart",
+    draftId: randomUUID(),
+    timeZone: "Etc/UTC",
+  });
+  const start = f.calls.find((call) => call.method === "areal/thread/start");
+  assert.deepEqual(start.params.model, { providerId: "areal_openai", modelId: "remembered" });
+  assert.equal(start.params.parameters.reasoningEffort, "high");
 });

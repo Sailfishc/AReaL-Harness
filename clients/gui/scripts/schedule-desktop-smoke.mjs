@@ -254,7 +254,7 @@ try {
     )
   ).id;
   await page.getByRole("button", { name: "定时任务", exact: true }).click();
-  await page.getByRole("button", { name: "新建自动化", exact: true }).click();
+  await page.getByRole("button", { name: "新建定时任务", exact: true }).click();
   const chat = page.getByTestId("chat-input");
   await chat.waitFor();
   assert.equal(await page.getByRole("dialog").count(), 0);

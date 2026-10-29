@@ -657,8 +657,8 @@ export const generalMessages = {
     en: "Allowed reasoning efforts",
   },
   "settings.modelEditor.leaveUnselectedToKeepTheAvailableReasoning": {
-    "zh-CN": "优先沿用模型或供应商默认；未选择时保留现有可选强度。",
-    en: "Use model or provider defaults first. Leave unselected to keep the available reasoning efforts.",
+    "zh-CN": "未勾选表示不提供可选强度；省略能力声明表示未知。已配置的不兼容强度需要重新选择。",
+    en: "Leave all unchecked to offer no effort choices. Omitted capabilities are unknown. Reselect any incompatible configured effort.",
   },
   "settings.modelEditor.savedToTheProviderDraftTakesEffect": {
     "zh-CN": "保存到供应商草稿，保存供应商后生效。",
@@ -1010,8 +1010,8 @@ export const generalMessages = {
   },
   "settings.newSessionModelSetting.newSessionsUseTheModelAndReasoning": {
     "zh-CN":
-      "新会话沿用主会话最后一次受理的模型与思考强度；已有会话保持不变。没有使用记录或模型不可用时使用备用默认模型。",
-    en: "New sessions use the model and reasoning effort last accepted in the main session. Existing sessions stay unchanged. The fallback default is used when there is no history or that model is unavailable.",
+      "新会话沿用主会话最后一次受理的模型与思考强度；已有会话保持不变。没有使用记录或目录已确认原模型不存在时使用备用默认模型。",
+    en: "New sessions use the model and reasoning effort last accepted in the main session. Existing sessions stay unchanged. The fallback default is used when there is no history or the catalog confirms that the previous model no longer exists.",
   },
   "settings.newSessionModelSetting.commandLineOrEnvironmentSettingsOverrideFile": {
     "zh-CN": "命令行或环境配置覆盖了文件值；保存不会修改这些覆盖。",

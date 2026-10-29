@@ -91,6 +91,11 @@ struct AuthConfiguration {
     revision: String,
 }
 type ServerStates = BTreeMap<String, (String, BTreeMap<String, String>)>;
+#[cfg(test)]
+struct ReconcileGate {
+    captured: tokio::sync::oneshot::Sender<()>,
+    release: tokio::sync::oneshot::Receiver<()>,
+}
 pub(crate) struct Manager {
     live: std::sync::RwLock<BTreeMap<String, Generation>>,
     owners: Mutex<Vec<Owned>>,
@@ -107,6 +112,10 @@ pub(crate) struct Manager {
     watching: std::sync::atomic::AtomicBool,
     preparations: std::sync::atomic::AtomicUsize,
     auth: areal_mcp::AuthManager,
+    #[cfg(test)]
+    reconcile_gate: std::sync::Mutex<Option<ReconcileGate>>,
+    #[cfg(test)]
+    publication_checkpoint: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
 }
 impl Manager {
     pub fn open(root: &Path) -> anyhow::Result<Self> {
@@ -137,6 +146,10 @@ impl Manager {
             watching: Default::default(),
             preparations: Default::default(),
             auth: areal_mcp::AuthManager::new(root.join("private/mcp-auth"), "plugins")?,
+            #[cfg(test)]
+            reconcile_gate: Default::default(),
+            #[cfg(test)]
+            publication_checkpoint: Default::default(),
         })
     }
     pub fn tools(&self) -> Vec<McpTool> {
@@ -483,6 +496,8 @@ impl Engine {
         let Some(store) = self.desktop.plugins.read().unwrap().store.clone() else {
             return Ok(());
         };
+        // 快照与撤代共享发布边界，旧目录不能撤销读取后才发布的新连接。
+        let _publication = self.desktop.plugin_refresh.lock().await;
         let current = tokio::task::spawn_blocking(move || store.enabled_components())
             .await
             .map_err(invalid)
@@ -494,6 +509,20 @@ impl Engine {
                 return Err(error);
             }
         };
+        #[cfg(test)]
+        {
+            let gate = self
+                .desktop
+                .plugin_mcp
+                .reconcile_gate
+                .lock()
+                .unwrap()
+                .take();
+            if let Some(gate) = gate {
+                let _ = gate.captured.send(());
+                let _ = gate.release.await;
+            }
+        }
         let current: BTreeMap<_, _> = current
             .into_iter()
             .map(|component| (component.id.clone(), component))
@@ -952,6 +981,20 @@ impl Engine {
                 .insert(id.clone(), state.into());
             return Ok(());
         }
+        #[cfg(test)]
+        if self.desktop.plugin_refresh.try_lock().is_err()
+            && let Some(checkpoint) = self
+                .desktop
+                .plugin_mcp
+                .publication_checkpoint
+                .lock()
+                .unwrap()
+                .take()
+        {
+            let _ = checkpoint.send(());
+        }
+        // 握手不持锁，禁用仍可推进；发布前在同一边界重读当前授权。
+        let _publication = self.desktop.plugin_refresh.lock().await;
         if self.plugin_component(&id).await.map_or(true, |c| {
             c.digest != expected_digest || c.disabled_mcp_servers != component.disabled_mcp_servers
         }) {
@@ -1035,6 +1078,17 @@ impl Engine {
             if has_failures { "partial" } else { "connected" }.into(),
         );
         self.spawn_mcp_forms(receiver);
+        #[cfg(test)]
+        if let Some(checkpoint) = self
+            .desktop
+            .plugin_mcp
+            .publication_checkpoint
+            .lock()
+            .unwrap()
+            .take()
+        {
+            let _ = checkpoint.send(());
+        }
         Ok(())
     }
     fn plugin_auth_key(&self, plugin: &str, server: &str, digest: &str) -> String {
@@ -1584,6 +1638,192 @@ mod connector_input_tests {
         ) -> anyhow::Result<crate::model::ModelStream> {
             unreachable!("cleanup acceptance never samples a model")
         }
+    }
+    #[tokio::test]
+    async fn stale_reconciliation_cannot_revoke_a_new_connection() {
+        let root = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        for (path, bytes) in [
+            (
+                ".agents/plugins/marketplace.json",
+                r#"{"name":"local","plugins":[{"name":"sample","source":"./pkg"}]}"#,
+            ),
+            ("pkg/.codex-plugin/plugin.json", r#"{"name":"sample"}"#),
+            (
+                "pkg/server.py",
+                include_str!("../../../mcp/tests/substrate.py"),
+            ),
+            (
+                "pkg/.mcp.json",
+                r#"{"mcpServers":{"fixture":{"command":"python3","args":["server.py"]}}}"#,
+            ),
+        ] {
+            let path = root.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        }
+        let engine = Engine::open(state.path(), Arc::new(NoModel), Limits::default()).unwrap();
+        // 本例只调度一次受控扫描，避免后台轮询抢走屏障。
+        engine
+            .desktop
+            .plugin_mcp
+            .watching
+            .store(true, Ordering::Release);
+        let store = Arc::new(
+            areal_plugins::Store::open(root.path().join("plugins"), root.path().into(), None)
+                .unwrap(),
+        );
+        engine.install_plugin_store(store.clone()).unwrap();
+        let (captured, observed) = tokio::sync::oneshot::channel();
+        let (release, released) = tokio::sync::oneshot::channel();
+        *engine.desktop.plugin_mcp.reconcile_gate.lock().unwrap() = Some(ReconcileGate {
+            captured,
+            release: released,
+        });
+        let (publication, publication_reached) = tokio::sync::oneshot::channel();
+        *engine
+            .desktop
+            .plugin_mcp
+            .publication_checkpoint
+            .lock()
+            .unwrap() = Some(publication);
+        let mut release = Some(release);
+        let mut jobs = tokio::task::JoinSet::new();
+        let scanning = engine.clone();
+        jobs.spawn(async move {
+            scanning.reconcile_plugin_connections().await?;
+            Ok::<_, Error>(Value::Null)
+        });
+        let result = tokio::time::timeout(Duration::from_secs(15), async {
+            observed.await?;
+            let descriptor = store.read("sample@local")?;
+            store.install(
+                &descriptor.id,
+                "user",
+                descriptor.revision,
+                &descriptor.source,
+                &descriptor.source_digest,
+            )?;
+            let installed = store.read(&descriptor.id)?;
+            let connecting = engine.clone();
+            jobs.spawn(async move {
+                connecting
+                    .plugin_connection(installed.id, installed.installed_digest.unwrap(), true)
+                    .await
+            });
+            // 旧实现已经发布；修复后发布等待旧扫描持有的锁。两种路径都用事件推进。
+            publication_reached.await?;
+            let _ = release.take().unwrap().send(());
+            while let Some(done) = jobs.join_next().await {
+                done??;
+            }
+            let apps = engine.mcp_apps_list(None).await?;
+            let tool = engine
+                .desktop
+                .plugin_mcp
+                .generations()
+                .first()
+                .and_then(|g| g.tools.first())
+                .cloned();
+            let callable = if let Some(tool) = tool {
+                engine.check_plugin_mcp(&tool).await?;
+                Some(tool.call_raw(json!({}), CancellationToken::new()).await?)
+            } else {
+                None
+            };
+            Ok::<_, anyhow::Error>((apps, callable))
+        })
+        .await;
+        if let Some(release) = release.take() {
+            let _ = release.send(());
+        }
+        jobs.abort_all();
+        while jobs.join_next().await.is_some() {}
+        engine.shutdown().await;
+        let (apps, callable) = result.unwrap().unwrap();
+        assert_eq!(apps["data"].as_array().unwrap().len(), 1, "{apps}");
+        let callable =
+            serde_json::to_value(callable.expect("new generation lost its callable tool")).unwrap();
+        assert_ne!(callable["isError"], true);
+        assert_eq!(callable["structuredContent"], json!({"v":1}));
+        assert_eq!(apps["data"][0]["pluginId"], "sample@local");
+    }
+    #[tokio::test]
+    async fn disabling_a_plugin_does_not_wait_for_its_handshake() {
+        let root = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let gate = state.path().join("held");
+        let entered = state.path().join("entered");
+        std::fs::write(&gate, "").unwrap();
+        let server = include_str!("../../../mcp/tests/substrate.py")
+            .replace("import sys,json,os", "import sys,json,os,time")
+            .replace("elif m==\"tools/list\":out=", "elif m==\"tools/list\":\n  open(os.environ['ENTERED'],'w').close()\n  while os.path.exists(os.environ['GATE']):time.sleep(0.01)\n  out=");
+        let config = json!({"mcpServers":{"fixture":{"command":"python3","args":["server.py"],"env":{"GATE":gate,"ENTERED":entered}}}}).to_string();
+        for (path, bytes) in [
+            (
+                ".agents/plugins/marketplace.json",
+                r#"{"name":"local","plugins":[{"name":"sample","source":"./pkg"}]}"#,
+            ),
+            ("pkg/.codex-plugin/plugin.json", r#"{"name":"sample"}"#),
+            ("pkg/server.py", server.as_str()),
+            ("pkg/.mcp.json", config.as_str()),
+        ] {
+            let path = root.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        }
+        let engine = Engine::open(state.path(), Arc::new(NoModel), Limits::default()).unwrap();
+        let store = Arc::new(
+            areal_plugins::Store::open(root.path().join("plugins"), root.path().into(), None)
+                .unwrap(),
+        );
+        engine.install_plugin_store(store.clone()).unwrap();
+        let descriptor = store.read("sample@local").unwrap();
+        store
+            .install(
+                &descriptor.id,
+                "user",
+                descriptor.revision,
+                &descriptor.source,
+                &descriptor.source_digest,
+            )
+            .unwrap();
+        let installed = store.read(&descriptor.id).unwrap();
+        let connecting = engine.clone();
+        let mut connection = tokio::spawn(async move {
+            connecting
+                .plugin_connection(installed.id, installed.installed_digest.unwrap(), true)
+                .await
+        });
+        let disabled = tokio::time::timeout(Duration::from_secs(15), async {
+            while !entered.exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            let descriptor = store.read("sample@local").map_err(invalid)?;
+            engine
+                .plugin_configure(descriptor.id, "user".into(), false, descriptor.revision)
+                .await
+        })
+        .await;
+        let handshake_ended_before_release = connection.is_finished();
+        let _ = std::fs::remove_file(&gate);
+        let connected = tokio::time::timeout(Duration::from_secs(15), &mut connection).await;
+        if connected.is_err() {
+            connection.abort();
+            let _ = connection.await;
+        }
+        let apps = engine.mcp_apps_list(None).await;
+        engine.shutdown().await;
+        disabled.unwrap().unwrap();
+        assert!(
+            !handshake_ended_before_release,
+            "disable waited for the held handshake to finish"
+        );
+        assert!(
+            connected.unwrap().unwrap().is_err(),
+            "disabled plugin published a connection"
+        );
+        assert_eq!(apps.unwrap()["data"], json!([]));
     }
     #[tokio::test]
     async fn cleanup_failure_survives_context_and_blocks_retry_classification() {

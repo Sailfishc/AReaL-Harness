@@ -552,11 +552,14 @@ for (const method of ["areal/turn/start", "areal/turn/enqueue"]) {
     assert.deepEqual(await f.backend.submit(f.project, method, parameters, { requestId }), {
       turn: { id: "accepted-turn" },
     });
+    const createdAt = f.project.pending[0].createdAt;
+    assert.equal(new Date(createdAt).toISOString(), createdAt);
     assert.equal(f.project.refreshErrors[requestId].refreshPending, true);
     assert.equal(f.project.refreshErrors[requestId].operation.requestId, requestId);
     assert.deepEqual(JSON.parse(await readFile(join(f.home, "p-pending.json"), "utf8")), [
       {
         method,
+        createdAt,
         params: { ...parameters, requestId },
         operation: { method, requestId, target: { kind: "thread", threadId: "t" } },
       },
@@ -569,6 +572,7 @@ for (const method of ["areal/turn/start", "areal/turn/enqueue"]) {
     assert.deepEqual(JSON.parse(await readFile(join(f.home, "p-pending.json"), "utf8")), [
       {
         method,
+        createdAt,
         params: { ...parameters, requestId },
         operation: { method, requestId, target: { kind: "thread", threadId: "t" } },
       },
@@ -675,6 +679,8 @@ test("subscription refresh unknown retains only its dispatched provider request 
     false,
     "explicit refresh never dispatches a turn",
   );
+  providerRequest.createdAt = f.project.pending[0].createdAt;
+  assert.equal(new Date(providerRequest.createdAt).toISOString(), providerRequest.createdAt);
   assert.deepEqual(
     f.project.pending,
     [providerRequest],
@@ -1847,3 +1853,20 @@ test("single-turn cancellation uses the healthy target snapshot when another Cor
     false,
   );
 });
+
+for (const supported of [false, true]) {
+  test(`selected thread hint is ${supported ? "forwarded to a supporting" : "omitted for a legacy"} Desktop`, async (t) => {
+    const f = await fixture(t, {
+      commandResult: { accepted: true },
+      service: supported ? { selectedThreadObservation: true } : {},
+    });
+    await f.publish();
+    await f.backend.attach();
+    await f.backend.command("connect", { projectId: "p", threadId: "t" });
+    const command = f.calls.find((call) => call.method === "command");
+    assert.deepEqual(
+      command.params.request,
+      supported ? { projectId: "p", threadId: "t" } : { projectId: "p" },
+    );
+  });
+}

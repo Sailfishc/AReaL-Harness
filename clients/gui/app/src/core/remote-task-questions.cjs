@@ -1,6 +1,8 @@
 // @ts-check
 "use strict";
-const { record } = require("./remote-core-decoder.cjs");
+const decoder = require("./remote-core-decoder.cjs");
+const { record } = decoder;
+const nativeHistoryBytes = 4 * 1024 * 1024;
 /** @typedef {import('./remote-session-observer.cjs').RemoteConnection} Connection */
 /** @typedef {import('./remote-session-observer.cjs').TaskQuestionRead} QuestionRead */
 /** @typedef {{taskId:string,runId:string,questionId:string,[key:string]:unknown}} Target */
@@ -264,4 +266,88 @@ class TaskQuestions {
     });
   }
 }
-module.exports = { TaskQuestions, LIMITS, validateReply, validatePause, target };
+/** @template T @param {InstanceType<typeof import('./remote-session-observer.cjs').SessionObservers>} observers @param {Connection} connection @param {string} projectId @param {{taskId:string,runId?:string,questionId?:string}} params @param {(result:QuestionRead,entry:import('./remote-session-observer.cjs').ObserverEntry)=>T} publish */
+async function readTaskQuestion(observers, connection, projectId, params, publish) {
+  const project = observers.authorize(connection, projectId);
+  if (
+    !["areal/task/read", ...(params.questionId ? ["areal/channel/read"] : [])].every((method) =>
+      project.client.capabilities?.methods?.includes(method),
+    )
+  )
+    throw failure("CORE_INCOMPATIBLE", "Core 不支持 Task 问题读取");
+  const entry = observers.entry(connection, projectId);
+  entry.readers++;
+  try {
+    return await observers.enqueue(entry, async () => {
+      const check = () => {
+        observers.check(entry);
+        if (observers.authorize(connection, projectId) !== entry.project)
+          throw failure("RESYNC_REQUIRED", "项目已变化");
+      };
+      check();
+      const task = decoder.taskRead(
+        await observers.rpc(entry, "areal/task/read", { taskId: params.taskId }),
+      );
+      check();
+      if (Buffer.byteLength(JSON.stringify(task)) > nativeHistoryBytes)
+        throw failure("RESOURCE_UNAVAILABLE", "Task 超过读取上限");
+      if (
+        task.id !== params.taskId ||
+        (params.runId && !task.runs?.some((run) => run.id === params.runId))
+      )
+        throw failure("TARGET_CHANGED", "原 Task Run 已不存在");
+      if (!params.questionId) return publish({ task, complete: true }, entry);
+      let afterSequence = 0,
+        item,
+        complete = false,
+        bytes = 0;
+      // 有界读取独立 Channel；不打开、订阅或恢复协调 Session。
+      for (let page = 0; page < LIMITS.taskQuestionPages; page++) {
+        const result = decoder.channelRead(
+          await observers.rpc(entry, "areal/channel/read", {
+            taskId: params.taskId,
+            afterSequence,
+            limit: 100,
+          }),
+        );
+        check();
+        bytes += Buffer.byteLength(JSON.stringify(result));
+        if (bytes > nativeHistoryBytes) break;
+        if (
+          result.taskId !== params.taskId ||
+          !Array.isArray(result.data) ||
+          result.data.length > 100
+        )
+          throw failure("TARGET_CHANGED", "Channel 身份或分页无效");
+        item = result.data.find(
+          (value) =>
+            value.id === params.questionId &&
+            value.runId === params.runId &&
+            value.kind === "question",
+        );
+        if (item) {
+          complete = true;
+          break;
+        }
+        if (!result.hasMore) {
+          complete = true;
+          break;
+        }
+        if (!Number.isSafeInteger(result.nextSequence) || result.nextSequence <= afterSequence)
+          break;
+        afterSequence = result.nextSequence;
+      }
+      check();
+      return publish({ task, item, complete }, entry);
+    });
+  } finally {
+    entry.readers--;
+    if (
+      !entry.readers &&
+      ![...entry.threads.values()].some((value) => value.viewers.size || value.pushWatches?.size)
+    )
+      observers.invalidate(entry);
+  }
+}
+
+module.exports = { readTaskQuestion, TaskQuestions, LIMITS, validateReply, validatePause, target };

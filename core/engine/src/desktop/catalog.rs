@@ -539,9 +539,10 @@ impl Engine {
             .worker_model
             .load(std::sync::atomic::Ordering::Acquire)
         {
+            self.model.check_work().map_err(invalid)?;
             return Ok(self.model.clone());
         }
-        match (&configuration.model, &configuration.provider) {
+        let model = match (&configuration.model, &configuration.provider) {
             (Some(model), Some(provider)) => self.provider_model(
                 provider,
                 &model.model_id,
@@ -560,8 +561,20 @@ impl Engine {
                 }
             }
             _ => Err(invalid("MODEL_NOT_CONFIGURED")),
-        }
+        }?;
+        model.check_work().map_err(|error| {
+            invalid(format!(
+                "{}: {error}",
+                configuration
+                    .model
+                    .as_ref()
+                    .map(|model| model.provider_id.as_str())
+                    .unwrap_or("default")
+            ))
+        })?;
+        Ok(model)
     }
+
     pub(crate) fn resolve_config(
         &self,
         profile: Option<VersionRef>,

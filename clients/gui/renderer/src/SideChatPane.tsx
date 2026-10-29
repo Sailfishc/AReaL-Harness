@@ -294,15 +294,6 @@ function SideChatEditor({
   const unsettled =
     !!sideId && project.pending?.some((request: Data) => request.params?.threadId === sideId);
   const config = validSide ? project.configurations?.[sideId] : (draftConfig ?? {});
-  const configuredModel =
-    config?.model &&
-    project.models.find(
-      (item: Data) =>
-        item.providerId === config.model.providerId && item.modelId === config.model.modelId,
-    );
-  const modelUnavailable =
-    configuredModel?.available === false ||
-    (config?.model?.providerId === "areal_openai" && !configuredModel);
   const sourceStatus =
     !project.state?.connected || !validSide
       ? "来源当前状态未知"
@@ -524,7 +515,6 @@ function SideChatEditor({
         : "");
     if (
       executionBlocked ||
-      modelUnavailable ||
       !question ||
       busy ||
       pendingId ||
@@ -603,7 +593,6 @@ function SideChatEditor({
   const submitGenUi = async (question: string) => {
     if (
       executionBlocked ||
-      modelUnavailable ||
       busy ||
       pendingId ||
       unsettled ||
@@ -1059,12 +1048,7 @@ function SideChatEditor({
             composerCatalog={{ entries: [], refresh: () => {} }}
             placeholder="随心输入"
             disabled={editorDisabled}
-            submitDisabled={
-              disabled || modelUnavailable || !!active || (!text.trim() && !selection)
-            }
-            submitDisabledReason={
-              modelUnavailable ? t("chat.composer.previousModelUnavailable") : undefined
-            }
+            submitDisabled={disabled || !!active || (!text.trim() && !selection)}
             allowSubmitWhenEmpty={!!selection && !sideId}
             submitting={busy}
             submitLabel="发送"

@@ -2201,7 +2201,7 @@ console.log(
     };
     const desktop = {
       getByRole(role, { name }) {
-        if (role === "button" && name === "生成配对链接")
+        if (role === "button" && name === "添加设备")
           return {
             async click() {
               release();

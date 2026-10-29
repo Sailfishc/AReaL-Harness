@@ -37,6 +37,7 @@ async function launch(executable, name, reopen = false) {
     AREAL_GUI_SMOKE: "1",
     AREAL_GUI_USER_DATA: join(home, "electron"),
     AREAL_CORE_HOME: join(home, "core"),
+    AREAL_HARNESS_SERVICE_HOME: join(home, "registry"),
     AREAL_CORE_USER_HOME: join(home, "user"),
     AREAL_HARNESS_HOME: join(home, "runtime"),
     AREAL_CORE_CONFIG: config,
@@ -70,6 +71,101 @@ let instance;
 try {
   instance = await launch(process.env.AREAL_GUI_EXECUTABLE, "feedback");
   const { app, page } = instance;
+  for (const targetVersion of ["0.1.12", "0.1.11"]) {
+    await app.evaluate(async ({ app, ipcMain, BrowserWindow }, targetVersion) => {
+      const read = process
+        .getBuiltinModule("module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const { EventEmitter } = read("node:events");
+      const { createUpdater } = read(app.getAppPath() + "/src/update/controller.cjs");
+      const { githubFeedUrl } = read(app.getAppPath() + "/src/update/config.cjs");
+      const probe = { failCheck: true, checks: 0, downloads: 0 };
+      const updater = new EventEmitter();
+      updater.setFeedURL = () => {};
+      updater.checkForUpdates = async () => {
+        probe.checks++;
+        if (probe.failCheck) throw new Error("net::ERR_NETWORK_CHANGED");
+        return {
+          updateInfo: {
+            version: targetVersion,
+            files: [
+              {
+                url: `https://github.com/areal-project/AReaL-Harness/releases/download/gui-v${targetVersion}/AReaLHarness-${targetVersion}-macos-arm64.zip`,
+                size: 123,
+                sha512: Buffer.alloc(64).toString("base64"),
+              },
+            ],
+          },
+        };
+      };
+      updater.downloadUpdate = async () => {
+        probe.downloads++;
+      };
+      updater.quitAndInstall = () => {
+        throw new Error("unexpected install");
+      };
+      const controller = createUpdater({
+        updater,
+        config: { feedUrl: githubFeedUrl },
+        version: "0.1.11",
+        platform: "darwin",
+        arch: "arm64",
+        onState: (state) =>
+          BrowserWindow.getAllWindows()[0].webContents.send("areal-core:update-changed", state),
+        hasWork: async () => true,
+        prepareNativeInstall: async () => {},
+        prepareInstall: async () => {
+          throw new Error("unexpected Core shutdown");
+        },
+        log: { warn() {} },
+      });
+      globalThis.updateRetrySmoke = probe;
+      ipcMain.removeHandler("areal-core:update-download");
+      ipcMain.handle("areal-core:update-download", () => {
+        void controller.download();
+        return controller.state();
+      });
+      await controller.check();
+    }, targetVersion);
+    await page.getByRole("alert").filter({ hasText: "网络发生变化，更新请求中断" }).waitFor();
+    const retryButton = page.getByRole("button", { name: "重新检查更新", exact: true });
+    await retryButton.waitFor();
+    assert.ok(
+      (await page.getByTestId("areal-update-status").getAttribute("title")).includes(
+        "net::ERR_NETWORK_CHANGED",
+      ),
+    );
+    await page.screenshot({ path: join(scratch, `check-error-${targetVersion}.png`) });
+    await app.evaluate(() => {
+      globalThis.updateRetrySmoke.failCheck = false;
+    });
+    await retryButton.click();
+    if (targetVersion === "0.1.12") {
+      await page.getByRole("button", { name: "下载更新 0.1.12", exact: true }).waitFor();
+    } else {
+      await page.getByTestId("areal-update-status").waitFor({ state: "hidden" });
+    }
+    assert.equal(
+      await page.getByRole("alert").filter({ hasText: "网络发生变化，更新请求中断" }).count(),
+      0,
+    );
+    assert.deepEqual(
+      await app.evaluate(() => ({
+        checks: globalThis.updateRetrySmoke.checks,
+        downloads: globalThis.updateRetrySmoke.downloads,
+      })),
+      { checks: 2, downloads: 0 },
+    );
+    await page.screenshot({ path: join(scratch, `check-recovered-${targetVersion}.png`) });
+    if (targetVersion === "0.1.12") {
+      await page.getByRole("button", { name: "下载更新 0.1.12", exact: true }).click();
+      await page.getByTestId("areal-update-status").filter({ hasText: "等待安装" }).waitFor();
+      assert.equal(await app.evaluate(() => globalThis.updateRetrySmoke.downloads), 1);
+    }
+  }
+  checks.push(
+    "real update controller through preload/IPC: network-change check failure retries; new offer needs a second click to download; current version clears the error",
+  );
   await app.evaluate(({ ipcMain, BrowserWindow }) => {
     ipcMain.removeHandler("areal-core:update-download");
     ipcMain.handle("areal-core:update-download", () => {

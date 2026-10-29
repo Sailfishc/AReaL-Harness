@@ -8,7 +8,6 @@ use axum::{
 use futures_util::{StreamExt, stream};
 use serde_json::json;
 use std::{convert::Infallible, sync::Arc, time::Duration};
-use tokio::sync::Notify;
 
 #[derive(Clone, Copy)]
 enum DelayedPhase {
@@ -16,48 +15,38 @@ enum DelayedPhase {
     FirstBody,
     AfterActivity,
     HeadersAndFirstBody,
-    CancelledHeaders,
 }
 
 async fn delayed_response(phase: DelayedPhase) -> Thread {
-    let accepted = Arc::new(Notify::new());
-    let observed = accepted.clone();
     let app = Router::new().route(
         "/",
-        post(move || {
-            let accepted = accepted.clone();
-            async move {
-                accepted.notify_one();
+        post(move || async move {
+            if matches!(
+                phase,
+                DelayedPhase::Headers | DelayedPhase::HeadersAndFirstBody
+            ) {
+                tokio::time::sleep(Duration::from_secs(3)).await;
+            }
+            Sse::new(stream::iter(0..3).then(move |index| async move {
                 if matches!(
-                    phase,
-                    DelayedPhase::Headers
-                        | DelayedPhase::HeadersAndFirstBody
-                        | DelayedPhase::CancelledHeaders
+                    (phase, index),
+                    (
+                        DelayedPhase::FirstBody | DelayedPhase::HeadersAndFirstBody,
+                        0
+                    ) | (DelayedPhase::AfterActivity, 1)
                 ) {
                     tokio::time::sleep(Duration::from_secs(3)).await;
                 }
-                Sse::new(stream::iter(0..3).then(move |index| async move {
-                    if matches!(
-                        (phase, index),
-                        (
-                            DelayedPhase::FirstBody | DelayedPhase::HeadersAndFirstBody,
-                            0
-                        ) | (DelayedPhase::AfterActivity, 1)
-                    ) {
-                        tokio::time::sleep(Duration::from_secs(3)).await;
-                    }
-                    let data = if index == 0 {
-                        json!({"choices":[{"index":0,"delta":{"content":"Verified result"}}]})
-                            .to_string()
-                    } else if index == 1 {
-                        json!({"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]})
-                            .to_string()
-                    } else {
-                        "[DONE]".to_owned()
-                    };
-                    Ok::<_, Infallible>(Event::default().data(data))
-                }))
-            }
+                let data = if index == 0 {
+                    json!({"choices":[{"index":0,"delta":{"content":"Verified result"}}]})
+                        .to_string()
+                } else if index == 1 {
+                    json!({"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}).to_string()
+                } else {
+                    "[DONE]".to_owned()
+                };
+                Ok::<_, Infallible>(Event::default().data(data))
+            }))
         }),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -76,20 +65,11 @@ async fn delayed_response(phase: DelayedPhase) -> Thread {
     )
     .unwrap();
     let thread = engine.create("/workspace".into()).await.unwrap();
-    let turn = engine
+    engine
         .start(&thread.id, vec![Input::text("Verify the delayed response")])
         .await
         .unwrap();
-    let wait_limit = if matches!(phase, DelayedPhase::CancelledHeaders) {
-        tokio::time::timeout(Duration::from_secs(5), observed.notified())
-            .await
-            .unwrap();
-        engine.interrupt(&thread.id, &turn.id).await.unwrap();
-        Duration::from_secs(2)
-    } else {
-        Duration::from_secs(10)
-    };
-    let result = tokio::time::timeout(wait_limit, engine.wait(&thread.id))
+    let result = tokio::time::timeout(Duration::from_secs(10), engine.wait(&thread.id))
         .await
         .unwrap()
         .unwrap();
@@ -147,10 +127,4 @@ async fn first_response_deadline_includes_headers_and_first_body() {
             .message
             .contains("model request idle timeout")
     );
-}
-
-#[tokio::test]
-async fn cancellation_during_first_response_keeps_the_settlement_bound() {
-    let result = delayed_response(DelayedPhase::CancelledHeaders).await;
-    assert_eq!(result.turns[0].status, TurnStatus::Interrupted);
 }

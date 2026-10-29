@@ -9,6 +9,7 @@ import { ReasoningGroup } from "./ReasoningGroup.js";
 import {
   activityLabel,
   activityRunLabel,
+  activityRunStages,
   activityStageIcon,
   activityRuns,
   agentSettlements,
@@ -100,20 +101,17 @@ export function TurnActivity({
 
 /**
  * Core work items are disclosed in order between visible conversation messages.
- * 连续同一动作的工具合成一段（CONV-ACTIVITY-01）：一项时直接显示该项，多项时折叠为
- * "已运行命令"等动词短语；思考组与子代理创建各自成段。段内顺序与原始历史一致。
+ * 两段文字之间的工具合成一组（CONV-ACTIVITY-01）：一项时直接显示该项，多项时折叠为
+ * "已修改 2 个文件，已探索"等过去式短语串，图标取第一个短语；思考组与子代理行各自成段。
  */
 export function TurnExecution({
   items,
-  live = false,
   turn,
   project,
   threadId,
   renderItem,
 }: {
   items: Data[];
-  /** 运行中回合的最新执行段：其最后一段在出现后续可见内容前保持进行中。 */
-  live?: boolean;
   turn: Data;
   project: Data;
   threadId: string;
@@ -124,14 +122,14 @@ export function TurnExecution({
   // 失败的步骤留在原位，由所在活动行写明结果（CONV-ACTIVITY-01），过程标题不另作提示。
   const visibleItems = items;
   const tools = visibleItems.filter((item) => item.type === "dynamicToolCall");
-  const unconfirmed = tools.some((item) => toolPresentation(item).status === "结果待确认");
+  const unconfirmed = tools.some((item) => toolPresentation(item).state === "unsettled");
   const rows = timelineItems(visibleItems);
   const canAnimate = canAnimateTurn(project, threadId, turn);
   if (!rows.length) return null;
   const status = unconfirmed ? (
-    <p role="status">结果待确认</p>
+    <p role="status">{t("chat.activity.status", { state: "unsettled" })}</p>
   ) : unfinished && turn.status !== "inProgress" ? (
-    <p role="status">仍在运行</p>
+    <p role="status">{t("chat.activity.stillRunning")}</p>
   ) : turn.status === "failed" ? (
     <p role="status">{t("common.turn.failed")}</p>
   ) : null;
@@ -153,14 +151,14 @@ export function TurnExecution({
       {runs.map((run, index) => {
         const last = index === runs.length - 1;
         const grouped = run.key !== null && run.items.length > 1;
-        const icon = activityStageIcon(run.key);
+        const icon = activityStageIcon(grouped ? activityRunStages(run)[0] : null);
         return (
           <ActivityGroup
             key={run.items[0].id}
             presentation={grouped ? "collapsible" : "inline"}
             label={
               run.key !== null
-                ? activityRunLabel(run, live && last)
+                ? activityRunLabel(run, t)
                 : run.items[0].type === "reasoningGroup"
                   ? t("common.turn.reasoning")
                   : t("common.turn.activity")

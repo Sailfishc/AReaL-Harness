@@ -1,28 +1,14 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createServer, transformWithOxc } from "vite-plus";
+import { createServer } from "vite-plus";
+import { makeTempDir } from "./support/temp.mjs";
 const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(join(gui, "app/package.json"));
 const { chromium } = require("playwright-core");
-const evidence = await mkdtemp("/tmp/areal-scheduled-ui-");
-const entry = String.raw`
-import React from 'react';import {createRoot} from 'react-dom/client';
-import {TaskCenter} from '/src/TaskCenter.tsx';import {ApplicationIntlProvider} from '/src/i18n/IntlProvider.tsx';import '/src/styles.css';
-const project={id:'00000000-0000-4000-a000-000000000001',name:'Fixture project',root:'/fixture',state:{connected:true,threads:{}},core:{connectionGeneration:1},pending:[],outcomes:{}};
-const recovery=new URLSearchParams(location.search).get('recovery');
-project.desktopCapabilities={currentCommands:!new URLSearchParams(location.search).has('legacy')};
-window.calls=[];window.opened=[];window.drafts=[];window.fail=new URLSearchParams(location.search).has('fail');
-const originalThread='00000000-0000-4000-a000-000000000002';
-const completedOutcome=requestId=>({accepted:true,status:'completed',threadId:originalThread,operation:{requestId,method:'areal/thread/start',target:{kind:'thread',threadId:originalThread}}});
-const rows=new URLSearchParams(location.search).has('empty')?[]:[['active','每日进展',false],['paused','每周回顾',true]].map(([id,objective,paused])=>({projectId:project.id,id,objective,paused,mode:'scheduled',sourceThreadId:id+'-thread',runs:[],nextRunAt:2000000000,schedule:{kind:'once',at:2000000000},scope:'workspace'}));
-const action=async(name,params)=>{window.calls.push({name,params});if(name==='projectless')return {projectId:project.id};if(name==='create'&&recovery)throw Object.assign(Error('Fixture create response lost'),{submissionUnknown:true,requestId:params.requestId});if(name==='workspace'&&params.operation==='worktreeRead')return {state:'missing'};if(name==='reconcile'){const requestId=window.calls.find(call=>call.name==='create')?.params.requestId;return {outcomes:recovery==='completed'?{[requestId]:completedOutcome(requestId)}:{}};}if(name==='tasks'){if(window.fail)throw Error('Fixture catalog unavailable');return {projectId:project.id,requestId:params.requestId,viewEpoch:params.viewEpoch,data:rows,hasMore:false,errors:[],owners:[{projectId:project.id,status:'ready',source:'live',coverage:{kind:'complete'},readAt:Date.now(),connectionGeneration:1}]};}if(name==='open'){project.state.threads[params.threadId]={id:params.threadId};return {};}return {data:[],enabled:false,runNow:false};};
-function Fixture(){const [projects,setProjects]=React.useState([project]);window.publishContract=currentCommands=>setProjects([{...project,desktopCapabilities:{currentCommands}}]);window.publishOutcome=()=>{const requestId=window.calls.find(call=>call.name==='create').params.requestId;setProjects([{...project,worktreeOperations:[{requestId,state:'missing'}],outcomes:{[requestId]:completedOutcome(requestId)}}]);};return <ApplicationIntlProvider><div style={{height:'100vh',display:'flex'}}><TaskCenter projects={projects} defaultProjectId={project.id} connected action={action} onStartDraft={(projectId,text)=>window.drafts.push({projectId,text})} onOpenThread={(projectId,threadId)=>window.opened.push({projectId,threadId})} onOpenModelSettings={()=>{}} navigation={null} renderConversation={()=> <p>会话详情</p>} renderResources={()=>null}/></div></ApplicationIntlProvider>;}
-createRoot(document.getElementById('root')).render(<Fixture/>);
-`;
-const virtual = "\0scheduled-fixture";
+const evidence = await makeTempDir("areal-scheduled-ui-");
 const vite = await createServer({
   root: join(gui, "renderer"),
   configFile: join(gui, "renderer/vite.config.ts"),
@@ -31,11 +17,6 @@ const vite = await createServer({
   plugins: [
     {
       name: "scheduled-fixture",
-      resolveId: (id) => (id === "/scheduled-fixture.tsx" ? virtual : undefined),
-      load: async (id) =>
-        id === virtual
-          ? transformWithOxc(entry, "scheduled-fixture.tsx", { jsx: { runtime: "automatic" } })
-          : undefined,
       configureServer(server) {
         server.middlewares.use(async (req, res, next) => {
           if (!req.url.startsWith("/__scheduled.html")) return next();
@@ -43,7 +24,7 @@ const vite = await createServer({
           res.end(
             await server.transformIndexHtml(
               "/__scheduled.html",
-              '<html><body style="margin:0"><div id="root"></div><script type="module" src="/scheduled-fixture.tsx"></script></body></html>',
+              '<html><body style="margin:0"><div id="root"></div><script type="module" src="/test-fixtures/scheduled-workspace.tsx"></script></body></html>',
             ),
           );
         });
@@ -127,6 +108,27 @@ try {
   await page.getByText("尚无定时任务", { exact: true }).waitFor();
   await page.screenshot({ path: join(evidence, "02-narrow-empty.png") });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  for (const scope of ["global", "project"]) {
+    await page.goto(url + "?empty" + (scope === "project" ? "&project" : ""));
+    await page.getByRole("button", { name: "整理每日计划", exact: false }).click();
+    const drafts = await page.evaluate(() => window.drafts);
+    assert.deepEqual(drafts, [
+      {
+        projectId: scope === "project" ? "00000000-0000-4000-a000-000000000001" : undefined,
+        text: "帮我创建一个定时任务：回顾我提供的计划，整理当天待办和需要关注的事项。",
+      },
+    ]);
+    assert.equal(
+      (await page.evaluate(() => window.calls)).filter((call) =>
+        ["create", "projectless", "reconcile"].includes(call.name),
+      ).length,
+      0,
+    );
+    assert.equal(
+      await page.evaluate(() => localStorage.getItem("areal-gui:ordinary-schedule-creation")),
+      null,
+    );
+  }
   await page.goto(url + "?fail");
   await page.getByRole("button", { name: "重新加载任务", exact: true }).waitFor();
   assert.equal(await page.getByText("尚无定时任务", { exact: true }).count(), 0);
@@ -180,7 +182,14 @@ try {
       if (mode === "observed-completed") {
         await page.evaluate(() => window.publishOutcome());
         await page.waitForFunction(
-          () => !JSON.parse(localStorage.getItem("areal-gui:ordinary-schedule-creation")).pending,
+          () =>
+            JSON.parse(localStorage.getItem("areal-gui:ordinary-schedule-creation"))?.threadId ===
+            "00000000-0000-4000-a000-000000000002",
+        );
+        assert.deepEqual(
+          await page.evaluate(() => window.opened),
+          [],
+          "observing a receipt does not navigate before explicit confirmation",
         );
         await page.getByRole("button", { name: "检查操作状态", exact: true }).first().click();
       } else {
@@ -189,7 +198,7 @@ try {
       }
       if (mode === "unresolved") {
         await page.getByRole("button", { name: "检查操作状态", exact: true }).first().waitFor();
-        await page.getByRole("button", { name: "新建自动化", exact: true }).click();
+        await page.getByRole("button", { name: "新建定时任务", exact: true }).click();
         await page.waitForFunction(
           () => window.calls.filter((call) => call.name === "reconcile").length === 2,
         );

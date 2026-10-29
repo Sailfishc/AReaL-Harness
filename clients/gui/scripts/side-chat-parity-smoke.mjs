@@ -14,6 +14,7 @@ import {
   captureSmokeFailure,
   createProjectConversation,
   selectConversation,
+  openSideChat,
 } from "./smoke-navigation.mjs";
 import { withSmokeDeadline } from "./smoke-deadline.mjs";
 
@@ -531,6 +532,15 @@ async function newParent(prompt) {
 }
 async function openSide() {
   const before = new Set(Object.keys(threads(await state())));
+  if (!baseline) {
+    await openSideChat(page);
+    await until(async () => {
+      const id = await sidePane().getAttribute("data-thread-id");
+      return id && !before.has(id);
+    }, "new empty child becomes the active pane");
+    await sideInput().waitFor();
+    return { before, id: await sidePane().getAttribute("data-thread-id") };
+  }
   const launcher = page.locator(
     baseline
       ? '[data-side-pane-open-tab-item="旁路讨论"]'

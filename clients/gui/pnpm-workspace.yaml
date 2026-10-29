@@ -1,7 +1,9 @@
 packages:
   - app
+  - ../mobile
   - renderer
   - packages/*
+  - oxlint-plugin-areal
 
 verifyDepsBeforeRun: error
 # Keep installs and verification on the same layout in local shells and CI.
@@ -44,6 +46,7 @@ overrides:
   ip-address@<=10.7.3: 10.7.4
   katex@>=0.11.0 <0.18.2: 0.18.2
   postcss-selector-parser@<7.1.6: 7.1.6
+  "xcode@3.0.1>uuid": 11.1.1
   "app-builder-lib>@electron/get": 5.1.0
   "fetch-blob@3.2.0>node-domexception": "-"
   "electron-updater@6.8.9>lodash.isequal": "-"

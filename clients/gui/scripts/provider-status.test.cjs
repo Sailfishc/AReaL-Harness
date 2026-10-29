@@ -379,3 +379,139 @@ test("a different subscription service cannot reuse the previous model catalog",
     applied("000000000000000000000002", "model-v2"),
   ]);
 });
+
+test("same-project writes serialize while another project's subscription becomes ready", async () => {
+  const f = fixture();
+  const gate = deferred(),
+    entered = deferred();
+  f.first.client.request = async () => {
+    entered.resolve();
+    await gate.promise;
+    return { data: [] };
+  };
+  const first = f.providers.syncSubscription(f.first, f.service);
+  await entered.promise;
+  const secondOnFirst = f.providers.syncSubscription(f.first, f.service);
+  await f.providers.syncSubscription(f.second, f.service);
+  assert.deepEqual(
+    f.applications.map((item) => item.projectId),
+    [f.second.id],
+  );
+  assert.equal(f.state.calls, 1);
+  gate.resolve();
+  await Promise.all([first, secondOnFirst]);
+  assert.deepEqual(
+    f.applications.map((item) => item.projectId),
+    [f.second.id, f.first.id, f.first.id],
+  );
+});
+
+test("checking catalog retains the remembered subscription model and reuses its projection", () => {
+  const f = fixture();
+  f.providers.config.value = { data: [], revision: "fixture" };
+  f.providers.subscription = {
+    ...f.providers.subscription,
+    authenticated: true,
+    availability: "checking",
+  };
+  f.providers.lastAcceptedModel = {
+    model: { providerId: "areal_openai", modelId: "remembered" },
+    modelId: "remembered",
+    reasoningEffort: "high",
+    acceptedAt: 1,
+  };
+  const source = [{ providerId: "fixture", modelId: "local", providerRevision: 1 }];
+  const result = f.providers.catalog(source, f.first);
+  assert.equal(result.find((model) => model.modelId === "remembered").availability, "checking");
+  assert.equal(result.find((model) => model.modelId === "remembered").available, undefined);
+  assert.equal(result.find((model) => model.modelId === "remembered").capabilities, undefined);
+  assert.equal(f.providers.catalog(source, f.first), result);
+  f.first.configurations = {
+    historical: { model: { providerId: "areal_openai", modelId: "historical-model" } },
+  };
+  assert.equal(
+    f.providers.catalog(source, f.first).find((model) => model.modelId === "historical-model")
+      .availability,
+    "checking",
+  );
+  f.providers.subscription = {
+    ...f.providers.subscription,
+    models: [
+      {
+        id: "remembered",
+        name: "Remembered model",
+        parameters: { contextWindowTokens: 200000 },
+        reasoningEffortOptions: ["low", "high"],
+      },
+    ],
+  };
+  assert.equal(f.providers.catalog(source, f.first)[1].displayName, "Remembered model");
+  assert.equal(f.providers.catalog(source, f.first)[1].contextWindowTokens, 200000);
+  assert.deepEqual(f.providers.catalog(source, f.first)[1].reasoningEffortOptions, ["low", "high"]);
+});
+
+test("only a definitive Core model rejection invalidates its matching selection", () => {
+  const f = fixture();
+  f.providers.backend.onChange = () => {};
+  f.first.models = [{ providerId: "areal_openai", modelId: "model-v1", providerRevision: 1 }];
+  const model = { providerId: "areal_openai", modelId: "model-v1" };
+  f.providers.rejectModel(f.first, model, { code: -32000, message: "network unavailable" });
+  assert.equal(f.first.models[0].available, undefined);
+  f.providers.rejectModel(f.first, model, { code: -32602, message: "unknown model" });
+  assert.equal(f.first.models[0].availability, "unavailable");
+  assert.equal(f.first.models[0].available, false);
+});
+
+test("unknown subscription provider writes are read back without automatic replay", async () => {
+  const f = fixture();
+  f.first.pending = [
+    { method: "areal/provider/upsert", params: { provider: { id: "areal_openai" } } },
+  ];
+  await assert.rejects(f.providers.syncSubscription(f.first, f.service), /结果未知/);
+  assert.deepEqual(f.applications, []);
+});
+
+test("refresh stays pending until project synchronization settles so the next explicit refresh runs", async () => {
+  const f = fixture();
+  const gate = deferred(),
+    entered = deferred();
+  f.providers.backend.projects = new Map([[f.first.id, f.first]]);
+  f.providers.backend.onChange = () => {};
+  f.providers.syncSubscription = async () => {
+    entered.resolve();
+    await gate.promise;
+  };
+  f.providers.publishSubscription = async () => {};
+  const first = f.providers.refreshSubscriptionStatus(f.service);
+  await entered.promise;
+  const duringSynchronization = f.providers.subscription.refreshing;
+  gate.resolve();
+  await first;
+  assert.equal(duringSynchronization, true);
+  assert.equal(f.providers.subscription.refreshing, false);
+  await f.providers.refreshSubscriptionStatus(f.service, { synchronize: false, force: true });
+  assert.equal(f.state.calls, 2);
+});
+
+test("subscription publication supplies account effort constraints to Core without overwriting account metadata", async () => {
+  const f = fixture();
+  f.providers.backend.onChange = () => {};
+  f.service.models = [{ id: "model-v1", reasoningEffortOptions: ["low", "max"] }];
+  await f.providers.syncSubscription(f.first, f.service);
+  assert.deepEqual(f.applications[0].params.provider.modelCapabilities, {
+    "model-v1": {
+      tools: true,
+      vision: true,
+      reasoning: true,
+      reasoningEffortOptions: ["low", "max"],
+    },
+  });
+  f.providers.subscription = { ...f.providers.subscription, models: f.service.models };
+  f.first.client.request = async () => ({
+    data: [
+      { providerId: "areal_openai", modelId: "model-v1", reasoningEffortOptions: ["minimal"] },
+    ],
+  });
+  await f.providers.publishSubscription(f.providers.subscriptionScope(f.first, f.service));
+  assert.deepEqual(f.providers.subscription.models[0].reasoningEffortOptions, ["low", "max"]);
+});

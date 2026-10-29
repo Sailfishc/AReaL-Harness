@@ -3,6 +3,7 @@
   "listen": "127.0.0.1:8080",
   "trustedLocalTlsProxy": true,
   "allowedClientOrigins": ["https://remote.example.org"],
+  "allowedAppOrigins": [],
   "dataDir": "/var/lib/areal-remote-relay",
   "assetsDir": "/opt/areal-remote-pwa",
   "maxHosts": 100,

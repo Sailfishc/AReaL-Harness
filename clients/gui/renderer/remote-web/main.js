@@ -1,12 +1,16 @@
 import { createRemoteWorkbench } from "../src/remote/RemoteWorkbench.tsx";
-import { SessionBodyReader } from "./session-bodies.mjs";
+import {
+  SessionBodyReader,
+  CommandState,
+  acceptSessionMessage,
+  RemoteConnection,
+} from "@areal/remote-client";
 const sessionBodies = new SessionBodyReader();
-import { createRemoteWire, remoteLocator, publicLocator } from "../../packages/remote/src/wire.mjs";
+import { remoteLocator, publicLocator } from "@areal/remote/wire";
 import { ResultReviewView } from "./result-review.mjs";
 import { BrowserState } from "./browser-state.mjs";
-import { CommandState } from "./command-state.mjs";
-import { acceptSessionMessage } from "./session-state.mjs";
-import { createIdentity, identityId, secureChannel } from "../../packages/remote/src/channel.mjs";
+import { browserDeviceName } from "./device-name.mjs";
+import { createIdentity, identityId } from "@areal/remote";
 
 const status = document.getElementById("status");
 const device = document.getElementById("device");
@@ -61,7 +65,10 @@ let detail,
   connectionIdentity;
 const commandState = new CommandState();
 let resultReview, resultReviewContainer;
-let remoteUI, projectCatalog = [], projectGroups = {}, displayedTurns;
+let remoteUI,
+  projectCatalog = [],
+  projectGroups = {},
+  displayedTurns;
 let taskPause,
   taskPauseTarget,
   taskPauseEpoch = 0;
@@ -101,20 +108,6 @@ function connectionPhase(phase) {
         ? "正在核对电脑身份，请稍候。"
         : "在电脑的「设置 → 手机连接」生成配对链接，再在这里打开。";
 }
-const executionLabel = (value) =>
-  ({
-    completed: "已完成",
-    inProgress: "正在执行",
-    running: "正在执行",
-    active: "正在执行",
-    failed: "执行失败",
-    interrupted: "已中断",
-    cancelled: "已取消",
-    queued: "等待执行",
-    idle: "空闲",
-    paused: "已暂停",
-    unknown: "状态未知",
-  })[value] ?? value;
 function clearWork() {
   resultReview?.close();
   invalidateTaskPause();
@@ -461,19 +454,10 @@ async function connectHost(automatic = false) {
   const target = { host: expectedHost, room: relayRoom, invite: inviteSecret, error: locatorError };
   let token = browserState.current(),
     socket,
-    wire,
-    deadline;
+    connection;
   const current = () => attempt === connectionAttempt && browserState.current() === token;
   const check = () => {
     if (!current()) throw new Error("此连接尝试已失效");
-  };
-  const pending = new Map();
-  const rejectPending = () => {
-    for (const value of pending.values()) {
-      clearTimeout(value.timer);
-      value.reject(new Error("Host 已断开，原提交需核对"));
-    }
-    pending.clear();
   };
   try {
     token ??= await browserState.guest();
@@ -496,57 +480,43 @@ async function connectHost(automatic = false) {
       `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/remote/socket`,
     );
     activeSocket = socket;
-    rejectActive = rejectPending;
-    const transport = createRemoteWire(socket, { room: target.room });
-    wire = transport.wire;
-    socket.onclose = () => {
-      clearTimeout(deadline);
-      wire?.close();
-      rejectPending();
-      if (activeSocket === socket && current())
-        stopConnection("Host 已断开；任务状态未知，恢复后只核对原命令", true);
-    };
-    deadline = setTimeout(() => socket.close(), 15000);
-    await transport.ready;
-    check();
-    const secure = await secureChannel(wire, token.identity, target.host, {
-      maxMessageBytes: 256 * 1024,
-      maxBufferedBytes: 2 * 1024 * 1024,
+    connection = new RemoteConnection({
+      socket,
+      identity: token.identity,
+      host: target.host,
+      room: target.room,
+      hello: {
+        displayName: browserDeviceName(navigator.userAgent, navigator.maxTouchPoints),
+        ...(target.invite ? { inviteSecret: target.invite } : {}),
+      },
+      isCurrent: () => activeSocket === socket && current(),
+      onClose: () => {
+        if (activeSocket === socket && current())
+          stopConnection("Host 已断开；任务状态未知，恢复后只核对原命令", true);
+      },
     });
-    check();
-    secure.send({
-      method: "hello",
-      apiVersion: "areal.remote.v2",
-      clientVersion: "0.1.0",
-      displayName: "Web browser",
-      ...(target.invite ? { inviteSecret: target.invite } : {}),
+    rejectActive = () => connection.rejectPending();
+    connectionIdentity = await connection.connect({
+      onHandshake: (event) => {
+        if (event === "hello") {
+          inviteSecret = null;
+          return;
+        }
+        status.textContent = "等待桌面确认；请核对设备指纹并选择项目";
+        connectionPhase("pairing");
+      },
+      onReady: async () => {
+        if (
+          token.mode === "remembering" ||
+          (token.mode === "remembered" && token.relayRoom !== target.room)
+        )
+          token = await browserState.remember(token, target.host, target.room);
+        check();
+        await browserState.revalidate(token);
+        check();
+      },
+      onSession: sessionEvent,
     });
-    inviteSecret = null;
-    const messages = secure.messages();
-    let first = await messages.next();
-    check();
-    if (first.value?.event === "pairing") {
-      // 人工确认由 Host 的邀请期限约束，不沿用传输握手期限。
-      clearTimeout(deadline);
-      status.textContent = "等待桌面确认；请核对设备指纹并选择项目";
-      connectionPhase("pairing");
-      first = await messages.next();
-      check();
-    }
-    if (first.done || first.value?.error)
-      throw Object.assign(new Error(first.value?.error?.message ?? "连接失败"), first.value?.error);
-    if (first.value?.event !== "ready" || first.value.hostId !== target.host)
-      throw Object.assign(new Error("Host 身份不匹配"), { code: "HOST_MISMATCH" });
-    if (
-      token.mode === "remembering" ||
-      (token.mode === "remembered" && token.relayRoom !== target.room)
-    )
-      token = await browserState.remember(token, target.host, target.room);
-    check();
-    await browserState.revalidate(token);
-    check();
-    clearTimeout(deadline);
-    connectionIdentity = first.value;
     const connected = connectionIdentity;
     host.textContent = connected.hostId;
     status.textContent = `已连接电脑 · ${connected.capabilities.includes("submit") ? "可操作" : "仅查看"}`;
@@ -556,62 +526,13 @@ async function connectHost(automatic = false) {
     connecting = false;
     reconnectAttempt = 0;
     renderDeviceStorage();
-    let sequence = 0;
-    const call = (request = (envelope, onResult) =>
-      new Promise((resolve, reject) => {
-        if (!current() || activeSocket !== socket || connectionIdentity !== connected)
-          return reject(
-            Object.assign(new Error("连接已失效，请重新读取状态"), { code: "RESYNC_REQUIRED" }),
-          );
-        const id = String(++sequence);
-        const timer = setTimeout(() => {
-          pending.delete(id);
-          if (envelope.method === "session.open") socket.close();
-          reject(new Error("读取超时，请刷新或核对原命令"));
-        }, 15000);
-        pending.set(id, { resolve, reject, timer, onResult });
-        try {
-          secure.send({ id, ...envelope });
-        } catch (error) {
-          clearTimeout(timer);
-          pending.delete(id);
-          reject(error);
-        }
-      }));
-    void (async () => {
-      try {
-        for await (const message of messages) {
-          if (activeSocket !== socket || !current()) continue;
-          if (message.event?.startsWith("session.")) {
-            sessionEvent(message);
-            continue;
-          }
-          const handler = pending.get(message.id);
-          if (!handler) continue;
-          pending.delete(message.id);
-          clearTimeout(handler.timer);
-          if (message.error) {
-            handler.reject(Object.assign(new Error(message.error.message), message.error));
-            if (message.error.code === "GRANT_CHANGED") socket.close();
-          } else {
-            try {
-              handler.onResult?.(message.result);
-              handler.resolve(message.result);
-            } catch (error) {
-              handler.reject(error);
-            }
-          }
-        }
-      } finally {
-        rejectPending();
-      }
-    })().catch(() => socket.close());
+    const call = (request = (envelope, onResult) => connection.request(envelope, onResult));
     await loadProjects(call);
     check();
     if (attentionTarget?.projectId === selectedProject) void readAttention();
     void recoverCommands();
   } catch (error) {
-    rejectPending();
+    connection?.rejectPending();
     if (attempt !== connectionAttempt) {
       socket?.close();
       return;
@@ -633,8 +554,6 @@ async function connectHost(automatic = false) {
     if (token?.mode === "remembering")
       storageError.textContent =
         "设备尚未记住；请检查本站存储后重新连接，或清除此页面身份改用仅本次使用。";
-  } finally {
-    clearTimeout(deadline);
   }
 }
 connect.addEventListener("click", () => connectHost());
@@ -689,7 +608,9 @@ function renderSession(turns = detail?.snapshot.turns ?? []) {
   const state = detail.snapshot;
   sessionPanel.hidden = false;
   document.body.dataset.detail = "open";
-  document.getElementById("session-attention").replaceChildren(...state.attentionRefs.map(attentionSummary));
+  document
+    .getElementById("session-attention")
+    .replaceChildren(...state.attentionRefs.map(attentionSummary));
   historyButton.hidden = !state.history.hasMore;
   renderCommandControls();
 }
@@ -854,7 +775,7 @@ function renderCommandControls() {
     unknown: "创建结果未确认，请展开下方「创建结果与核对」查询；不会自动重试。",
     notFound: "暂未找到创建结果，请继续核对；不能据此认定未创建。",
   };
-  createSummary.textContent = create ? createMessages[create.admissionState] ?? "" : "";
+  createSummary.textContent = create ? (createMessages[create.admissionState] ?? "") : "";
   createSummary.dataset.state = create?.admissionState ?? "";
   const state = detail?.snapshot;
   const key = state && commandKey(state.threadId);
@@ -880,8 +801,8 @@ function renderCommandControls() {
     !canSubmit ||
     !state ||
     state.ownership.kind !== "ordinary" ||
-    state.status !== "idle" && !state.activeTurnId ||
-    !state.activeTurnId && state.queue.pendingCount ||
+    (state.status !== "idle" && !state.activeTurnId) ||
+    (!state.activeTurnId && state.queue.pendingCount) ||
     !Number.isSafeInteger(state.configRevision) ||
     commandState.unresolved(send) ||
     !draftInput.value.trim();
@@ -1000,8 +921,8 @@ async function transmitCommand(key, command, capture) {
 }
 function renderUnconfirmed() {
   const list = document.getElementById("unconfirmed-commands");
-  const commands = [...commandState.commands].filter(([, command]) =>
-    commandState.unresolved(command) && command.admissionState !== "pending",
+  const commands = [...commandState.commands].filter(
+    ([, command]) => commandState.unresolved(command) && command.admissionState !== "pending",
   );
   document.getElementById("unconfirmed").hidden = commands.length === 0;
   list.replaceChildren(
@@ -1094,44 +1015,122 @@ async function issueCommand(method, extra = {}) {
   }
 }
 async function issueGUIControl(operation, values, revision) {
-  if (!detail || !request || !connectionIdentity?.capabilities?.includes("submit")) throw new Error("此设备无提交权限");
-  const state = detail.snapshot, originalDetail = detail, call = request, connected = connectionIdentity,
-    projectId = detail.projectId, token = browserState.current(), key = commandKey(state.threadId, projectId);
-  const ownGoalControl=["goalPause","goalResume","goalClear"].includes(operation)&&state.goalControlAllowed&&state.goals?.goal?.id===values.goalId;
-  if (["goalPause","goalResume","goalClear"].includes(operation)&&!ownGoalControl) throw new Error("此目标请在来源桌面处理");
-  if (state.ownership.kind !== "ordinary"&&!ownGoalControl) throw new Error("此会话由 Task 管理");
-  const command = commandState.begin(key, "session.control", {threadId:state.threadId,operation,expectedRevision:revision,values});
-  command.projectId = projectId; command.hostId = expectedHost;
+  if (!detail || !request || !connectionIdentity?.capabilities?.includes("submit"))
+    throw new Error("此设备无提交权限");
+  const state = detail.snapshot,
+    originalDetail = detail,
+    call = request,
+    connected = connectionIdentity,
+    projectId = detail.projectId,
+    token = browserState.current(),
+    key = commandKey(state.threadId, projectId);
+  const ownGoalControl =
+    ["goalPause", "goalResume", "goalClear"].includes(operation) &&
+    state.goalControlAllowed &&
+    state.goals?.goal?.id === values.goalId;
+  if (["goalPause", "goalResume", "goalClear"].includes(operation) && !ownGoalControl)
+    throw new Error("此目标请在来源桌面处理");
+  if (state.ownership.kind !== "ordinary" && !ownGoalControl) throw new Error("此会话由 Task 管理");
+  const command = commandState.begin(key, "session.control", {
+    threadId: state.threadId,
+    operation,
+    expectedRevision: revision,
+    values,
+  });
+  command.projectId = projectId;
+  command.hostId = expectedHost;
   renderCommandControls();
   try {
-    const result = await transmitCommand(key,command,{token,call,connected,envelope:{method:command.method,commandId:command.commandId,
-      context:{projectId,gatewayGeneration:connected.gatewayGeneration,grantRevision:connected.grantRevision,serviceGeneration:originalDetail.serviceGeneration},params:command.params},
-      targetCurrent:()=>detail===originalDetail&&selectedProject===projectId});
-    if (result?.admissionState === "accepted") { window.dispatchEvent(new Event("remote-operation-complete")); if(operation.startsWith("goal")&&detail===originalDetail)void openSession(state.threadId); }
+    const result = await transmitCommand(key, command, {
+      token,
+      call,
+      connected,
+      envelope: {
+        method: command.method,
+        commandId: command.commandId,
+        context: {
+          projectId,
+          gatewayGeneration: connected.gatewayGeneration,
+          grantRevision: connected.grantRevision,
+          serviceGeneration: originalDetail.serviceGeneration,
+        },
+        params: command.params,
+      },
+      targetCurrent: () => detail === originalDetail && selectedProject === projectId,
+    });
+    if (result?.admissionState === "accepted") {
+      window.dispatchEvent(new Event("remote-operation-complete"));
+      if (operation.startsWith("goal") && detail === originalDetail)
+        void openSession(state.threadId);
+    }
     return result ?? command;
-  } finally {renderCommandControls();}
+  } finally {
+    renderCommandControls();
+  }
 }
 async function selectGUIProject(projectId, force = false) {
   if (!force && projectId === selectedProject && projectGroups[projectId]) return;
-  closeSession(); selectedProject=projectId; clearWork(); await refreshWork(); renderGUI();
+  closeSession();
+  selectedProject = projectId;
+  clearWork();
+  await refreshWork();
+  renderGUI();
 }
 function renderGUI() {
-  if(!remoteUI)return;
-  const state=detail?.snapshot, command=state&&commandState.commands.get(commandKey(state.threadId)), stop=lastStop();
-  remoteUI.render({sessionOpen:!!detailTarget,connected:document.body.dataset.connection==="connected",projects:projectCatalog,selectedProject,groups:projectGroups,
-    detail,turns:sessionBodies.decorate(displayedTurns??state?.turns),bodyError:sessionBodies.error,bodyLoading:sessionBodies.loading,draft:state?commandState.drafts.get(commandKey(state.threadId))??"":"",
-    canSubmit:!!request&&!!connectionIdentity?.capabilities?.includes("submit"),canInterrupt:!!connectionIdentity?.capabilities?.includes("interrupt"),canReview:!!connectionIdentity?.capabilities?.includes("review"),
-    blocked:!!commandState.unresolved(command)||!!commandState.unresolved(stop),sendDisabled:sendButton.disabled,stopDisabled:stopButton.disabled,
-    notice:state?document.getElementById("send-summary").textContent:document.getElementById("create-summary").textContent,unknown:!!commandState.unresolved(command)||!!commandState.unresolved(stop),error:sessionError.textContent,loading:!state});
+  if (!remoteUI) return;
+  const state = detail?.snapshot,
+    command = state && commandState.commands.get(commandKey(state.threadId)),
+    stop = lastStop();
+  remoteUI.render({
+    sessionOpen: !!detailTarget,
+    connected: document.body.dataset.connection === "connected",
+    projects: projectCatalog,
+    selectedProject,
+    groups: projectGroups,
+    detail,
+    turns: sessionBodies.decorate(displayedTurns ?? state?.turns),
+    bodyError: sessionBodies.error,
+    bodyLoading: sessionBodies.loading,
+    draft: state ? (commandState.drafts.get(commandKey(state.threadId)) ?? "") : "",
+    canSubmit: !!request && !!connectionIdentity?.capabilities?.includes("submit"),
+    canInterrupt: !!connectionIdentity?.capabilities?.includes("interrupt"),
+    canReview: !!connectionIdentity?.capabilities?.includes("review"),
+    blocked: !!commandState.unresolved(command) || !!commandState.unresolved(stop),
+    sendDisabled: sendButton.disabled,
+    stopDisabled: stopButton.disabled,
+    notice: state
+      ? document.getElementById("send-summary").textContent
+      : document.getElementById("create-summary").textContent,
+    unknown: !!commandState.unresolved(command) || !!commandState.unresolved(stop),
+    error: sessionError.textContent,
+    loading: !state,
+  });
 }
 function openGUIReview(turnId) {
-  if(!detail || !connectionIdentity?.capabilities?.includes("review"))return;
+  if (!detail || !connectionIdentity?.capabilities?.includes("review")) return;
   resultReview?.close();
-  const container=(resultReviewContainer??=text("section","")),call=request,epoch=detailEpoch;
-  container.className="remote-legacy";
+  const container = (resultReviewContainer ??= text("section", "")),
+    call = request,
+    epoch = detailEpoch;
+  container.className = "remote-legacy";
   sessionPanel.append(container);
-  const target={projectId:detail.projectId,threadId:detail.snapshot.threadId,turnId,connectionId:detail.connectionId,gatewayGeneration:detail.gatewayGeneration,serviceGeneration:detail.serviceGeneration};
-  resultReview=new ResultReviewView(container,call,target,()=>request===call&&detailEpoch===epoch&&detail?.serviceGeneration===target.serviceGeneration);
+  const target = {
+    projectId: detail.projectId,
+    threadId: detail.snapshot.threadId,
+    turnId,
+    connectionId: detail.connectionId,
+    gatewayGeneration: detail.gatewayGeneration,
+    serviceGeneration: detail.serviceGeneration,
+  };
+  resultReview = new ResultReviewView(
+    container,
+    call,
+    target,
+    () =>
+      request === call &&
+      detailEpoch === epoch &&
+      detail?.serviceGeneration === target.serviceGeneration,
+  );
   void resultReview.load();
 }
 async function queryCommand(key, command) {
@@ -1764,13 +1763,52 @@ function restoredCommandKey(command) {
     return `${base}:interaction:${JSON.stringify([command.params.turnId, command.params.interactionId])}`;
   return base;
 }
-remoteUI = createRemoteWorkbench({select:selectGUIProject,open:async(projectId,threadId)=>{const call=request;await selectGUIProject(projectId);if(selectedProject===projectId&&request===call)await openSession(threadId);},
-  attention:async(projectId,item)=>{const call=request;await selectGUIProject(projectId);if(selectedProject===projectId&&request===call)openAttention(item);},
-  pause:async(projectId,row)=>{const call=request;await selectGUIProject(projectId);if(selectedProject===projectId&&request===call){taskPauseTarget={projectId,taskId:row.taskId,runId:row.runId};await readTaskPause();}},
-  create:async(projectId)=>{const call=request;await selectGUIProject(projectId);if(selectedProject!==projectId||request!==call)return;if(!serviceGeneration)await refreshWork();if(selectedProject===projectId&&request===call)await issueCommand("session.create");},more:()=>void refreshWork(true),close:closeSession,
-  draft:value=>{draftInput.value=value;draftInput.dispatchEvent(new Event("input"));},send:enqueue=>issueCommand("session.send",{enqueue}),stop:()=>issueCommand("turn.stop"),control:issueGUIControl,
-  query:()=>{const key=detail&&commandKey(detail.snapshot.threadId),command=commandState.commands.get(key);if(commandState.unresolved(command))void queryCommand(key,command);else stopQuery.click();},
-  review:openGUIReview,history:()=>historyButton.click(),retryBody:()=>sessionBodies.retry()});
+remoteUI = createRemoteWorkbench({
+  select: selectGUIProject,
+  open: async (projectId, threadId) => {
+    const call = request;
+    await selectGUIProject(projectId);
+    if (selectedProject === projectId && request === call) await openSession(threadId);
+  },
+  attention: async (projectId, item) => {
+    const call = request;
+    await selectGUIProject(projectId);
+    if (selectedProject === projectId && request === call) openAttention(item);
+  },
+  pause: async (projectId, row) => {
+    const call = request;
+    await selectGUIProject(projectId);
+    if (selectedProject === projectId && request === call) {
+      taskPauseTarget = { projectId, taskId: row.taskId, runId: row.runId };
+      await readTaskPause();
+    }
+  },
+  create: async (projectId) => {
+    const call = request;
+    await selectGUIProject(projectId);
+    if (selectedProject !== projectId || request !== call) return;
+    if (!serviceGeneration) await refreshWork();
+    if (selectedProject === projectId && request === call) await issueCommand("session.create");
+  },
+  more: () => void refreshWork(true),
+  close: closeSession,
+  draft: (value) => {
+    draftInput.value = value;
+    draftInput.dispatchEvent(new Event("input"));
+  },
+  send: (enqueue) => issueCommand("session.send", { enqueue }),
+  stop: () => issueCommand("turn.stop"),
+  control: issueGUIControl,
+  query: () => {
+    const key = detail && commandKey(detail.snapshot.threadId),
+      command = commandState.commands.get(key);
+    if (commandState.unresolved(command)) void queryCommand(key, command);
+    else stopQuery.click();
+  },
+  review: openGUIReview,
+  history: () => historyButton.click(),
+  retryBody: () => sessionBodies.retry(),
+});
 renderGUI();
 const browserLoading = initializeBrowser();
 void browserLoading.then((restore) => {

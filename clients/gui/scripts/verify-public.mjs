@@ -6,12 +6,24 @@ import { join, relative } from "node:path";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const skip = new Set(["node_modules", "dist", ".stage", "test-results", "playwright-report"]);
 const creatorRoot = "app/assets/builtin-skills/openai-skill-creator";
-const creatorManifest = JSON.parse(await readFile(join(root, `${creatorRoot}.source.json`), "utf8"));
+const creatorManifest = JSON.parse(
+  await readFile(join(root, `${creatorRoot}.source.json`), "utf8"),
+);
 const creatorSkill = `${creatorRoot}/SKILL.md`;
+// UI 包随包分发的使用与审查指南是公开产品文档，继续参与下方内容扫描。
+const publicSkills = new Set([
+  creatorSkill,
+  "packages/ui/skills/areal-ui-guide/SKILL.md",
+  "packages/ui/skills/areal-ui-critique/SKILL.md",
+]);
 for (const entry of creatorManifest.files) {
   assert.ok(!entry.path.startsWith("/") && !entry.path.split("/").includes(".."));
   const bytes = await readFile(join(root, creatorRoot, entry.path));
-  assert.equal(createHash("sha256").update(bytes).digest("hex"), entry.sha256, `Bundled Skill changed: ${entry.path}`);
+  assert.equal(
+    createHash("sha256").update(bytes).digest("hex"),
+    entry.sha256,
+    `Bundled Skill changed: ${entry.path}`,
+  );
 }
 let files = 0;
 const rendererBridgeBypasses = [];
@@ -21,7 +33,8 @@ async function scan(dir) {
     const path = join(dir, item.name),
       rel = relative(root, path);
     assert.ok(
-      (rel === creatorSkill && item.isFile()) || !/^AGENTS\.md$|^SKILL\.md$|^\.env(?:\.|$)|\.(p12|p8|mobileprovision|key)$/i.test(item.name),
+      (publicSkills.has(rel) && item.isFile()) ||
+        !/^AGENTS\.md$|^SKILL\.md$|^\.env(?:\.|$)|\.(p12|p8|mobileprovision|key)$/i.test(item.name),
       `Private artifact: ${rel}`,
     );
     assert.ok(
@@ -38,7 +51,11 @@ async function scan(dir) {
       !rel.startsWith("scripts/verify-public")
     ) {
       const text = await readFile(path, "utf8");
-      if (rel.startsWith("renderer/src/") && rel !== "renderer/src/main.tsx" && /\barealDesktop\b/.test(text))
+      if (
+        rel.startsWith("renderer/src/") &&
+        rel !== "renderer/src/main.tsx" &&
+        /\barealDesktop\b/.test(text)
+      )
         rendererBridgeBypasses.push(rel);
       assert.ok(
         !/\/Users\/|registry\.npmmirror|registry\.npm\.alibaba|BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY/.test(
@@ -55,7 +72,11 @@ async function scan(dir) {
 }
 await scan(root);
 await scan(join(root, "../../design/tokens"));
-assert.deepEqual(rendererBridgeBypasses, [], `Renderer preload access belongs to main.tsx: ${rendererBridgeBypasses.join(", ")}`);
+assert.deepEqual(
+  rendererBridgeBypasses,
+  [],
+  `Renderer preload access belongs to main.tsx: ${rendererBridgeBypasses.join(", ")}`,
+);
 for (const path of [
   "app/LICENSE",
   "renderer/ZCODE-LICENSE",
@@ -68,6 +89,7 @@ console.log(
   JSON.stringify({
     passed: true,
     files,
-    scope: "GUI and shared token public source inventory; dependency licenses retained during staging",
+    scope:
+      "GUI and shared token public source inventory; dependency licenses retained during staging",
   }),
 );

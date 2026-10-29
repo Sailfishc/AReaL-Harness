@@ -18,6 +18,8 @@ Thread 快照和 Item 通知支持可选 `agentMessage.phase`，生命周期、�
 
 ## 桌面宿主 Worktree 契约
 
+桌面宿主 `connect` 接受可选 `threadId`，用于优先恢复当前会话的只读观察。服务快照的 `selectedThreadObservation=true` 公布支持；Main 连接未公布该能力的旧 v3 后端时移除此提示，沿用原恢复请求。它不改变项目执行就绪资格，导航摘要在后台更新。Desktop snapshot 可附带 `subscription` 公开状态，沿用 `chatgpt.status` 的账号与模型字段，并增加 `availability: "checking" | "available" | "unavailable"` 和 `refreshing`。模型目录也可携带 `availability`。确认中不表示已失效，缓存不代替 Core 提交校验。新增响应字段可由旧消费者忽略，旧后端继续接受原 v3 请求；不新增 Rust RPC。
+
 本节属于 `clients/gui` 的认证桌面宿主 `command` 合同，不新增 `areal.core.v1` Rust RPC。宿主继续通过现有 Core 方法管理每个执行目录，Core 仍持有线程和执行历史。共享桌面类型与校验位于 `clients/gui/packages/workbench/client/desktop-contract.cjs`。
 
 `create` 接受逻辑 `projectId`、稳定 `requestId`、原模型与配置，以及可选 `worktree: {sourceRoot?,ref?,worktreeRoot?,branch?,branchPrefix?,mode?,environmentId?,environmentRevision?}`。`mode` 为 `source` 或 `worktree`，`environmentRevision` 为非负整数，其余字段为字符串。普通创建使用当前项目目录、分支和 Core；只有 `mode: "worktree"` 才创建独立 checkout。省略 `worktree`、省略 `mode` 或明确 `source` 均不自动隔离，已有会话不会触发新目录。成功返回 `{threadId,requestId}`，逻辑项目 ID 不变。隔离创建固定来源 SHA，确认独立 Core/Runtime、空线程绑定及所选 setup 成功后才就绪。
@@ -120,11 +122,32 @@ Core 返回可选 `EffectiveConfig.permissions: {resources:"workspace"|"deployme
 <a id="submissions"></a>
 ## 提交、配置与恢复
 
-Desktop 的 `reconcile` 接受 `{projectId, requestId?}`。携带原 `requestId` 时，现有请求归属路由选择实际执行宿主，再核对该宿主的收据；省略时保留项目级核对。核查不会重新提交创建或发送草稿。旧 Worktree 的独立创建保留在插件设置的历史创建记录中，不作为新草稿的操作提示；当前草稿独占本次创建的未知结果提示。缺少收据时保留原请求及资源，不推断成功或失败。
+Desktop 的 `reconcile` 接受 `{projectId, requestId?}`。携带原 `requestId` 时，现有请求归属路由选择实际执行宿主，再核对该宿主的收据；省略时保留项目级核对。核查不会重新提交创建或发送草稿。旧 Worktree 的独立创建保留在“设置 → 后台服务”的待核对记录中，不作为新草稿的操作提示；当前草稿独占本次创建的未知结果提示。缺少收据时保留原请求及资源，不推断成功或失败。
 
 requestId 是持久业务键，RPC id 只关联响应。相同身份、方法、键和规范参数返回原结果；参数不同冲突。Thread 最多 1024 收据，管理日志 4096；容量满拒绝而不遗忘旧键。重启后 accepted 但无结果的管理记录为 UNKNOWN，不重新执行。
 
 `features.taskRequestReceipts` 扩展 `areal/request/read`，统一查询当前身份的 Thread、管理和 Task 回执，仍保留旧字段。每条记录增加 `operation:{method,requestId,target}` 和 `status:admitted|completed|failed|unconfirmed`；完成时提供原始 `result` 或 `error`。Task 方法名统一为公开 RPC 名称，创建结果保留原始 Task ID。查询还检查 Task 及其所有 Run 的 Thread 可见范围。带 `threadId` 时限定 Thread 和 Task 回执，并兼容附带同身份、同请求键的部署管理回执；受限 principal 仍只能取得可见 Thread 的记录。`retention:threadAndDeploymentLifetime` 与 `capacities:{thread:1024,management:4096,task:8192}` 分别说明保留范围与容量。恢复需匹配方法、身份、目标和已有 digest，空结果仍是未确认。归档后的 Thread 仍可查询保留回执。
+
+### 新建会话的受理日志与负证明
+
+`features.threadCreationJournal = {version:1,binding:{identity,journalEpoch,coreInstanceId}}` 只覆盖 `areal/thread/start`。`identity` 绑定认证 principal；`journalEpoch` 标识同一 Store 连续保留的受理日志，`coreInstanceId` 标识这次 Engine 启动；它们不能由 Runtime epoch、服务 ID、进程号或时间推导。客户端在发送前将 `creationAdmission:binding`、原 requestId 和创建时间保存到 pending，并原样发送。Core 在创建入口校验绑定；原代际退出后，带旧绑定的迟到请求明确拒绝；客户端不得改绑或自动重发。
+
+Core 复用 `desktop/submissions.json`：在创建会话、运行 SessionStart 或启动 Profile Workflow 前，先原子替换受理日志并同步文件与目录，随后才进入副作用。Thread 与创建回执沿原路径同快照提交；结算日志只保存原 Thread ID，不复制完整历史。读取优先采用同请求的 Thread 创建回执，核对本身不补跑 Workflow、Hook 或创建。受理后的错误和中断保留为已受理但完成未知。
+
+`areal/request/read` 可额外携带原 `creationAdmission`，不能同时携带 threadId 或 taskId。在原身份下返回原 `data`，并增加 `creationAdmission:{method:"areal/thread/start",requestId,identity,journalEpoch,coreInstanceId,status}`；Thread 范围受限的 principal 不取得项目级证明。该方法保持只读，判定如下：
+
+| 原请求证据 | status 与恢复 |
+| --- | --- |
+| 当前代际无记录，可能尚有排队请求 | `unconfirmed`，保留 UNKNOWN |
+| 无受理或创建回执，且缺少绑定、身份/覆盖标识不同或日志重新建立 | 旧查询保持空结果；有绑定的查询为 `unconfirmed`，不能推断未受理 |
+| 同一身份和覆盖标识、原代际已退役、日志和 Thread 回执都无原请求 | `notAdmitted`，旧绑定不能在当前代际执行 |
+| 已有受理记录，无完整创建回执 | `admitted`；重启将 accepted 标为 unknown，不执行原请求 |
+| 日志写入是否发布不确定 | `unconfirmed`；重启后按实际保留图像核对，不重试创建 |
+| Thread 创建快照及回执存在，结算日志未写完或响应丢失 | `data` 返回原 Thread 的 `completed`，不创建第二个 Thread |
+
+Desktop 仅在证明与原 requestId、方法、身份、覆盖标识和代际完全一致，当前能力确认原代际已退役且原查询无其它回执时，将结果先持久化为 `accepted:false, admissionState:"notAdmitted"`，再移除普通 pending；Remote 沿用其已有 rejected 终态。保留草稿，不自动创建或发送。时间仅用于记录，超时或记录年龄不参与判定。没有绑定的旧 pending 保留 UNKNOWN；不会因为升级、扫描结束或经过一段时间就清除。
+
+日志共用 4096 个键和 8 MiB 预算，管理写入与新建会话都计入 `capacities.submissionJournal`；`management:4096` 字段保留兼容。容量或响应预留不足在副作用前拒绝，不淘汰旧键。Thread 的 1024 个回执和 Task 的 8192 个回执继续按原生命周期保留，归档不释放去重键。新日志封装为 `{version:1,epoch,entries}`，首次打开迁移旧管理日志并保留原键；损坏、未知版本或无法持久化覆盖标识会阻止启动。旧 Core 不保证读取此格式，回退应恢复升级前的完整备份。本证明依赖 Store 独占和日志连续持久化，不支持外部工具在运行中替换、回滚日志；日志丢失后重新建立的覆盖标识不会为旧 pending 生成负证明。
 
 `features.atomicConfigureReceipt` 允许 `areal/thread/configure` 携带可选 `requestId`。Core 在 revision CAS 前查同身份、方法、键及请求 digest；同请求返回原配置，不同参数冲突。配置和回执在同一 Thread 快照提交。回执含原始配置结果、请求 digest、`expectedRevision`、`resultingRevision` 和 `configurationHash`。省略 `requestId` 的旧调用方仍可使用原有 CAS 行为。升级前已写入管理日志的配置请求优先按原身份、方法、请求键和移除 `requestId` 后的原始参数 digest 查询；已完成记录返回原配置，未知记录返回已受理且不重放。只有不存在旧记录的新请求写入 Thread 回执。
 
@@ -184,6 +207,8 @@ options.readOnly 收窄 Scope 写根和网络；toolAllowlist 收窄 Profile；p
 
 <a id="skills"></a>
 ### 有界历史显示
+
+Desktop 在同步观察结果内一次安装会话内容、`thread.desktop.configuration`、队列与交互。显式模型不再重复读取三项元数据；历史隐式默认模型仍按其保存 revision 查询展示名称与有效参数。最新轮多页补全先累积页面，结束时合并到当时的实时模型，保留期间到达的增量，再发布内容。输入区加载占位沿用消息区和底部 Composer 的布局，提交与偏好提示不参与消息视口高度计算。
 
 GUI 协商 `boundedObservation` 与 `boundedHistory` 后，普通、Side 和归档聊天统一使用 `areal/thread/observe {mode:"bounded",maxBytes:262144}` 建立显示基线。Core 明确返回 `HISTORY_BUDGET_TOO_SMALL` 时，仅增大一次到 1 MiB；仍失败则保留当前聊天的读取错误。`CoreClient` 对该次完整响应独立执行同样的字节上限，安装基线仍在同步 `onResult` 中完成。浏览器宿主恢复另须 `boundedResume`；不以附加工具替代原有宿主绑定。缺少新能力的 Core 保留完整历史兼容路径，不能提供分页容量保证。
 

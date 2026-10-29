@@ -1,0 +1,99 @@
+{
+  "fixedEnvironmentUtf8Bytes": 563,
+  "profile": "desktop-default-no-runtime-or-plugins",
+  "protocol": "chatCompletions",
+  "systemInstructionsUtf8Bytes": 11758,
+  "tools": {
+    "agent_artifact": {
+      "descriptionUtf8Bytes": 391,
+      "nameUtf8Bytes": 14,
+      "parametersJsonUtf8Bytes": 215
+    },
+    "agent_cancel": {
+      "descriptionUtf8Bytes": 383,
+      "nameUtf8Bytes": 12,
+      "parametersJsonUtf8Bytes": 203
+    },
+    "agent_read": {
+      "descriptionUtf8Bytes": 422,
+      "nameUtf8Bytes": 10,
+      "parametersJsonUtf8Bytes": 190
+    },
+    "agent_send_input": {
+      "descriptionUtf8Bytes": 557,
+      "nameUtf8Bytes": 16,
+      "parametersJsonUtf8Bytes": 218
+    },
+    "agent_spawn": {
+      "descriptionUtf8Bytes": 696,
+      "nameUtf8Bytes": 11,
+      "parametersJsonUtf8Bytes": 1200
+    },
+    "agent_wait": {
+      "descriptionUtf8Bytes": 254,
+      "nameUtf8Bytes": 10,
+      "parametersJsonUtf8Bytes": 209
+    },
+    "agent_wait_any": {
+      "descriptionUtf8Bytes": 372,
+      "nameUtf8Bytes": 14,
+      "parametersJsonUtf8Bytes": 398
+    },
+    "ask_user_question": {
+      "descriptionUtf8Bytes": 310,
+      "nameUtf8Bytes": 17,
+      "parametersJsonUtf8Bytes": 510
+    },
+    "development_service_inspect": {
+      "descriptionUtf8Bytes": 402,
+      "nameUtf8Bytes": 27,
+      "parametersJsonUtf8Bytes": 179
+    },
+    "development_service_start": {
+      "descriptionUtf8Bytes": 431,
+      "nameUtf8Bytes": 25,
+      "parametersJsonUtf8Bytes": 468
+    },
+    "plan_read": {
+      "descriptionUtf8Bytes": 57,
+      "nameUtf8Bytes": 9,
+      "parametersJsonUtf8Bytes": 76
+    },
+    "plan_update": {
+      "descriptionUtf8Bytes": 98,
+      "nameUtf8Bytes": 11,
+      "parametersJsonUtf8Bytes": 409
+    },
+    "read_conversation_context": {
+      "descriptionUtf8Bytes": 403,
+      "nameUtf8Bytes": 25,
+      "parametersJsonUtf8Bytes": 258
+    },
+    "read_history": {
+      "descriptionUtf8Bytes": 409,
+      "nameUtf8Bytes": 12,
+      "parametersJsonUtf8Bytes": 344
+    },
+    "read_tool_result": {
+      "descriptionUtf8Bytes": 258,
+      "nameUtf8Bytes": 16,
+      "parametersJsonUtf8Bytes": 252
+    },
+    "side_context_read": {
+      "descriptionUtf8Bytes": 144,
+      "nameUtf8Bytes": 17,
+      "parametersJsonUtf8Bytes": 178
+    },
+    "skill_list": {
+      "descriptionUtf8Bytes": 110,
+      "nameUtf8Bytes": 10,
+      "parametersJsonUtf8Bytes": 76
+    },
+    "skill_read": {
+      "descriptionUtf8Bytes": 206,
+      "nameUtf8Bytes": 10,
+      "parametersJsonUtf8Bytes": 359
+    }
+  },
+  "toolsJsonUtf8Bytes": 12686
+}

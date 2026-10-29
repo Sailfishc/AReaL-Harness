@@ -1186,7 +1186,7 @@ async function checkDailyStartRegression() {
     });
     await writeFile(dailyClock, String(Date.parse(entry.clock)));
     const openStarted = performance.now();
-    await page.getByRole("button", { name: "新建自动化", exact: true }).click();
+    await page.getByRole("button", { name: "新建定时任务", exact: true }).click();
     const creation = await assertGlobalCreation();
     pid = creation.owner.id;
     const openElapsedMs = performance.now() - openStarted;
@@ -1541,7 +1541,7 @@ async function checkCreationRegression() {
   await page.getByRole("button", { name: "定时任务", exact: true }).click();
   if (creationRegression !== "model") await writeFile(creationGate, "hold");
   const openStart = performance.now();
-  await page.getByRole("button", { name: "新建自动化", exact: true }).click();
+  await page.getByRole("button", { name: "新建定时任务", exact: true }).click();
   const chat = page.getByTestId("chat-input");
   let draftText = "创建体验验收，明天早上问好，保留中文草稿。";
   let inputReadyMs;
@@ -1570,7 +1570,7 @@ async function checkCreationRegression() {
       `areal-gui:task-draft:${workspacePid}`,
     );
     await page.getByRole("button", { name: "关闭创建对话", exact: true }).click();
-    await page.getByRole("button", { name: "新建自动化", exact: true }).click();
+    await page.getByRole("button", { name: "新建定时任务", exact: true }).click();
     await until(
       async () => (await chat.textContent()).trim() === draftText,
       "closing and reopening retains preparing text",
@@ -1714,7 +1714,7 @@ async function checkCreationRegression() {
     "reopened management keeps its model and effort after a newer ordinary model admission",
   );
   await page.getByRole("button", { name: "关闭任务详情", exact: true }).click();
-  await page.getByRole("button", { name: "新建自动化", exact: true }).click();
+  await page.getByRole("button", { name: "新建定时任务", exact: true }).click();
   const next = await assertGlobalCreation();
   assert.equal(next.draft.thread.desktop.configuration.model.modelId, "gpt-6-sol");
   assert.equal(next.draft.thread.desktop.configuration.parameters.reasoningEffort, "high");
@@ -1737,7 +1737,7 @@ async function checkCreationRegression() {
         window.requestAnimationFrame = original;
         frames.forEach((callback) => original(callback));
       };
-      document.querySelector('button[aria-label="新建自动化"]').click();
+      document.querySelector('button[aria-label="新建定时任务"]').click();
     },
     { sourceKey: `areal-gui:task-draft:${workspacePid}`, targetKey, recoveryText },
   );
@@ -1781,7 +1781,7 @@ async function checkCreationRegression() {
       ],
     },
   });
-  await page.getByRole("button", { name: "新建自动化", exact: true }).click();
+  await page.getByRole("button", { name: "新建定时任务", exact: true }).click();
   const fallback = await assertGlobalCreation();
   pid = fallback.owner.id;
   await page
@@ -2181,7 +2181,7 @@ async function checkLoadingRegression() {
     { projectId: workspacePid, cwd: taskDirectory, draftId: retainedId, text: retainedText },
   );
   await writeFile(prepareFailureGate, "fail once");
-  await page.getByRole("button", { name: "新建自动化", exact: true }).click();
+  await page.getByRole("button", { name: "新建定时任务", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: "独立任务初始化验收失败，请重试。" }).waitFor();
   await page.evaluate(
     () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
@@ -2227,7 +2227,7 @@ async function checkLoadingRegression() {
       localStorage.setItem(key, JSON.stringify({ ...saved, threadId: undefined })),
     { key, saved: created.saved },
   );
-  await page.getByRole("button", { name: "新建自动化", exact: true }).click();
+  await page.getByRole("button", { name: "新建定时任务", exact: true }).click();
   const recovered = await assertGlobalCreation();
   assert.equal(recovered.saved.draftId, created.saved.draftId);
   assert.equal(recovered.saved.ownerId, created.saved.ownerId);
@@ -2246,7 +2246,7 @@ async function checkLoadingRegression() {
     { key, saved: created.saved },
   );
   const startsBefore = (await readFile(loadingTrace, "utf8")).split("draft start ").length;
-  await page.getByRole("button", { name: "新建自动化", exact: true }).click();
+  await page.getByRole("button", { name: "新建定时任务", exact: true }).click();
   await page
     .getByText("提交结果尚未确认，请核对当前任务；不会自动重复提交。", { exact: false })
     .waitFor();
@@ -2275,7 +2275,7 @@ async function checkLoadingRegression() {
 }
 async function checkInlineRegression() {
   await page.getByRole("button", { name: "定时任务", exact: true }).click();
-  await page.getByRole("button", { name: "新建自动化", exact: true }).click();
+  await page.getByRole("button", { name: "新建定时任务", exact: true }).click();
   const creation = await assertGlobalCreation();
   pid = creation.owner.id;
   taskCwd = creation.owner.root;
@@ -2649,7 +2649,7 @@ async function closeOwnedApp() {
 }
 async function checkManualRegression() {
   await page.getByRole("button", { name: "定时任务", exact: true }).click();
-  await page.getByRole("button", { name: "新建自动化", exact: true }).click();
+  await page.getByRole("button", { name: "新建定时任务", exact: true }).click();
   const creation = await assertGlobalCreation();
   pid = creation.owner.id;
   await page.getByTestId("chat-input").fill("立即运行验收，后天的这个时间开始，每天执行。");

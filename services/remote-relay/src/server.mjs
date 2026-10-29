@@ -3,9 +3,11 @@ import { createReadStream } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 import { attachRelay, bucket } from './relay.mjs';
+import { createPush } from './push.mjs';
 
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf' };
-export async function serve(config, store) {
+export async function serve(config, store, pushOptions) {
+  const push = config.apns ? createPush(config.apns, pushOptions) : undefined;
   const enrollBudget = bucket(config.enrollPerSecond); const requestBudget = bucket(200);
   const log = entry => console.log(JSON.stringify({ time: new Date().toISOString(), ...entry }));
   const assets = config.assetsDir ? await realpath(config.assetsDir) : undefined;
@@ -58,7 +60,8 @@ export async function serve(config, store) {
   server.on('upgrade', (_req, socket) => { clearTimeout(headerTimers.get(socket)); headerTimers.delete(socket); socket.setTimeout(0); });
   server.maxRequestsPerSocket = 100;
   server.on('clientError', (_error, socket) => socket.destroy());
-  const stopRelay = attachRelay(server, config, store, log);
-  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(config.listenPort, config.listenHost, resolve); });
-  return { close: () => new Promise(r => { stopRelay(); server.close(r); for (const socket of sockets) socket.destroy(); }) };
+  const stopRelay = attachRelay(server, config, store, log, push);
+  try { await new Promise((resolve, reject) => { server.once('error', reject); server.listen(config.listenPort, config.listenHost, resolve); }); }
+  catch (error) { stopRelay(); push?.close(); throw error; }
+  return { close: () => new Promise(r => { stopRelay(); push?.close(); server.close(r); for (const socket of sockets) socket.destroy(); }) };
 }

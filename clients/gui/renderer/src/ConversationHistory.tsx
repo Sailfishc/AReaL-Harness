@@ -8,17 +8,21 @@ export function useConversationHistory(projectId: string, thread: Data, action: 
   const { t } = useI18n();
   const [viewId] = useState(() => crypto.randomUUID());
   const owner = `${projectId}:${thread.id}`;
-  const current = useRef(owner);
-  current.current = owner;
+  const generation = `${owner}:${thread.displayHistory?.viewGeneration ?? ""}`;
+  const current = useRef<string | undefined>(generation);
+  current.current = generation;
   const supported = thread.displayHistory?.supported === true;
-  const [failure, setFailure] = useState<{ owner: string; itemId?: string; message: string }>();
-  const mounted = useRef<string | undefined>(undefined);
+  const [failure, setFailure] = useState<{
+    generation: string;
+    itemId?: string;
+    message: string;
+  }>();
   useEffect(() => {
     if (!supported) return;
     const request = { projectId, threadId: thread.id, viewId };
-    mounted.current = owner;
+
     return () => {
-      mounted.current = undefined;
+      current.current = undefined;
       void action("history", { ...request, operation: "release" }).catch(() => {});
     };
   }, [action, owner, projectId, supported, thread.id, viewId]);
@@ -26,20 +30,21 @@ export function useConversationHistory(projectId: string, thread: Data, action: 
   // 不先释放：释放会清空已加载页并中断补全，随后再补回，顶部内容会反复消失、出现。
   useEffect(() => {
     if (!supported) return;
-    void action("history", { projectId, threadId: thread.id, viewId, operation: "acquire" }).catch(
-      (error: Error) => {
-        if (mounted.current === owner) setFailure({ owner, message: error.message });
+    current.current = generation;
+    let active = true;
+    void action("history", { projectId, threadId: thread.id, viewId, operation: "acquire" }).then(
+      () => {
+        if (active && current.current === generation) setFailure(undefined);
+      },
+      () => {
+        if (active && current.current === generation)
+          setFailure({ generation, message: t("chat.history.loadFailed") });
       },
     );
-  }, [
-    action,
-    owner,
-    projectId,
-    supported,
-    thread.id,
-    thread.displayHistory?.viewGeneration,
-    viewId,
-  ]);
+    return () => {
+      active = false;
+    };
+  }, [action, generation, projectId, supported, thread.id, viewId, t]);
   const load = useCallback(
     async (itemId?: string, pageId?: string) => {
       setFailure(undefined);
@@ -52,18 +57,18 @@ export function useConversationHistory(projectId: string, thread: Data, action: 
             ? { operation: "loadItem", itemId }
             : { operation: "loadOlder", ...(pageId ? { pageId } : {}) }),
         });
-      } catch (error) {
-        if (current.current === owner)
+      } catch {
+        if (current.current === generation)
           setFailure({
-            owner,
+            generation,
             itemId,
-            message: error instanceof Error ? error.message : t("chat.history.loadFailed"),
+            message: t("chat.history.loadFailed"),
           });
       }
     },
-    [action, owner, projectId, thread.id, viewId, t],
+    [action, generation, projectId, thread.id, viewId, t],
   );
-  return { load, failure: failure?.owner === owner ? failure : undefined };
+  return { load, failure: failure?.generation === generation ? failure : undefined };
 }
 
 export function DeferredHistoryItem({

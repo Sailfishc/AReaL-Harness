@@ -38,7 +38,15 @@ const baseline = (archived = false) => ({
   },
   history: { snapshotId: "snapshot", nextCursor: "older", complete: false },
 });
-function fixture(read, { archived = false, bounded = true, afterResult = () => {} } = {}) {
+function fixture(
+  read,
+  {
+    archived = false,
+    bounded = true,
+    afterResult = () => {},
+    inspection = { configuration: { revision: 1 } },
+  } = {},
+) {
   const calls = [];
   const project = {
     id: "project",
@@ -71,7 +79,7 @@ function fixture(read, { archived = false, bounded = true, afterResult = () => {
         method === "areal/interaction/list"
           ? { revision: 1, data: [] }
           : method === "areal/thread/inspect"
-            ? { configuration: { revision: 1 } }
+            ? inspection
             : method === "areal/queue/list"
               ? { revision: 1, items: [] }
               : await read(method, params, options);
@@ -747,7 +755,7 @@ test("a stale latest cursor stops until explicit retry and cannot resurrect the 
   );
 });
 
-test("release midway resumes hydration at the last pinned page rather than losing its prefix", async () => {
+test("release midway keeps partial pages hidden and reacquires from the committed cursor", async () => {
   let pending,
     reads = 0;
   const cursors = [];
@@ -755,7 +763,7 @@ test("release midway resumes hydration at the last pinned page rather than losin
     if (method === "areal/thread/observe") return partialBaseline();
     cursors.push(params.cursor);
     reads++;
-    if (reads === 1) return page([entry("t2", item("prefix"))], "continue");
+    if (params.cursor === "older") return page([entry("t2", item("prefix"))], "continue");
     if (reads === 2)
       return new Promise((resolve) => {
         pending = resolve;
@@ -766,11 +774,11 @@ test("release midway resumes hydration at the last pinned page rather than losin
   const first = f.history("acquire");
   await new Promise((resolve) => setImmediate(resolve));
   await f.history("release");
-  assert.deepEqual(ids(f), ["prefix", "i2"]);
+  assert.deepEqual(ids(f), ["i2"]);
   await f.history("acquire");
   pending(page([entry("t2", item("discard"))], null));
   await assert.rejects(first, (error) => error.code === "HISTORY_VIEW_UNAVAILABLE");
-  assert.deepEqual(cursors, ["older", "continue", "continue"]);
+  assert.deepEqual(cursors, ["older", "continue", "older", "continue"]);
   assert.deepEqual(ids(f), ["prompt", "prefix", "i2"]);
 });
 
@@ -812,4 +820,122 @@ test("stale automatic hydration leaves an in-flight observation alone until expl
   await f.history("loadOlder");
   assert.equal(observations, 3);
   assert.deepEqual(ids(f), ["fresh"]);
+});
+
+test("first visible observation includes configuration, interactions and queue before live events", async () => {
+  const observed = [];
+  const configuration = { revision: 1, model: { providerId: "provider", modelId: "chosen" } };
+  const f = fixture(
+    async () => {
+      const result = baseline();
+      result.thread.desktop.configuration = configuration;
+      return result;
+    },
+    {
+      afterResult(method) {
+        if (method !== "areal/thread/observe") return;
+        f.project.model.event("areal/queue/updated", {
+          threadId: "thread",
+          queue: { revision: 2, items: [{ id: "queued", status: "pending" }] },
+        });
+        f.project.model.event("item/agentMessage/delta", {
+          threadId: "thread",
+          turnId: "t2",
+          itemId: "i2",
+          delta: ":live",
+        });
+      },
+    },
+  );
+  f.project.model.subscribe(() =>
+    observed.push({
+      configuration: f.project.configurations.thread,
+      interactions: f.project.model.state.interactions.thread,
+      queue: f.project.model.state.queues.thread,
+      text: f.project.model.state.threads.thread?.turns.at(-1).items.at(-1).text,
+    }),
+  );
+  await f.backend.openThread(f.project, "thread");
+  assert.deepEqual(observed[0], {
+    configuration,
+    interactions: { revision: 1, data: [] },
+    queue: { revision: 1, items: [] },
+    text: "i2",
+  });
+  assert.equal(observed.at(-1).text, "i2:live");
+  assert.equal(observed.at(-1).queue.revision, 2);
+  assert.deepEqual(
+    f.calls.map((call) => call.method),
+    ["areal/thread/observe"],
+  );
+});
+
+test("latest hydration publishes all pages together and preserves concurrent live changes", async () => {
+  let finish, reachedSecond;
+  const secondPage = new Promise((resolve) => {
+    reachedSecond = resolve;
+  });
+  const f = fixture(async (method, params) => {
+    if (method === "areal/thread/observe") return partialBaseline();
+    if (params.cursor === "older") return page([entry("t2", item("middle"))], "second");
+    reachedSecond();
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  });
+  await f.backend.openThread(f.project, "thread");
+  const observed = [];
+  f.project.model.subscribe(() => observed.push(ids(f)));
+  const hydration = f.history("acquire");
+  await secondPage;
+  assert.deepEqual(ids(f), ["i2"]);
+  f.project.model.event("item/agentMessage/delta", {
+    threadId: "thread",
+    turnId: "t2",
+    itemId: "i2",
+    delta: ":live",
+  });
+  f.project.model.event("areal/queue/updated", {
+    threadId: "thread",
+    queue: { revision: 5, items: [{ id: "pending" }] },
+  });
+  finish(page([entry("t2", item("first"))], null));
+  await hydration;
+  assert.deepEqual(ids(f), ["first", "middle", "i2"]);
+  assert.equal(f.project.model.state.threads.thread.turns.at(-1).items.at(-1).text, "i2:live");
+  assert.equal(f.project.model.state.queues.thread.revision, 5);
+  assert.ok(observed.every((values) => values.length === 1 || values.join() === "first,middle,i2"));
+  assert.equal(observed.filter((values) => values.length === 3).length, 1);
+});
+
+test("implicit historical model inspection retains its revision-specific name and effort on re-observation", async () => {
+  const configuration = { revision: 3, model: null, defaultModelRevision: "historic-default" };
+  const snapshot = () => {
+    const value = baseline();
+    value.thread.desktop.configuration = configuration;
+    return value;
+  };
+  const f = fixture(async () => snapshot(), {
+    inspection: {
+      configuration,
+      modelName: "historical-model",
+      resolvedParameters: { reasoningEffort: "high" },
+    },
+  });
+  await f.backend.openThread(f.project, "thread");
+  const enriched = {
+    ...configuration,
+    modelName: "historical-model",
+    resolvedParameters: { reasoningEffort: "high" },
+  };
+  assert.deepEqual(f.project.configurations.thread, enriched);
+  const configurations = [];
+  f.project.model.subscribe(() => configurations.push(f.project.configurations.thread));
+  await f.backend.openThread(f.project, "thread");
+  assert.ok(configurations.length > 0);
+  for (const value of configurations) assert.deepEqual(value, enriched);
+  assert.equal(
+    f.calls.some((call) => ["areal/interaction/list", "areal/queue/list"].includes(call.method)),
+    false,
+  );
 });

@@ -44,57 +44,18 @@ const workgroupMutationMethods = new Set([
 ]);
 const reconciliationDelays = [500, 1000, 2000, 4000, 8000];
 const {
+  isRemoteControl,
   creationTargets,
   processControls,
   operationOf,
   explicitRejection,
   readReceipts,
   matchingReceipt,
+  reconcileReceipt,
   receiptStatus,
   receiptResult,
   readReceiptIdentity,
 } = require("./receipt-contract.cjs");
-// 精确 Remote 停止/交互不会重放；保留日志用于核对，不阻塞后续桌面操作。
-/** @param {Pending} entry */
-const isRemoteControl = (entry) =>
-  (entry.method === "turn/interrupt" &&
-    entry.remote?.method === "turn.stop" &&
-    entry.remote.capability === "interrupt" &&
-    typeof entry.operationId === "string" &&
-    typeof entry.params?.turnId === "string" &&
-    entry.remote.target?.expectedTurnId === entry.params.turnId &&
-    typeof entry.params.threadId === "string" &&
-    entry.remote.target.threadId === entry.params.threadId) ||
-  (entry.method === "areal/interaction/respond" &&
-    entry.remote?.method === "interaction.respond" &&
-    entry.remote.capability === "answer" &&
-    typeof entry.operationId === "string" &&
-    typeof entry.params?.requestId === "string" &&
-    entry.remote.target?.interactionId === entry.params.requestId &&
-    typeof entry.params.turnId === "string" &&
-    entry.remote.target.turnId === entry.params.turnId &&
-    typeof entry.params.threadId === "string" &&
-    entry.remote.target.threadId === entry.params.threadId) ||
-  (entry.method === "areal/channel/reply" &&
-    entry.remote?.method === "task.question.reply" &&
-    entry.remote.capability === "answer" &&
-    typeof entry.operationId === "string" &&
-    entry.params?.requestId === entry.operationId &&
-    ["taskId", "runId", "questionId"].every(
-      (key) =>
-        typeof entry.params[key] === "string" && entry.remote?.target?.[key] === entry.params[key],
-    )) ||
-  (entry.method === "areal/task/pause" &&
-    entry.remote?.method === "task.pause" &&
-    entry.remote.capability === "pauseTask" &&
-    typeof entry.operationId === "string" &&
-    entry.params?.requestId === entry.operationId &&
-    ["taskId", "expectedRunId"].every(
-      (key) =>
-        typeof entry.params[key] === "string" && entry.remote?.target?.[key] === entry.params[key],
-    ) &&
-    Number.isSafeInteger(entry.params.expectedRevision) &&
-    entry.remote.target.expectedRevision === entry.params.expectedRevision);
 
 class SubmissionRecovery {
   /** @param {SubmissionHost} host */
@@ -353,6 +314,15 @@ class SubmissionRecovery {
       entry.method === "areal/channel/reply" && entry.remote.method === "task.question.reply";
     const taskPause = entry.method === "areal/task/pause" && entry.remote.method === "task.pause";
     let receipt;
+    if (entry.method === "areal/turn/enqueue" && !error) {
+      if (
+        typeof fields?.queueItemId !== "string" ||
+        !fields.queueItemId ||
+        Buffer.byteLength(fields.queueItemId) > 128
+      )
+        throw new Error("排队受理结果缺少原生关联");
+      receipt = { queueItemId: fields.queueItemId };
+    }
     if (entry.method === "areal/goal/create" && !error) {
       if (
         typeof goal?.id !== "string" ||
@@ -502,18 +472,14 @@ class SubmissionRecovery {
     try {
       beforeReceipt?.(entry);
       // 精确查询原生键，不打开 Thread、不配置、不重放；离线只返回已有日志。
-      const value = readReceipts(
-        await client.request("areal/request/read", {
-          requestId: entry.params.requestId,
-          ...(entry.method !== "areal/thread/start" ? { threadId: entry.params.threadId } : {}),
-        }),
-      );
+      const receipt = await this.readReceipt(project, entry, client);
       if (project.client !== client || project.service?.generation !== generation) return entry;
-      const receipt = matchingReceipt(
-        entry,
-        value.data,
-        entry.method !== "areal/thread/start" ? entry.params.threadId : undefined,
-      );
+      if (receipt?.accepted === false)
+        return await this.rememberRemoteOutcome(project, entry, undefined, {
+          ...receipt.error,
+          outcome: { kind: "rejected" },
+        });
+      /** @type {import('./receipt-contract.cjs').ReceiptResponse|null|undefined} */
       const response =
         entry.method === "areal/thread/start" && typeof receipt?.threadId === "string"
           ? { result: { thread: { id: receipt.threadId } } }
@@ -539,6 +505,7 @@ class SubmissionRecovery {
     const entry = {
       method,
       operationId,
+      createdAt: new Date().toISOString(),
       params: {
         ...structuredClone(parameters),
         ...(["turn/interrupt", "turn/steer", "areal/interaction/respond"].includes(method)
@@ -625,9 +592,16 @@ class SubmissionRecovery {
         submissionUnknown: false,
       });
     }
+    const journal =
+      method === "areal/thread/start"
+        ? project.client?.capabilities?.features?.threadCreationJournal
+        : undefined;
+    const boundParameters = journal
+      ? { ...parameters, creationAdmission: { ...journal.binding } }
+      : parameters;
     if (remote) {
       if (!dispatch) throw new Error("Remote 提交入口缺失");
-      return this.submitRemote(project, method, parameters, remote, dispatch);
+      return this.submitRemote(project, method, boundParameters, remote, dispatch);
     }
     const semantics = project.client?.capabilities?.methodSemantics?.[method];
     if (semantics && semantics.effect !== "mutation") throw new Error("此方法不是业务写入");
@@ -636,8 +610,14 @@ class SubmissionRecovery {
       (typeof requestId !== "string" || !/^[0-9a-f-]{36}$/.test(requestId))
     )
       throw new Error("无效请求标识");
-    const params = { ...parameters, requestId: requestId ?? randomUUID() };
-    const entry = { method, params, operation: operationOf(method, params) };
+    const params = { ...boundParameters, requestId: requestId ?? randomUUID() };
+
+    const entry = {
+      method,
+      params,
+      operation: operationOf(method, params),
+      createdAt: new Date().toISOString(),
+    };
     // 活跃请求仅保存在内存；重启后仍在恢复日志中的请求应显示为结果未知。
     this.host.awaitingResponses.add(entry);
     try {
@@ -863,6 +843,12 @@ class SubmissionRecovery {
       }
       if (receipt && receiptStatus(receipt) === "failed") {
         const failure = receipt.error ?? receipt.response?.error;
+        if (receipt.accepted === false)
+          throw Object.assign(error, {
+            message: failure?.message ?? error.message,
+            outcome: { kind: "rejected", operation: receipt.operation ?? entry.operation },
+            submissionUnknown: false,
+          });
         Object.assign(error, {
           message: failure?.message ?? error.message,
           outcome: { kind: "admitted", operation: receipt.operation ?? entry.operation },
@@ -878,7 +864,7 @@ class SubmissionRecovery {
     }
   }
 
-  /** @param {Project} project @param {Pending} entry @param {Client|null|undefined} client @param {number} [timeoutMs] */
+  /** @param {Project} project @param {Pending} entry @param {Client|null|undefined} client @param {number} [timeoutMs] @returns {Promise<Receipt|undefined>} */
   async readReceipt(project, entry, client, timeoutMs = 2500) {
     if (!client) throw new Error("Core 连接尚未就绪");
     const family = client.capabilities?.methodSemantics?.[entry.method]?.receipt;
@@ -895,12 +881,17 @@ class SubmissionRecovery {
         {
           requestId: entry.params.requestId,
           ...(scopedThreadId ? { threadId: scopedThreadId } : {}),
+          ...(entry.method === "areal/thread/start" &&
+          entry.params.creationAdmission &&
+          client.capabilities?.features?.threadCreationJournal
+            ? { creationAdmission: entry.params.creationAdmission }
+            : {}),
         },
         { timeoutMs },
       ),
     );
     this.host.requireConnection(project, client);
-    return matchingReceipt(entry, result.data, scopedThreadId);
+    return reconcileReceipt(entry, result, client.capabilities, scopedThreadId);
   }
 
   /** @param {Project} project @param {string} method @param {Params & {requestId:string}} params */
@@ -936,7 +927,7 @@ class SubmissionRecovery {
     const error = failure ? desktopError(failure) : undefined;
     return {
       confirmed: true,
-      accepted: true,
+      accepted: receipt.accepted !== false,
       status,
       operation: receipt.operation ?? entry.operation,
       ...(error ? { error, message: error.message } : { result: receiptResult(receipt) }),
@@ -978,7 +969,8 @@ class SubmissionRecovery {
       return {
         ...outcomes,
         [requestId]: {
-          accepted: true,
+          accepted: receipt.accepted !== false,
+          ...(receipt.accepted === false ? { admissionState: "notAdmitted" } : {}),
           status,
           operation,
           method: entry.method,

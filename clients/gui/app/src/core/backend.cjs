@@ -458,6 +458,7 @@ class CoreBackend {
     );
     return {
       library: this.library.value,
+      subscription: this.providers.subscription,
       projectless: this.projectless.snapshot(),
       power: this.power ?? null,
       projects: this.worktrees.aggregate(
@@ -556,8 +557,6 @@ class CoreBackend {
         if (!project.client?.ready) await this.launch(project);
         trace?.advance("connect");
         if (!project.client?.ready) await this.connect(project);
-        trace?.advance("history");
-        await this.listThreads(project);
         trace?.advance("reconcile");
         await this.reconcile(project);
         trace?.advance("worktree_apply");
@@ -1372,8 +1371,22 @@ class CoreBackend {
   }
 
   /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['submit']>} args */
-  submit(...args) {
-    return this.submissions.submit(...args);
+  async submit(...args) {
+    try {
+      return await this.submissions.submit(...args);
+    } catch (error) {
+      const [project, , parameters] = args;
+      const model =
+        modelRecord(parameters.model) &&
+        typeof parameters.model.providerId === "string" &&
+        typeof parameters.model.modelId === "string"
+          ? { providerId: parameters.model.providerId, modelId: parameters.model.modelId }
+          : typeof parameters.threadId === "string"
+            ? project.configurations?.[parameters.threadId]?.model
+            : undefined;
+      this.providers.rejectModel(project, model, error);
+      throw error;
+    }
   }
 
   /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['processControlOutcome']>} args */
@@ -1556,20 +1569,7 @@ class CoreBackend {
       await this.resources.beforeCreate(project);
       const configured = request.model;
       if (modelRecord(configured) && configured.providerId === "areal_openai") {
-        const available = () => {
-          const model = project.models?.find(
-            (item) =>
-              item.providerId === configured.providerId && item.modelId === configured.modelId,
-          );
-          return (
-            model &&
-            model.available !== false &&
-            this.providers.subscriptionAvailable(model, project)
-          );
-        };
-        if (!available()) await this.providers.refreshSubscription(project);
-        if (!available())
-          throw new Error("当前 ChatGPT 模型不可用，请在模型设置中刷新登录状态或选择其他模型");
+        await this.providers.ensureSubscription(project);
       }
     } catch (error) {
       throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
@@ -1682,7 +1682,10 @@ class CoreBackend {
           : projectId,
       ))
         await this.lifecycleOperations.resumeScheduling(owner.id);
-    const project = await this.start(projectId);
+    const project = await this.start(
+      projectId,
+      name === "connect" || name === "open" ? { threadId: request.threadId } : undefined,
+    );
     if (this.closing) throw new Error("应用正在退出");
     await this.worktreeAdmission.admit(project, name, request);
     if (
@@ -1699,23 +1702,8 @@ class CoreBackend {
             : "threadId" in request && typeof request.threadId === "string"
               ? project.configurations[request.threadId]?.model
               : undefined;
-      const model =
-        configured?.providerId === "areal_openai"
-          ? project.models?.find(
-              (item) =>
-                item.providerId === configured.providerId && item.modelId === configured.modelId,
-            )
-          : null;
-      if (
-        configured?.providerId === "areal_openai" &&
-        (!model ||
-          model.available === false ||
-          !this.providers.subscriptionAvailable(model, project))
-      )
-        throw Object.assign(
-          new Error("当前 ChatGPT 模型不可用，请在模型设置中刷新登录状态或选择其他模型"),
-          { submissionUnknown: false },
-        );
+      if (configured?.providerId === "areal_openai")
+        await this.providers.ensureSubscription(project);
     }
     switch (name) {
       case "connect":
