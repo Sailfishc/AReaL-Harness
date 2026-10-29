@@ -61,7 +61,7 @@ class GitHooks(unittest.TestCase):
         self.put("format-input.txt", "formatted\n")
         self.put(
             "Makefile",
-            "fmt-check:\n\t@python3 -c \"from pathlib import Path; import sys; sys.exit(17 if Path('format-input.txt').read_text().strip() != 'formatted' else 0)\"\nci-preflight:\n\t@python3 -c \"from pathlib import Path; Path('preflight-ran').write_text('$(CI_BASE)')\"\n",
+            "fmt-check:\n\t@python3 -c \"from pathlib import Path; import sys; sys.exit(17 if Path('format-input.txt').read_text().strip() != 'formatted' else 0)\"\ncheck-changed:\n\t@python3 -c \"from pathlib import Path; Path('preflight-ran').write_text('$(CI_BASE)')\"\nci-preflight:\n\t@exit 99\n",
         )
         self.put(
             "scripts/check-workflows.py",
@@ -226,7 +226,7 @@ class GitHooks(unittest.TestCase):
     def test_prepush_preserves_preflight_failure_exit_code(self):
         self.put(
             "Makefile",
-            "fmt-check:\n\t@true\nci-preflight:\n\t@python3 -c 'import sys; sys.exit(19)'\n",
+            "fmt-check:\n\t@true\ncheck-changed:\n\t@python3 -c 'import sys; sys.exit(19)'\n",
         )
         self.git("add", "Makefile")
         self.git("commit", "-qm", "failing preflight")
@@ -237,7 +237,7 @@ class GitHooks(unittest.TestCase):
     def test_git_push_preflight_does_not_leak_caller_git_environment(self):
         self.put(
             "Makefile",
-            "fmt-check:\n\t@true\nci-preflight:\n\t@python3 scripts/nested-repository.py\n",
+            "fmt-check:\n\t@true\ncheck-changed:\n\t@python3 scripts/nested-repository.py\n",
         )
         self.put(
             "scripts/nested-repository.py",

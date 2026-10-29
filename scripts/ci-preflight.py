@@ -34,6 +34,68 @@ def digest(path):
     return value.hexdigest()
 
 
+def progress(plan, report):
+    states = {
+        name: []
+        for name in (
+            "passed",
+            "failed",
+            "blocked",
+            "pending",
+            "running",
+            "invalidated",
+            "cancelled",
+        )
+    }
+    results = {result["id"]: result for result in report["results"]}
+    required = {item["id"] for item in plan["items"]}
+    if len(results) != len(report["results"]) or set(results) - required:
+        raise ValueError("Progress report has duplicate or unknown checks")
+    for item in plan["items"]:
+        name = item["id"]
+        status = (
+            results[name]["status"]
+            if name in results
+            else "running"
+            if report.get("activeItem") == name
+            else "pending"
+        )
+        if status == "passed" and report["status"] == "invalidated":
+            status = "invalidated"
+        if status not in states:
+            raise ValueError(f"Unknown check status: {status}")
+        states[status].append(name)
+    return {
+        "status": next(
+            (
+                name
+                for name in ("failed", "invalidated", "blocked", "cancelled", "running", "pending")
+                if states[name] or report["status"] == name
+            ),
+            "passed" if required else "not-applicable",
+        ),
+        "total": len(required),
+        "counts": {name: len(items) for name, items in states.items()},
+        **states,
+        "pendingFull": report["pendingRequired"],
+        "remoteRequired": report["remoteRequired"],
+    }
+
+
+def publish_progress(plan, report, output):
+    report["progress"] = progress(plan, report)
+    write_report(output / "report.json", report)
+    summary = {
+        key: value
+        for key, value in report["progress"].items()
+        if key not in {"passed", "pending", "pendingFull", "remoteRequired"}
+    }
+    print(
+        json.dumps({"report": str(output / "report.json"), "progress": summary}),
+        flush=True,
+    )
+
+
 def matching_core(root=ROOT):
     built = root / "target/debug/areal"
     core = Path(os.environ.get("AREAL_CORE_BIN") or built)
@@ -217,7 +279,7 @@ def run_plan(
         "platform": platform,
         "status": "running",
         "results": results,
-        "remoteRequired": [],
+        "remoteRequired": [item["id"] for item in selected if platform not in item["platforms"]],
         "pendingRequired": sorted(
             {item["id"] for item in plan["items"]} - {item["id"] for item in selected}
         ),
@@ -230,10 +292,9 @@ def run_plan(
             {"source": plan["source"], "planHash": plan["planHash"], "fingerprint": metadata},
         )
     write_report(output / "plan.json", plan)
-    write_report(output / "report.json", report)
+    publish_progress(plan, report, output)
     for item in selected:
         if platform not in item["platforms"]:
-            report["remoteRequired"].append(item["id"])
             continue
         began = time.monotonic()
         result = {
@@ -291,6 +352,8 @@ def run_plan(
                                 "--item=" + item["id"],
                             ]
                         print(json.dumps({"check": item["id"], "command": command}), flush=True)
+                        report["activeItem"] = item["id"]
+                        publish_progress(plan, report, output)
                         completed = runner(command, cwd=root, env=env)
                         result.update(
                             status="passed" if completed.returncode == 0 else "failed",
@@ -337,9 +400,10 @@ def run_plan(
             report["firstFailureAt"] = result["completedAt"]
         previous[item["id"]] = result
         results.append(result)
+        report.pop("activeItem", None)
         print(json.dumps(result), flush=True)
         report["elapsedMs"] = round((time.monotonic() - started) * 1000)
-        write_report(output / "report.json", report)
+        publish_progress(plan, report, output)
     invalidated = input_probe() != identity["inputHash"]
     report.update(
         status="invalidated"
@@ -359,7 +423,7 @@ def run_plan(
         completedAt=datetime.now(timezone.utc).isoformat(),
         elapsedMs=round((time.monotonic() - started) * 1000),
     )
-    write_report(output / "report.json", report)
+    publish_progress(plan, report, output)
     return report
 
 
@@ -375,7 +439,19 @@ def main():
     parser.add_argument("--with-dependencies", action="store_true")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--dependencies", type=Path, action="append", default=[])
+    parser.add_argument(
+        "--report", type=Path, help="Read progress from an existing report and its adjacent plan"
+    )
     args = parser.parse_args()
+    if args.report:
+        report = json.loads(args.report.read_text())
+        plan = json.loads(args.report.with_name("plan.json").read_text())
+        if report["identity"]["planHash"] != plan["planHash"] or any(
+            report["identity"].get(key) != value for key, value in plan["source"].items()
+        ):
+            raise ValueError("Progress report does not match its plan")
+        print(json.dumps({"report": str(args.report), "progress": progress(plan, report)}))
+        return 0
     if not args.base and not os.environ.get("GITHUB_EVENT_PATH"):
         parser.error("--base is required outside CI")
     plan = scope.repository_plan(ROOT, args.base)
@@ -437,7 +513,7 @@ def main():
         report["status"] = "invalidated"
         report["reason"] = "inputs changed before finalization"
     report["totalElapsedMs"] = round((time.monotonic() - started) * 1000)
-    write_report(output / "report.json", report)
+    publish_progress(plan, report, output)
     print(
         json.dumps(
             {

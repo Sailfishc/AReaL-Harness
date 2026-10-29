@@ -1,4 +1,4 @@
-"""在暂存快照检查提交，在当前干净 HEAD 上运行完整推送前门禁。"""
+"""在暂存快照检查提交，在干净 HEAD 上运行受影响快检与失败专项。"""
 
 import argparse
 import importlib.util
@@ -203,7 +203,7 @@ def prepush():
     # Git hooks 继承调用者的仓库定位变量；不能把它们传给会创建独立仓库的检查。
     local_variables = git("rev-parse", "--local-env-vars").splitlines()
     environment = {key: value for key, value in os.environ.items() if key not in local_variables}
-    run(["make", "ci-preflight", f"CI_BASE={revision}"], env=environment)
+    run(["make", "check-changed", f"CI_BASE={revision}"], env=environment)
     require_clean_head(head)
 
 
