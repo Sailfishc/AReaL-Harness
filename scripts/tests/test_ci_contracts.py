@@ -30,6 +30,22 @@ preflight = load("ci-preflight")
 
 
 class CiContracts(unittest.TestCase):
+    def test_dispatch_null_or_missing_inputs_preserves_the_full_release_plan(self):
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as directory:
+            event = Path(directory) / "event.json"
+            for payload in ({"inputs": None}, {}, {"inputs": {}}):
+                event.write_text(json.dumps(payload))
+                with patch.dict(os.environ, {"GITHUB_EVENT_PATH": str(event)}):
+                    plan = scope.repository_plan(ROOT)
+                self.assertEqual(
+                    plan["source"]["sourceRevision"],
+                    scope.git(ROOT, "rev-parse", "HEAD").decode().strip(),
+                )
+                self.assertIn("Cargo.toml", plan["paths"])
+                self.assertTrue(plan["items"])
+
     def test_native_container_copies_side_test_runtime_fixture_inputs(self):
         dockerfile = (ROOT / "tests/e2e/docker/Dockerfile").read_text()
         image = dockerfile.split("\nFROM ${BASE_IMAGE}", 1)[0]
