@@ -1247,8 +1247,35 @@ impl Engine {
                             drop(stream);
                             drop(permit);
                             self.yield_settled_workspace_lease(cell).await;
-                            // Goal 的未知消费阻止重试，但不能覆盖导致请求失败的原始诊断。
+                            // 默认保持未知消费保护；显式实验仅在持久保留整次请求上界后有限续跑。
                             if let Err(blocker) = model.check_work() {
+                                if self.limits.goal_recover_unknown_model_usage
+                                    && completion_retries < self.limits.max_completion_retries
+                                    && side_thread_id.is_none()
+                                    && model::is_network_error(&error)
+                                    && self
+                                        .recover_goal_model_usage(
+                                            cell,
+                                            &model,
+                                            &completion_items,
+                                            &calls,
+                                            &error,
+                                            completion_retries,
+                                        )
+                                        .await?
+                                {
+                                    completion_retries += 1;
+                                    text_output_bytes = output_before.0;
+                                    media_output_bytes = output_before.1;
+                                    let delay =
+                                        Duration::from_millis(250u64 << completion_retries.min(4));
+                                    tokio::select! { biased;
+                                        _ = cancel.cancelled() => anyhow::bail!("cancelled"),
+                                        _ = steer.recv() => continue 'restart,
+                                        _ = tokio::time::sleep(delay) => {},
+                                    }
+                                    continue 'request;
+                                }
                                 let diagnostic = format!("{blocker}: {error}");
                                 return Err(error.context(diagnostic));
                             }
@@ -1533,6 +1560,57 @@ impl Engine {
             }
         }
     }
+    async fn recover_goal_model_usage(
+        &self,
+        cell: &Cell,
+        model: &Arc<dyn model::Model>,
+        owned: &HashSet<String>,
+        calls: &[model::ToolCall],
+        error: &anyhow::Error,
+        retries: usize,
+    ) -> anyhow::Result<bool> {
+        let capabilities = model.capabilities();
+        let Some(bound) = capabilities
+            .context_window_tokens
+            .filter(|n| *n > 0)
+            .zip(capabilities.max_output_tokens.filter(|n| *n > 0))
+            .and_then(|(input, output)| input.checked_add(output))
+        else {
+            return Ok(false);
+        };
+        let Some(failure) = model::terminal_outcome(error) else {
+            return Ok(false);
+        };
+        let (budget, thread_id, turn_id) = {
+            let state = cell.state.lock().await;
+            let Some(budget) = self.goals.budget(&state.thread) else {
+                return Ok(false);
+            };
+            let Some(turn) = state.thread.turns.last() else {
+                return Ok(false);
+            };
+            (budget, state.thread.id.clone(), turn.id.clone())
+        };
+        if !self
+            .discard_completion(cell, owned, calls, error, (retries, "reservedUnknownUsage"))
+            .await?
+        {
+            return Ok(false);
+        }
+        let Some(receipt) = budget
+            .reserve_failed_model_recovery((&thread_id, &turn_id), bound as u64, &failure)
+            .await?
+        else {
+            return Ok(false);
+        };
+        self.store
+            .save_audit(json!({"kind":"unknownModelUsageRecovery","retry":retries+1,
+            "receipt":receipt}))
+            .await?;
+        cell.emit("areal/model/unknownUsageReserved", receipt);
+        Ok(true)
+    }
+
     async fn recover_completion(
         &self,
         cell: &Cell,

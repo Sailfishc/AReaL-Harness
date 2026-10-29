@@ -395,6 +395,8 @@ create 返回目标投影及首轮 turnId。事件 `areal/goal/updated` / `areal
 
 Goal 事件纳入现有 snapshot-and-subscribe 边界、权限过滤和背压规则。重新连接后使用完整快照替换客户端状态，再消费增量；不能以只读 get 与单独 subscribe 拼接而假设没有事件缺口。请求、响应和事件 schema 由 Rust 类型生成至 `schemas/areal-core-v1.json`。
 
+显式 `limits.goal_recover_unknown_model_usage` 可让当前已确认暂时失败的求解请求在有限 Goal 预算内使用原完成恢复额度续跑。续跑前持久保留完整声明请求上界，不清除 UNKNOWN、已知用量或预留；`areal/model/unknownUsageReserved` 与 `unknownModelUsageRecovery` 审计记录原请求、所有者、失败类别和占额。该策略默认关闭，不确认取消、重启、其他请求或工具执行的未知状态；Goal 完成与用量完整性分别投影。
+
 ### 模型状态工具
 
 | 工具 | 参数 | 权限和行为 |

@@ -438,7 +438,8 @@ pub(crate) fn valid(field: &str, entry: &Entry) -> Result<()> {
         | "context_compaction_enabled"
         | "responses_websocket"
         | "responses_prompt_cache"
-        | "command_stdin_closed" => {
+        | "command_stdin_closed"
+        | "goal_recover_unknown_model_usage" => {
             if !matches!(value.as_str(), "0" | "1" | "false" | "true") {
                 return Err(reject("boolean must be 0/1 or false/true"));
             }
@@ -683,6 +684,7 @@ pub(crate) fn load_mode(
         ("model.responses_websocket", "false"),
         ("model.responses_prompt_cache", "false"),
         ("limits.max_completion_retries", "0"),
+        ("limits.goal_recover_unknown_model_usage", "false"),
         ("limits.max_empty_completion_retries", "0"),
         ("limits.context_observation_tokens", "0"),
         ("limits.context_reference_tokens", "0"),
@@ -1141,6 +1143,12 @@ pub(crate) fn load_mode(
             .value
             .parse()
             .unwrap(),
+        goal_recover_unknown_model_usage: matches!(
+            values["limits.goal_recover_unknown_model_usage"]
+                .value
+                .as_str(),
+            "1" | "true"
+        ),
         watchdog_disable: matches!(
             values["limits.watchdog_disable"].value.as_str(),
             "1" | "true"

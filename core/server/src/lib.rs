@@ -49,6 +49,7 @@ fn engine_limits(config: &ResolvedCoreConfig) -> Limits {
         context_output_reserve_tokens: config.context_output_reserve_tokens,
         context_recent_bytes: config.context_recent_bytes,
         max_completion_retries: config.max_completion_retries,
+        goal_recover_unknown_model_usage: config.goal_recover_unknown_model_usage,
         max_empty_completion_retries: config.max_empty_completion_retries,
         context_observation_tokens: config.context_observation_tokens,
         context_reference_tokens: config.context_reference_tokens,

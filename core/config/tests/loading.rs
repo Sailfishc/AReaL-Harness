@@ -22,6 +22,7 @@ fn observation_and_empty_recovery_budgets_have_independent_validated_controls() 
     assert_eq!(defaults.context_observation_tokens, 0);
     assert_eq!(defaults.max_empty_completion_retries, 0);
     assert_eq!(defaults.max_completion_retries, 0);
+    assert!(!defaults.goal_recover_unknown_model_usage);
     write(
         &mut i,
         "schema_version=2\n[context]\nobservation_tokens=4096\n[limits]\nmax_empty_completion_retries=2\n",
@@ -1469,4 +1470,25 @@ fn model_capabilities_preserve_explicit_false_and_reasoning_options() {
         load_config(&i).unwrap().model.reasoning_effort.as_deref(),
         Some("max")
     );
+}
+
+#[test]
+fn goal_unknown_model_usage_recovery_is_an_explicit_boolean() {
+    let root = tempfile::tempdir().unwrap();
+    let mut input = inputs(root.path());
+    write(
+        &mut input,
+        "schema_version=2\n[limits]\ngoal_recover_unknown_model_usage=true\n",
+    );
+    let config = load_config(&input).unwrap();
+    assert!(config.goal_recover_unknown_model_usage);
+    assert_eq!(
+        config.diagnostic(false)["limits"]["goal_recover_unknown_model_usage"],
+        true
+    );
+    write(
+        &mut input,
+        "schema_version=2\n[limits]\ngoal_recover_unknown_model_usage=1\n",
+    );
+    assert!(load_config(&input).is_err());
 }

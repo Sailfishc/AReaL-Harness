@@ -381,6 +381,8 @@ create returns the projection and first turnId. Events `areal/goal/updated` and 
 
 Goal events use the existing atomic snapshot/subscription boundary, authorization filters and backpressure rules. Reconnect by replacing local state with the full resume snapshot before applying events. Separate get/subscribe calls do not provide that atomic boundary. Rust types generate request, response and event definitions in [areal-core-v1.json](../../schemas/areal-core-v1.json).
 
+Explicit `limits.goal_recover_unknown_model_usage` may continue an observed transient failure of the current solve request within a finite Goal budget and the existing completion allowance. Core durably reserves the declared whole-request upper bound first; UNKNOWN, known usage and reservations remain. `areal/model/unknownUsageReserved` and `unknownModelUsageRecovery` audit records bind the request, owner, failure category and reserved charge. The policy defaults off and never acknowledges unknown cancellation, restart, other-owner or tool execution state. Goal completion and usage completeness are separate projections.
+
 ### Model tools
 
 | Tool | Parameters | Authority and behavior |
