@@ -120,7 +120,7 @@ export function SlashCommandPlugin({
     (trigger === "@"
       ? !!mentionCatalog || !!workspaceFiles
       : !!slashCatalog || appCommands.length > 0);
-  const searchingFiles = open && trigger === "@" && !!workspaceFiles;
+  const searchingFiles = open && trigger === "@" && !!query?.trim() && !!workspaceFiles;
   const currentFiles =
     searchingFiles &&
     files.status !== "idle" &&
@@ -370,6 +370,7 @@ export function SlashCommandPlugin({
           catalog={catalog}
           index={selected}
           query={query}
+          inlineSearch={trigger === "@"}
           anchor={container}
           onIndex={setIndex}
           onChoose={choose}

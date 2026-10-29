@@ -155,8 +155,31 @@ export async function runComposerFilesAcceptance({
   };
   const mentionCount = received.length;
   await input().fill("@");
+  await page.getByTestId("composer-catalog").waitFor();
+  assert.equal(await fileOptions().count(), 0);
+  assert.equal(
+    await page
+      .getByTestId("composer-catalog")
+      .getByRole("group", { name: "文件", exact: true })
+      .count(),
+    0,
+  );
+  assert.equal(await page.getByTestId("composer-catalog").getByRole("textbox").count(), 0);
+  assert.equal(await input().textContent(), "@");
+  await shot("files-at-empty-query-draft");
+  await input().pressSequentially("mention-root");
   await rootFile().waitFor();
-  assert.equal(await fileOptions().filter({ hasText: "mention-files" }).count(), 0);
+  assert.equal(await input().textContent(), "@mention-root");
+  assert.equal(await input().evaluate((element) => element === document.activeElement), true);
+  assert.equal(
+    await page.getByTestId("composer-catalog").getByRole("group").last().getAttribute("aria-label"),
+    "文件",
+  );
+  await input().fill("@");
+  await fileGroup().waitFor({ state: "hidden" });
+  assert.equal(await input().textContent(), "@");
+  await input().pressSequentially("mention-root");
+  await rootFile().waitFor();
   const menuBox = await page.getByTestId("composer-catalog").boundingBox();
   const editorBox = await input().boundingBox();
   assert(
@@ -190,7 +213,7 @@ export async function runComposerFilesAcceptance({
   await page.getByTestId("composer-catalog").waitFor({ state: "hidden" });
   await input().fill("");
   checks.push(
-    "new draft @ lists root files above the editor, pointer and path-query Tab insert file chips without sending; empty and Escape preserve input",
+    "new draft bare @ hides files and popup search; inline query reveals files in the last group, pointer and path-query Tab insert file chips without sending; empty and Escape preserve input",
   );
   const original = "PKG_CONFIG=中文\nexport const text = `原文 <xml> \\n`;\n";
   await page.locator("input[type=file]").setInputFiles({

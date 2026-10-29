@@ -6,7 +6,7 @@ import type { AppSlashCommand } from "../slashCommandHelpers.js";
 import { SearchIcon } from "../interfaceIcons.js";
 import { useI18n } from "../i18n/IntlProvider.js";
 
-const CATALOG_GROUPS = ["commands", "files", "功能", "会话", "应用", "Skills"] as const;
+const CATALOG_GROUPS = ["commands", "功能", "会话", "应用", "Skills", "files"] as const;
 
 export interface ComposerCatalogEntry extends AppSlashCommand {
   group: (typeof CATALOG_GROUPS)[number];
@@ -39,7 +39,9 @@ export const filterCatalog = (entries: readonly ComposerCatalogEntry[], query: s
       ].some((value) => value.toLowerCase().includes(normalized)),
     )
     .filter(
-      (entry) => normalized.length > 0 || entry.group !== "会话" || recentConversations++ < 20,
+      (entry) =>
+        (normalized.length > 0 || entry.group !== "files") &&
+        (normalized.length > 0 || entry.group !== "会话" || recentConversations++ < 20),
     )
     .sort((a, b) => CATALOG_GROUPS.indexOf(a.group) - CATALOG_GROUPS.indexOf(b.group));
 };
@@ -52,6 +54,7 @@ export function ComposerCatalog({
   index,
   anchor,
   onQuery,
+  inlineSearch = false,
   onIndex,
   onChoose,
 }: {
@@ -61,6 +64,7 @@ export function ComposerCatalog({
   index: number;
   anchor: HTMLElement;
   onQuery?: (query: string) => void;
+  inlineSearch?: boolean;
   onIndex: (index: number) => void;
   onChoose: (entry: ComposerCatalogEntry) => void;
 }) {
@@ -95,26 +99,28 @@ export function ComposerCatalog({
       style={{ maxHeight: height }}
       data-testid="composer-catalog"
     >
-      <div className="composer-catalog-search">
-        <SearchIcon />
-        <Input
-          unstyled
-          data-slot={undefined}
-          ref={search}
-          aria-label={catalog.searchLabel ?? t("chat.composer.catalogSearch")}
-          placeholder={catalog.searchLabel ?? t("chat.composer.catalogSearch")}
-          value={query}
-          readOnly={!onQuery}
-          tabIndex={onQuery ? 0 : -1}
-          onChange={(event) => {
-            onQuery?.(event.target.value);
-            onIndex(0);
-          }}
-          aria-controls={id}
-          aria-activedescendant={rows.length ? `${id}-${index}` : undefined}
-        />
-        <span>Esc</span>
-      </div>
+      {!inlineSearch && (
+        <div className="composer-catalog-search">
+          <SearchIcon />
+          <Input
+            unstyled
+            data-slot={undefined}
+            ref={search}
+            aria-label={catalog.searchLabel ?? t("chat.composer.catalogSearch")}
+            placeholder={catalog.searchLabel ?? t("chat.composer.catalogSearch")}
+            value={query}
+            readOnly={!onQuery}
+            tabIndex={onQuery ? 0 : -1}
+            onChange={(event) => {
+              onQuery?.(event.target.value);
+              onIndex(0);
+            }}
+            aria-controls={id}
+            aria-activedescendant={rows.length ? `${id}-${index}` : undefined}
+          />
+          <span>Esc</span>
+        </div>
+      )}
       <div
         id={id}
         role="listbox"
@@ -125,7 +131,7 @@ export function ComposerCatalog({
           (group) =>
             (group !== "commands" && group !== "files") ||
             rows.some((row) => row.group === group) ||
-            (group === "files" && !!catalog.files),
+            (group === "files" && !!query.trim() && !!catalog.files),
         ).map((group) => (
           <div
             key={group}

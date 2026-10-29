@@ -6598,10 +6598,10 @@
     },
     {
       "id": "R-COMPOSERSURFACE-007",
-      "title": "从 @ 选择的工作区文件引用必须在 Composer 和已发送的用户消息正文中采用与 Skills 一致的行内标识形式，",
+      "title": "裸 @ 不展示文件候选或文件搜索状态",
       "owner": "clients/gui/packages/ui/src/conversation/composer-surface/composer-surface.md#工作区文件引用",
       "strength": "must",
-      "textSha256": "838f5b6161fbbdc6a25c0d2c886effa48eb3caf938d987441d17a50f8259f504",
+      "textSha256": "33ce1b959c497908b6bfb5957b11ede76de830f898de5d5c1e490a5dd85b8214",
       "check": "clients/gui/scripts/composer-files-acceptance.mjs"
     }
   ]
