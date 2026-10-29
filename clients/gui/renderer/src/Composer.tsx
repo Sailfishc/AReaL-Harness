@@ -2,7 +2,6 @@ import { uploadComposerFiles } from "./ComposerUploads.js";
 export { uploadComposerFiles } from "./ComposerUploads.js";
 
 import { setPendingMessage, usePendingMessage } from "./pendingMessage.js";
-import type { Attachment } from "@areal/workbench/desktop-contract/conversation";
 import { Input } from "@areal/ui";
 import { ComposerActionButton } from "@areal/ui/experimental";
 import { parseMentionMarkdown } from "./mentions/mentionMarkdown.js";

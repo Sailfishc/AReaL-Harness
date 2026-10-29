@@ -208,6 +208,7 @@ function ActiveConversation() {
     navigationCommands,
     conversationReferences,
     readTurnReview,
+    setError,
   } = useConversationContext();
   const { project, thread, threadId, library, snapshot, resourceAction } = session;
   const panelOwner = `${project?.id ?? ""}:${threadId}`;
