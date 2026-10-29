@@ -16,7 +16,7 @@ import {
 import { parseSideSlashCommand } from "./sideSlashCommand.js";
 import { composerDraftStorage } from "./composerDraftStorage.js";
 import { composerPending } from "./composerPending.js";
-import { validateWorkspaceFileReference } from "./lib/workspaceFileComposer.js";
+import { useComposerWorkspaceFiles } from "./lib/workspaceFileComposer.js";
 import { stripGenUiModelContext } from "@areal/gen-ui/contract";
 import { useI18n } from "./i18n/IntlProvider.js";
 import { FeedbackNotice } from "./FeedbackNotice.js";
@@ -168,6 +168,7 @@ export function Composer({
   conversationReferences?: readonly ConversationReference[];
   onAnnotate?: (target: ImageAnnotationTarget) => void;
 }) {
+  const workspaceFiles = useComposerWorkspaceFiles(readAction, project, thread.id);
   const { t } = useI18n();
   const referenceEntries = conversationReferenceEntries(
     conversationReferences,
@@ -986,9 +987,7 @@ export function Composer({
           }
           enableWorkspaceFileDrop={!!project.root && !editorDisabled}
           enableExternalFileDrop={!editorDisabled}
-          validateWorkspaceFile={(payload) =>
-            validateWorkspaceFileReference(readAction, project.id, project.root, payload)
-          }
+          validateWorkspaceFile={workspaceFiles?.validate}
           onFileDrop={(files) => setFiles((current) => [...current, ...files])}
           onWorkspaceReferencePendingChange={setWorkspaceReferencePending}
           taskId={thread.id}
@@ -1029,6 +1028,7 @@ export function Composer({
           submitLabel={inspection.submitLabel(!!queueEditor.edit, creatingGoal, canContinue)}
           enterSubmits={prefs.sendShortcut === "enter"}
           enableMentionPanel={false}
+          workspaceFiles={workspaceFiles}
           pluginMentionCatalog={{
             ...plugins.catalog,
             entries: [...(queueEditor.edit ? [] : plugins.catalog.entries), ...referenceEntries],
