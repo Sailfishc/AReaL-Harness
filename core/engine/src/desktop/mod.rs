@@ -6,6 +6,7 @@ pub(crate) mod gen_ui;
 mod interactions;
 mod mcp;
 pub(crate) mod mcp_apps;
+pub(crate) mod mcp_tools;
 pub(crate) mod media;
 mod model_configuration;
 mod model_selection;

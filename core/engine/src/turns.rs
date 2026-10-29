@@ -278,6 +278,7 @@ impl Engine {
         }
         cell.cancel_grace_ms.store(1000, Ordering::Release);
         state.active = Some(Active {
+            tool_exposure: Default::default(),
             context_usage: None,
             context_sequence: 0,
             generation: Default::default(),

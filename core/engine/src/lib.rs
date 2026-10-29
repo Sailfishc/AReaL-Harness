@@ -198,6 +198,7 @@ struct TrustedPlugin {
 }
 
 struct Active {
+    tool_exposure: desktop::mcp_tools::ToolExposure,
     context_usage: Option<areal_protocol::context::ContextUsage>,
     context_sequence: u64,
     generation: request_meter::Generation,
