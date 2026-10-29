@@ -899,5 +899,13 @@
     "platforms": ["darwin", "linux"],
     "areas": ["build", "ci"],
     "requires": ["gui-build", "node-24.22.1"]
+  },
+  {
+    "script": "test:mobile-browser",
+    "layer": "e2e",
+    "platforms": ["darwin", "linux"],
+    "areas": ["remote", "mobile"],
+    "requires": ["browser"],
+    "notes": "Production mobile UI, encrypted pairing and reload in Chromium/WebKit; browser memory and fixture Host only."
   }
 ]
