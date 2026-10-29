@@ -411,13 +411,21 @@ impl ResponsesDecoder {
                         existing.name == name && existing.arguments == arguments,
                         "conflicting function call replay"
                     );
+                    // 终态快照可确认或撤回先前的完成状态；缺省字段不能擦除已有的未完成证据。
+                    if let Some(status) = item.get("status").filter(|status| !status.is_null()) {
+                        let context = self
+                            .contexts
+                            .iter_mut()
+                            .find(|context| {
+                                context["type"] == "function_call" && context["call_id"] == id
+                            })
+                            .context("missing retained function context")?;
+                        context["status"] = status.clone();
+                    }
                 } else {
                     self.budget
                         .reserve(true, [0; 3], [id.len(), name.len(), arguments.len()])?;
-                    anyhow::ensure!(
-                        serde_json::from_str::<Value>(arguments)?.is_object(),
-                        "invalid function arguments"
-                    );
+                    // 参数可能在输出上限处截断；先保留有界原文，等响应终态结算用量后再校验。
                     // 保留 Responses 原始 item ID、参数字节与字段，用于后续 wire 回放。
                     self.contexts.push(item.clone());
                     self.calls.push(ToolCall {
@@ -430,6 +438,46 @@ impl ResponsesDecoder {
             Some("computer_call" | "custom_tool_call") => bail!("unsupported Responses tool type"),
             _ => {}
         }
+        Ok(())
+    }
+
+    fn complete_response_output(
+        &mut self,
+        response: &Value,
+        output: &mut Vec<ModelEvent>,
+    ) -> Result<()> {
+        if let Some(items) = response["output"].as_array() {
+            for item in items {
+                self.record_item(item, output)?;
+            }
+        }
+        for call in &self.calls {
+            anyhow::ensure!(
+                serde_json::from_str::<Value>(&call.arguments).is_ok_and(|value| value.is_object()),
+                ModelFailure::InvalidToolArguments
+            );
+        }
+        for item in &self.contexts {
+            if item["type"] == "function_call"
+                && item
+                    .get("status")
+                    .is_some_and(|status| !status.is_null() && status != "completed")
+            {
+                return Err(anyhow::Error::new(ModelFailure::Incomplete)
+                    .context("completed response contains an unfinished function call"));
+            }
+        }
+        // 全部终态输出完成校验后才一次性发布工具；错误路径只保留已观察内容和真实计量。
+        output.extend(
+            std::mem::take(&mut self.contexts)
+                .into_iter()
+                .map(ModelEvent::ProviderContext),
+        );
+        output.extend(
+            std::mem::take(&mut self.calls)
+                .into_iter()
+                .map(ModelEvent::ToolCall),
+        );
         Ok(())
     }
 
@@ -593,25 +641,19 @@ impl ResponsesDecoder {
                 if event["response"]["status"] != "completed" {
                     bail!("Responses request did not complete successfully");
                 }
-                if let Some(usage) = parse_usage(event["response"].get("usage")) {
+                let terminal_usage = parse_usage(event["response"].get("usage"));
+                if let Some(usage) = &terminal_usage {
                     self.usage_details.observe(&event["response"]["usage"]);
-                    output.push(ModelEvent::Usage(usage));
+                    output.push(ModelEvent::Usage(usage.clone()));
                 }
-                if let Some(items) = event["response"]["output"].as_array() {
-                    for item in items {
-                        self.record_item(item, output)?;
-                    }
+                if let Err(error) = self.complete_response_output(&event["response"], output) {
+                    // 回放冲突、工具额度和推理快照错误也不能覆盖已经接收的末次 usage。
+                    return Err(if terminal_usage.is_some() {
+                        error.context(FinalUsageError)
+                    } else {
+                        error
+                    });
                 }
-                output.extend(
-                    std::mem::take(&mut self.contexts)
-                        .into_iter()
-                        .map(ModelEvent::ProviderContext),
-                );
-                output.extend(
-                    std::mem::take(&mut self.calls)
-                        .into_iter()
-                        .map(ModelEvent::ToolCall),
-                );
 
                 self.finished = true;
                 self.done = true;
@@ -729,6 +771,87 @@ mod truncated_usage_tests {
     use super::*;
 
     #[test]
+    fn partial_responses_call_waits_for_terminal_usage_without_becoming_a_tool() {
+        for chunk_bytes in [1, 17, usize::MAX] {
+            for terminal in ["response.incomplete", "response.completed"] {
+                let call = json!({"type":"function_call","id":"item-partial",
+                    "call_id":"call-partial","name":"fs_write","status":"incomplete",
+                    "arguments":"{\"path\":\"notes/output.txt\""});
+                let mut response = json!({"status":"completed","output":[call.clone()],
+                    "usage":{"input_tokens":12331,"output_tokens":32000}});
+                if terminal == "response.incomplete" {
+                    response["status"] = json!("incomplete");
+                    response["incomplete_details"] = json!({"reason":"max_output_tokens"});
+                }
+                let wire = format!(
+                    "data: {}\n\ndata: {}\n\n",
+                    json!({"type":"response.output_item.done","item":call}),
+                    json!({"type":terminal,"response":response})
+                );
+                let mut decoder = Decoder::Responses(ResponsesDecoder::default());
+                let mut events = Vec::new();
+                let mut error = None;
+                for chunk in wire.as_bytes().chunks(chunk_bytes.min(wire.len())) {
+                    match decoder.feed(chunk) {
+                        Ok(part) => events.extend(part),
+                        Err(err) => {
+                            error = Some(err);
+                            break;
+                        }
+                    }
+                }
+                let error = error.unwrap_or_else(|| decoder.finish().unwrap_err());
+                assert!(error.is::<FinalUsageError>());
+                assert_eq!(
+                    events
+                        .iter()
+                        .filter(|e| matches!(e, ModelEvent::Usage(_)))
+                        .count(),
+                    1
+                );
+                assert!(events.iter().any(|e| matches!(e, ModelEvent::Usage(u)
+                    if u.input_tokens == 12331 && u.output_tokens == 32000)));
+                assert!(!events.iter().any(|e| matches!(e, ModelEvent::ToolCall(_))));
+                if terminal == "response.incomplete" {
+                    assert_eq!(
+                        error
+                            .downcast_ref::<StreamError>()
+                            .unwrap()
+                            .reason
+                            .as_deref(),
+                        Some("max_output_tokens")
+                    );
+                } else {
+                    assert_eq!(
+                        error.downcast_ref::<ModelFailure>(),
+                        Some(&ModelFailure::InvalidToolArguments)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn partial_responses_call_without_terminal_keeps_usage_unknown() {
+        let call = json!({"type":"response.output_item.done","item":{
+            "type":"function_call","call_id":"call-partial","name":"fs_write",
+            "arguments":"{\"path\":\"notes/output.txt\""}});
+        let mut decoder = Decoder::Responses(ResponsesDecoder::default());
+        assert!(
+            decoder
+                .feed(format!("data: {call}\n\n").as_bytes())
+                .unwrap()
+                .is_empty()
+        );
+        let error = decoder.finish().unwrap_err();
+        assert!(!error.is::<FinalUsageError>());
+        assert_eq!(
+            error.downcast_ref::<ModelFailure>(),
+            Some(&ModelFailure::Incomplete)
+        );
+    }
+
+    #[test]
     fn zero_usage_is_known_but_missing_or_scalar_usage_is_not() {
         assert!(parse_usage(Some(&json!({"input_tokens":0,"output_tokens":0}))).is_some());
         assert!(parse_usage(Some(&json!({"prompt_tokens":0,"completion_tokens":0}))).is_some());
@@ -749,6 +872,27 @@ mod truncated_usage_tests {
             ));
             assert_eq!(decoder.finish().unwrap_err().is::<FinalUsageError>(), known);
         }
+    }
+
+    #[test]
+    fn local_budget_rejection_is_known_zero_usage_and_agent_limit() {
+        let event = json!({"type":"response.failed","response":{
+            "status":"failed","output":[],
+            "usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0},
+            "error":{"code":"budget_exhausted","type":"budget_exhausted"}
+        }});
+        let mut decoder = Decoder::Responses(ResponsesDecoder::default());
+        let events = decoder
+            .feed(format!("data: {event}\n\n").as_bytes())
+            .unwrap();
+        assert!(
+            matches!(events.as_slice(), [ModelEvent::Usage(u)] if u.input_tokens == 0 && u.output_tokens == 0)
+        );
+        let error = decoder.finish().unwrap_err();
+        assert!(error.is::<FinalUsageError>());
+        let outcome = terminal_outcome(&error).unwrap();
+        assert_eq!(outcome.code, "MODEL_SHARED_BUDGET_EXHAUSTED");
+        assert_eq!(outcome.class, "agent");
     }
 
     #[test]
@@ -1171,6 +1315,7 @@ mod tests {
     #[test]
     fn responses_final_reasoning_and_usage_survive_a_tool_budget_error() {
         let mut decoder = Decoder::Responses(ResponsesDecoder::new(ToolCallLimits {
+            require_call: false,
             max_calls: 0,
             ..ToolCallLimits::default()
         }));
@@ -1559,6 +1704,7 @@ mod tool_call_tests {
                 for max_buffer_bytes in [size + 4, size + 5] {
                     for chat in [false, true] {
                         let limits = ToolCallLimits {
+                            require_call: false,
                             max_calls,
                             max_buffer_bytes,
                         };

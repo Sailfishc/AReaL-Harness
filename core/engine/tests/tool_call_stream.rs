@@ -697,6 +697,7 @@ async fn summary_requests_and_configured_models_preserve_buffer_limits() {
                 vec![],
                 purpose,
                 ToolCallLimits {
+                    require_call: false,
                     max_calls: 1,
                     max_buffer_bytes: 1,
                 },

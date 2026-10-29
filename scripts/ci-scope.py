@@ -191,7 +191,7 @@ def repository_plan(root, base=None):
     event = json.loads(Path(event_path).read_text()) if event_path else {}
     pr = event.get("pull_request") or {}
     comparison = (
-        base or pr.get("base", {}).get("sha") or event.get("inputs", {}).get("comparison_base")
+        base or pr.get("base", {}).get("sha") or (event.get("inputs") or {}).get("comparison_base")
     )
     revision = git(root, "rev-parse", "HEAD").decode().strip()
     fallback = False

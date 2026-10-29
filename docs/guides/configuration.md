@@ -205,6 +205,11 @@ Goal 的共享预算与未知用量约束优先于重试配置。Goal 请求禁�
 
 `limits.max_completion_retries` 默认为 0、范围 0–8，是每 Turn 的有限未完成响应恢复额度，与 HTTP `max_retries` 和网络 watchdog 分开；关闭 watchdog 不关闭已有的有限重试。恢复条件与审计见 [Core API](../api/core.md#recovery)。HTTPS 使用公开根证书和宿主系统信任库；私有 CA 应安装到信任库。工具调用仅来自协议结构化字段，正文中的 XML/JSON 不作为调用执行。
 
+`limits.max_goal_report_rounds=0` 默认关闭，整数 0–8；`AREAL_HARNESS_MAX_GOAL_REPORT_ROUNDS` 可覆盖。显式启用时，活跃根 Goal 的缺失进度报告进入只允许报告工具的有界阶段，额度与通用响应恢复分开，物理请求/token/时间预算保持原值。报告失败或工具不可用返回 `GOAL_PROGRESS_UNREPORTED`，不伪造完成。见 [Core API](../api/core.md#recovery)。
+
+`limits.goal_recover_unknown_model_usage=false` 默认保留 Goal 未知用量的人工检查保护。显式启用后，仅当前求解请求已明确观测到的暂时网络失败可使用同一 `max_completion_retries` 额度续跑。要求 Goal 有有限 token 预算、模型声明正数上下文与输出上限，并且没有其他未确认请求；每个失败请求在续跑前持久保留至少“上下文上限 + 输出上限”的占额。未知请求数与 `accountingComplete=false` 保留，已知用量不清零，预算、默认重试和工具权限不增加。上界缺失、占额不足、永久请求错误、取消/重启遗留或其他所有者的未知消费仍停止。工具 UNKNOWN 不由此策略确认或重放。该显式实验不保证上游服务恢复，也不代表完整用量已经找回。
+
+
 `resources.max_tool_buffer_bytes` 默认 4 MiB，约束每个响应缓冲的工具 id、name、arguments；单调用参数仍最多 64 KiB。`resources.max_response_tool_calls` 默认 128，有效值取该保护与显式 Turn 剩余调用预算的较小者。`resources.max_response_bytes` 默认 4 MiB，约束单响应的文本、推理、provider context 和模型二进制输出。这些保护独立于累计执行预算。Chat/Responses 共用工具缓冲检查，重复的 Responses 终态条目不重复计数。新增环境变量后缀为 `MAX_RESPONSE_TOOL_CALLS`、`MAX_RESPONSE_BYTES`、`CONTEXT_MODE`、`CONTEXT_RECENT_TOKENS`、`CONTEXT_TARGET_TOKENS`、`MODEL_CONTEXT_WINDOW_TOKENS`；旧环境变量保留。
 
 `[budget]` 中 `max_tool_calls`、`max_output_bytes`、`max_history_bytes` 默认 0（无限）；正数分别显式限制每 Turn 调用数/累计输出和每 Thread 存储历史，压缩不会重置这些预算。历史计入热快照和引用的冷分段。旧配置中的显式有限值保持原意，两个 schema 版本中省略字段均采用新的无限默认。资源容量仍需正数，子任务数/深度可为 0。`max_threads=20000` 是部署会话容量，不是单会话长度预算。空闲超时用于检测停滞请求，不是整个任务的运行时长。`[network] retry_mode` 默认 persistent，也可为 bounded（当前请求最多五次 Core 网络恢复）。`config show` 展示新分组并保留旧 `limits` 诊断对象；旧别名来源键继续归一化，`network.retry_mode` 保留独立来源。

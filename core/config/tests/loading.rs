@@ -22,6 +22,8 @@ fn observation_and_empty_recovery_budgets_have_independent_validated_controls() 
     assert_eq!(defaults.context_observation_tokens, 0);
     assert_eq!(defaults.max_empty_completion_retries, 0);
     assert_eq!(defaults.max_completion_retries, 0);
+    assert_eq!(defaults.max_goal_report_rounds, 0);
+    assert!(!defaults.goal_recover_unknown_model_usage);
     write(
         &mut i,
         "schema_version=2\n[context]\nobservation_tokens=4096\n[limits]\nmax_empty_completion_retries=2\n",
@@ -34,6 +36,7 @@ fn observation_and_empty_recovery_budgets_have_independent_validated_controls() 
     for text in [
         "schema_version=2\n[context]\nobservation_tokens=-1\n",
         "schema_version=2\n[limits]\nmax_empty_completion_retries=9\n",
+        "schema_version=2\n[limits]\nmax_goal_report_rounds=9\n",
     ] {
         write(&mut i, text);
         assert!(load_config(&i).is_err());
@@ -1370,12 +1373,13 @@ fn experimental_policies_require_explicit_values_and_keep_legacy_aliases() {
         assert_eq!(defaults.context_reference_tokens, 0);
         assert_eq!(defaults.max_repeated_tool_failures, 0);
         assert_eq!(defaults.max_empty_completion_retries, 0);
+        assert_eq!(defaults.max_goal_report_rounds, 0);
         assert!(defaults.context_compaction_enabled);
         assert!(defaults.command_stdin_closed);
         write(
             &mut i,
             &format!(
-                "schema_version={schema}\n[limits]\ncontext_observation_tokens=4096\ncontext_reference_tokens=2048\nmax_repeated_tool_failures=3\nmax_empty_completion_retries=1\n"
+                "schema_version={schema}\n[limits]\ncontext_observation_tokens=4096\ncontext_reference_tokens=2048\nmax_repeated_tool_failures=3\nmax_empty_completion_retries=1\nmax_goal_report_rounds=4\n"
             ),
         );
         let configured = load_config(&i).unwrap();
@@ -1383,11 +1387,13 @@ fn experimental_policies_require_explicit_values_and_keep_legacy_aliases() {
         assert_eq!(configured.context_reference_tokens, 2048);
         assert_eq!(configured.max_repeated_tool_failures, 3);
         assert_eq!(configured.max_empty_completion_retries, 1);
+        assert_eq!(configured.max_goal_report_rounds, 4);
         let diagnostic = configured.diagnostic(false);
         assert_eq!(diagnostic["context"]["observation_tokens"], 4096);
         assert_eq!(diagnostic["context"]["reference_tokens"], 2048);
         assert_eq!(diagnostic["limits"]["max_repeated_tool_failures"], 3);
         assert_eq!(diagnostic["limits"]["max_empty_completion_retries"], 1);
+        assert_eq!(diagnostic["limits"]["max_goal_report_rounds"], 4);
     }
 }
 
@@ -1409,6 +1415,11 @@ fn experimental_environment_values_enable_and_disable_each_policy() {
             "AREAL_HARNESS_MAX_EMPTY_COMPLETION_RETRIES",
             "max_empty_completion_retries",
             "2",
+        ),
+        (
+            "AREAL_HARNESS_MAX_GOAL_REPORT_ROUNDS",
+            "max_goal_report_rounds",
+            "4",
         ),
         (
             "AREAL_HARNESS_MAX_REPEATED_TOOL_FAILURES",
@@ -1469,4 +1480,25 @@ fn model_capabilities_preserve_explicit_false_and_reasoning_options() {
         load_config(&i).unwrap().model.reasoning_effort.as_deref(),
         Some("max")
     );
+}
+
+#[test]
+fn goal_unknown_model_usage_recovery_is_an_explicit_boolean() {
+    let root = tempfile::tempdir().unwrap();
+    let mut input = inputs(root.path());
+    write(
+        &mut input,
+        "schema_version=2\n[limits]\ngoal_recover_unknown_model_usage=true\n",
+    );
+    let config = load_config(&input).unwrap();
+    assert!(config.goal_recover_unknown_model_usage);
+    assert_eq!(
+        config.diagnostic(false)["limits"]["goal_recover_unknown_model_usage"],
+        true
+    );
+    write(
+        &mut input,
+        "schema_version=2\n[limits]\ngoal_recover_unknown_model_usage=1\n",
+    );
+    assert!(load_config(&input).is_err());
 }

@@ -69,8 +69,22 @@ impl Engine {
         if active.cancel.is_cancelled() || active.sealed {
             return Err(Error::Conflict);
         }
+        let pending_plan = state
+            .thread
+            .desktop
+            .as_ref()
+            .map(|d| {
+                d.plan
+                    .steps
+                    .iter()
+                    .filter(|step| matches!(step.status.as_str(), "pending" | "inProgress"))
+                    .map(|step| json!({"id":step.id,"text":step.text,"status":step.status}))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         if report.status == GoalReportStatus::Complete
-            && (!active.handles.pending_verifications.is_empty()
+            && (!pending_plan.is_empty()
+                || !active.handles.pending_verifications.is_empty()
                 || state
                     .thread
                     .desktop
@@ -87,8 +101,9 @@ impl Engine {
             return Err(invalid(format!(
                 "GOAL_COMPLETION_PENDING: {}",
                 json!({"pendingInputCount":pending_input,
+                    "pendingPlanSteps":pending_plan,
                     "pendingVerifications":active.handles.pending_verification_page(None),
-                    "guidance":"Process queued input and observe original verification processes before retrying complete. Use task_state for further pending pages; do not rerun checks merely to clear this gate."})
+                    "guidance":"Process queued input, settle the current plan using verified results or explicit cancellation, and observe original verification processes before retrying complete. Use task_state for further pending pages; do not rerun checks merely to clear this gate."})
             )));
         }
         let turn_id = active.id.clone();
@@ -462,6 +477,40 @@ mod completion_tests {
         {
             let mut state = cell.state.lock().await;
             state.thread.goals.goal.as_mut().unwrap().limits_pending = false;
+            state
+                .active
+                .as_mut()
+                .unwrap()
+                .handles
+                .pending_verifications
+                .insert("unobserved-runtime-process".into());
+        }
+        {
+            let mut state = cell.state.lock().await;
+            state.thread.desktop.as_mut().unwrap().plan.steps =
+                vec![areal_protocol::desktop::PlanStep {
+                    id: "deliver".into(),
+                    text: "verify the public deliverable".into(),
+                    status: "inProgress".into(),
+                }];
+            state
+                .active
+                .as_mut()
+                .unwrap()
+                .handles
+                .pending_verifications
+                .clear();
+        }
+        let goal = engine.goal_get(&thread.id).await.unwrap();
+        let pending = engine.goal_tool(&cell, "goal_update", &json!({
+            "expectedRevision":goal["revision"], "status":"complete", "summary":"claimed complete",
+            "evidence":["claim"], "remaining":[]
+        })).await.unwrap_err();
+        assert!(pending.to_string().contains("pendingPlanSteps"));
+        assert!(pending.to_string().contains("deliver"));
+        {
+            let mut state = cell.state.lock().await;
+            state.thread.desktop.as_mut().unwrap().plan.steps[0].status = "cancelled".into();
             state
                 .active
                 .as_mut()

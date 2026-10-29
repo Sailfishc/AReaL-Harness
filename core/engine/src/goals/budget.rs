@@ -213,6 +213,64 @@ impl Budget {
             r.acknowledged = true;
         }
     }
+    pub(crate) async fn reserve_failed_model_recovery(
+        &self,
+        owner: (&str, &str),
+        maximum_request_tokens: u64,
+        failure: &areal_protocol::TurnOutcome,
+    ) -> anyhow::Result<Option<Value>> {
+        let gate = self.io.clone().lock_owned().await;
+        let receipt = {
+            let mut data = self.data.lock().unwrap();
+            if data.poisoned || !data.enabled || maximum_request_tokens == 0 {
+                return Ok(None);
+            }
+            let Some(limit) = data.token_budget else {
+                return Ok(None);
+            };
+            // 只接纳当前求解请求的明确失败；子请求、取消或重启留下的未知消费仍需人工检查。
+            let unknown: Vec<_> = data
+                .journal
+                .requests
+                .iter()
+                .filter(|(_, request)| request.unknown && !request.acknowledged)
+                .map(|(id, request)| (id.clone(), request.clone()))
+                .collect();
+            let [(request_id, request)] = unknown.as_slice() else {
+                return Ok(None);
+            };
+            if !request.settled
+                || request.purpose != "Solve"
+                || request
+                    .owner
+                    .as_ref()
+                    .is_none_or(|(thread, turn)| thread != owner.0 || turn != owner.1)
+                || request.failure.as_ref() != Some(failure)
+            {
+                return Ok(None);
+            }
+            let reserved = request.reserved.max(maximum_request_tokens);
+            let current = usage(&data);
+            let charged = current
+                .tokens_used
+                .saturating_add(current.reserved_tokens)
+                .saturating_add(reserved.saturating_sub(request.reserved));
+            if charged >= limit {
+                return Ok(None);
+            }
+            let receipt = json!({"goalId":self.goal_id,"requestId":request_id,
+                "owner":{"threadId":owner.0,"turnId":owner.1},"outcome":failure,
+                "unknownUsage":true,"previousReservedTokens":request.reserved,
+                "reservedTokens":reserved,"chargedTokens":charged,"tokenBudget":limit});
+            let request = data.journal.requests.get_mut(request_id).unwrap();
+            // 允许有界续跑，不把未知消费变成已知，也不解除预留或修改已观察到的用量。
+            request.reserved = reserved;
+            request.acknowledged = true;
+            receipt
+        };
+        self.save(gate).await?;
+        Ok(Some(receipt))
+    }
     pub(crate) fn guard(&self) -> anyhow::Result<()> {
         let d = self.data.lock().unwrap();
         anyhow::ensure!(!d.poisoned, "GOAL_STORAGE_FAILED");

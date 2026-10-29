@@ -11,6 +11,8 @@ pub(crate) use context_windows::known_context_window;
 mod prompt_cache_tests;
 mod request_budget;
 mod telemetry;
+#[cfg(test)]
+mod terminal_integrity_tests;
 mod tool_calls;
 mod websocket;
 use anyhow::{Context, Result, bail};
@@ -74,6 +76,8 @@ pub enum ModelFailure {
     EmptyCompletion,
     #[error("verification process has not been observed to finish")]
     PendingVerification,
+    #[error("model completed with invalid tool arguments")]
+    InvalidToolArguments,
 }
 
 // 只有协议适配器确认终态和最终用量后才能添加；普通 Usage 增量不具备此保证。
@@ -128,6 +132,7 @@ impl StreamError {
                 name @ ("rate_limit_exceeded"
                 | "rate_limit_error"
                 | "insufficient_quota"
+                | "budget_exhausted"
                 | "context_length_exceeded"
                 | "invalid_request_error"
                 | "unsupported_parameter"
@@ -251,6 +256,8 @@ fn stream_outcome(detail: &StreamError, source: &str) -> areal_protocol::TurnOut
         ("LLM_CONTEXT_WINDOW_EXCEEDED", "agent")
     } else if has("max_tokens") || has("max_output_tokens") {
         ("LLM_OUTPUT_TOKEN_LIMIT_EXCEEDED", "agent")
+    } else if has("budget_exhausted") {
+        ("MODEL_SHARED_BUDGET_EXHAUSTED", "agent")
     } else {
         ("LLM_RESPONSE_FAILED", "infrastructure")
     };
@@ -317,6 +324,9 @@ pub(crate) fn terminal_outcome(error: &anyhow::Error) -> Option<areal_protocol::
         ),
         ModelFailure::ResponseTimeout => ("LLM_RESPONSE_TIMEOUT", "timeout", "response_timeout"),
         ModelFailure::EmptyCompletion => ("LLM_RESPONSE_FAILED", "agent", "empty_completion"),
+        ModelFailure::InvalidToolArguments => {
+            ("LLM_RESPONSE_FAILED", "agent", "invalid_tool_arguments")
+        }
         ModelFailure::PendingVerification => {
             ("LLM_RESPONSE_FAILED", "agent", "pending_verification")
         }
@@ -1228,6 +1238,10 @@ impl Model for HttpModel {
             limits.max_calls = 0;
             tools.clear();
         }
+        anyhow::ensure!(
+            !limits.require_call || (limits.max_calls > 0 && !tools.is_empty()),
+            "required model tool call is unavailable under current permissions or budget"
+        );
         self.preflight_media(&messages, purpose).await?;
         let mut body = self.request_body(messages).await.map_err(|error| {
             if let Some(size) = error.downcast_ref::<request_budget::RequestTooLarge>() {
@@ -1321,6 +1335,9 @@ impl Model for HttpModel {
                 .is_none_or(|capabilities| capabilities.tools)
         {
             body["tool_choice"] = json!("none");
+        } else if limits.require_call {
+            body["tool_choice"] = json!("required");
+            body["parallel_tool_calls"] = json!(false);
         }
         if self.options.responses_prompt_cache
             && let Some(key) = affinity::prompt_cache_key(

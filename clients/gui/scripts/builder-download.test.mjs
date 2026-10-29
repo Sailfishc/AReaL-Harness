@@ -189,6 +189,14 @@ test("official downloader preserves HTTPS CONNECT, custom CA, NO_PROXY and proxy
         timeout: 15000,
         env: {
           ...process.env,
+          // 本夹具逐场景设置大写代理；宿主的小写排除项不能绕过失败代理的负控制。
+          HTTP_PROXY: "",
+          http_proxy: "",
+          https_proxy: "",
+          ALL_PROXY: "",
+          all_proxy: "",
+          NO_PROXY: "",
+          no_proxy: "",
           NODE_EXTRA_CA_CERTS: certificate,
           NODE_TLS_REJECT_UNAUTHORIZED: "1",
           ELECTRON_BUILDER_CACHE: join(root, "cache"),
@@ -248,7 +256,6 @@ test("real builder cold download enforces the configured production request dead
 test("real builder toolset cold path verifies and extracts a task-owned archive", async () => {
   const { execFile } = await import("node:child_process");
   const { promisify } = await import("node:util");
-  const { writeFile, mkdir } = await import("node:fs/promises");
   const root = await mkdtemp(join(tmpdir(), "areal-builder-toolset-"));
   const archive = join(root, "toolset.tar.gz");
   await promisify(execFile)("/usr/bin/python3", [

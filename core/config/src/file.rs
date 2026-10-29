@@ -369,6 +369,7 @@ fn walk(
                     | "max_repeated_tool_failures"
                     | "max_empty_completion_retries"
                     | "max_completion_retries"
+                    | "max_goal_report_rounds"
             ]
             | [
                 "model",
@@ -423,7 +424,10 @@ fn walk(
         names.as_slice(),
         [
             "limits",
-            "watchdog_disable" | "context_compaction_enabled" | "command_stdin_closed"
+            "watchdog_disable"
+                | "context_compaction_enabled"
+                | "command_stdin_closed"
+                | "goal_recover_unknown_model_usage"
         ] | ["trajectory", "enabled"]
             | ["model", "responses_websocket"]
             | ["model", "responses_prompt_cache"]

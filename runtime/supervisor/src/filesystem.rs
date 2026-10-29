@@ -149,6 +149,7 @@ impl Supervisor {
         process: StartProcess,
         helper: FileHelper,
     ) -> Result<Value> {
+        let writes = helper.writes;
         let process = self.start_inner(process, Some(helper), true).await?;
         let mut cursor = None;
         let mut bytes = Vec::new();
@@ -192,6 +193,18 @@ impl Supervisor {
         }
         let info = self.wait_process(&process.process_id).await?;
         if incomplete || info.stop_reason.is_some() {
+            // 只读助手已回收且确定耗尽输出额度时，失败结果已知；写入丢失确认仍必须保留 UNKNOWN。
+            if !writes
+                && info.state == ProcessState::Exited
+                && info.cleanup_confirmed
+                && info.stop_reason.as_deref() == Some("outputBytes exceeded")
+            {
+                let mut error =
+                    exhausted("read-only file output budget exceeded; request a smaller result");
+                error.details = Some(serde_json::json!({"reason":"FILE_OUTPUT_LIMIT_EXCEEDED",
+                    "processId":info.process_id,"cleanupConfirmed":true,"writeMayHaveOccurred":false}));
+                return Err(error);
+            }
             return Err(unavailable(
                 "file operation output or completion is uncertain; inspect before retrying",
             ));
