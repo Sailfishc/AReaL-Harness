@@ -58,6 +58,8 @@ Codex 兼容包由 `core/plugins` 持有本地安装与范围选择；Engine 登
 
 组件支持报告归同一包解析器，候选报告绑定 `admissionDigest ?? sourceDigest`，安装报告绑定 `installedDigest`。Store 将当前启用意图与准确包摘要的静态兼容组合为有效选择；历史 Skill 以自身不可变包检查，Engine 按精确 id/revision 投影准入。Hook 声明和 Apps 文档复用原解析所有者，报告读取不执行包代码，认证、连接与信任仍归现有运行所有者。
 
+插件离线读取复用 `core/plugins::Store::read_snapshot`。Main 在项目启动前调用同产物的短命 CLI，使用可信配置 home 与已登记工作区，Renderer 只接收带作用域、revision 和读取时间的静态投影；运行状态仍由对应 Core 提供。Commands 携带安装摘要引用进入普通提交，Agents 转为带来源的不可变 Profile。配置 Store 保存普通值与秘密引用，连接时由 Engine 解析秘密；共享配置不会向其它已运行 Core 自动注入新秘密。开发来源变化生成新安装快照，旧 Turn 保留原内容，新的 MCP/Hook 信任按新摘要重新判断。普通 Skill 元信息由可信发现源刷新，下一轮更新自动发现的 Profile，显式 Profile 保留原选择。
+
 ### 多格式插件导入决策
 
 插件按格式及其支持版本导入，再接入同一套 AReaL 原生组件与执行所有者。新包优先使用 Agent Plugins 1.0.0 的 Skills/MCP 结构；Codex、Claude、Cursor 和 ZCode 的发现顺序、默认目录、marketplace 合并及扩展规则由兼容导入边界解释。可读取 manifest 不代表支持该宿主的全部运行语义。未知 Portable schema 不回退为另一格式。

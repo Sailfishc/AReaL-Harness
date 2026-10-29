@@ -27,7 +27,7 @@
 | 客户端 | 统一 `areal` 命令（默认 TUI、exec、version、upgrade、app-server、config、workgroup、service、web）与本地 Web；TUI 支持 Unicode 光标编辑与常用输入快捷键、持久错误提示、默认分组折叠、鼠标/键盘展开及过程/最终正文分级；CLI 实现选定 Claude Code 非交互参数与消息。[CLI 契约](api/claude-cli.md) |
 | Skills | 自动发现与显式 Profile 共用元信息登记、正文/附件按需读取；单个无效全局 Skill 告警隔离，不创建内容快照。[Skill 指南](guides/skills.md) |
 | Task Mode 与独立频道 | foreground/scheduled/background、持久 TaskRun、独立 Inbox 回复、headless 无人工等待；统一委派的 TaskRun worker 跨协调 Turn 存活并共享预算。Web 提供任务控制、定时创建和独立收件箱。[接口](api/tasks.md) 计划支持显式“立即运行”，创建独立 manual Run，保留暂停和下次计划时间，使用原总预算；响应丢失时只读核对原收据。 |
-| 插件组件支持 | 插件包报告按候选和已安装摘要分别列出组件解析支持、必需静态兼容及使用前提；MCP 连接、认证和 Hook 信任仍独立显示。[插件](guides/plugins.md) |
+| 插件组件支持 | 无项目或 Core 未连接时可读取安装快照与静态诊断；组件报告区分候选和安装摘要。支持受限 Markdown Commands、Agent Profile、用户配置与本地开发链接。MCP 连接、认证和 Hook 信任独立。[插件](guides/plugins.md) |
 | 浏览器自动化 | 复用 ZCode 已实现命令，包括定位器、iframe、CUA、截图、alert/confirm、下载和 WebM。全部项目共享持久登录态，设置提供显式 Chrome 导入及数据清理；页面控制和审批仍绑定聊天，UNKNOWN 不重放。[Browser](api/browser.md) |
 | 电脑控制 | 默认关闭的本机 macOS 原生 Helper，通过设置由用户授予辅助功能、屏幕录制及输入监控；支持应用/窗口观察、AX 与键鼠输入、停止和接管。Core 保留单次计划审批与历史。可显式选择外部 LCU，由原运行时处理 JS 与应用授权，仅用于新建普通聊天；内置浏览器保持可用。[电脑控制](api/computer.md) |
 | Goal 持久目标 | 通过 `/goal` 等入口显式创建，无需配置开关；跨 Turn 自动推进、暂停/恢复/编辑/清除，用户输入优先；主/子 Agent、Workgroup、摘要共享预算。[客户端指南](guides/clients.md#goals) · [接口](api/core.md#goals) |

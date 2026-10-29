@@ -826,10 +826,20 @@ pub struct TurnSubmit {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginCommandRef {
+    pub plugin_id: String,
+    pub component_id: String,
+    pub installed_digest: String,
+    pub arguments: String,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum TurnSubmitIntent {
     Message {
         input: Vec<Input>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        command: Option<PluginCommandRef>,
     },
     Continue {
         #[serde(rename = "expectedTurnId")]
@@ -841,6 +851,8 @@ pub enum TurnSubmitIntent {
         #[serde(rename = "itemId")]
         item_id: String,
         input: Vec<Input>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        command: Option<PluginCommandRef>,
     },
 }
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]

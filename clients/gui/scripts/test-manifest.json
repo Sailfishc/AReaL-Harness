@@ -715,6 +715,7 @@
   },
   {
     "script": "test:plugins",
+    "notes": "Runs plugin presentation, offline read, configuration-secret, and ordinary command contracts before real Electron acceptance.",
     "layer": "e2e",
     "platforms": ["darwin", "linux"],
     "areas": ["plugins"],

@@ -78,6 +78,22 @@ fn desktop_schema() -> Value {
         "areal/plugin/connection",
         areal_protocol::plugin_runtime::Connection
     );
+    add!(
+        "areal/plugin/components",
+        areal_protocol::plugin_runtime::ComponentRead
+    );
+    add!(
+        "areal/plugin/userConfig/set",
+        areal_protocol::plugin_runtime::UserConfigSet
+    );
+    add!(
+        "areal/plugin/development/link",
+        areal_protocol::plugin_runtime::DevelopmentLink
+    );
+    add!(
+        "areal/plugin/development/unlink",
+        areal_protocol::plugin_runtime::DevelopmentUnlink
+    );
     add!("areal/plugin/auth", areal_protocol::plugin_runtime::Auth);
     add!(
         "areal/mcp/form/resource/prepare",

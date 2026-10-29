@@ -122,7 +122,7 @@
     "test:mcp-platform": "node scripts/mcp-platform-renderer-smoke.mjs",
     "test:mcp-page-tools": "node scripts/mcp-app-page-tools-smoke.mjs",
     "test:mcp-page-tools-transport": "node --test scripts/mcp-page-tools-transport.test.cjs",
-    "test:plugins": "node scripts/plugin-p0-smoke.mjs",
+    "test:plugins": "node --test scripts/plugin-readiness.test.cjs scripts/plugin-presentation.test.mjs scripts/plugin-store-reader.test.cjs scripts/plugin-configuration.test.cjs scripts/plugin-command.test.cjs && node scripts/plugin-p0-smoke.mjs",
     "design:sync": "pnpm --filter @areal/ui generate && pnpm --filter @areal/ui build && node scripts/design-system-catalog.mjs --write",
     "test:feedback": "node --test scripts/feedback.test.mjs && node scripts/feedback-ui-smoke.mjs",
     "test:feedback-native": "node scripts/feedback-native-smoke.mjs",

@@ -391,6 +391,7 @@ impl Engine {
             let tool_definitions = self
                 .visible_tools(cell, &configuration, thread.desktop.is_some(), &thread)
                 .await;
+            let tool_definitions = self.project_mcp_tools(cell, tool_definitions).await;
             // 使用现有请求上下文提供指引，保持持久工具定义及模型收到的声明不变。
             let browser_instructions = tool_definitions.iter()
                 .any(|tool| tool["function"]["name"] == "browser_v1")

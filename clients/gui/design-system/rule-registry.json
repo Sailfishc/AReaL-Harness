@@ -5970,7 +5970,7 @@
       "title": "安装、启用范围和连接是独立事实",
       "owner": "design/patterns/plugin-resources.md#管理与结果",
       "strength": "must",
-      "textSha256": "3a6f9114d7f0367fc8dd134051ad1cf8c7c86149af17e824d41199d23bcc8659"
+      "textSha256": "a33d297ef39e47b8d35172fedd390b288fc12f6d32a3c0e5e4a21cc26f9597cd"
     },
     {
       "id": "R-PLUGINRESOURCES-004",
@@ -6610,6 +6610,34 @@
       "strength": "must",
       "textSha256": "82a90147c08c174be6ca5bccd97e524cd969ff6e8da61092930e9e46df13acc5",
       "check": "clients/gui/scripts/composer-files-acceptance.mjs"
+    },
+    {
+      "id": "R-PLUGINRESOURCES-008",
+      "title": "插件中心在启动项目Core之前，通过同产物CLI读取Rust Store",
+      "owner": "design/patterns/plugin-resources.md#快照与组件状态",
+      "strength": "default",
+      "textSha256": "19c261b93f2235577b73638d4d3f423b347cbcddee6fe84c5fbceb91d276caa6"
+    },
+    {
+      "id": "R-PLUGINRESOURCES-009",
+      "title": "读取hook拥有目录与详情代次",
+      "owner": "design/patterns/plugin-resources.md#快照与组件状态",
+      "strength": "default",
+      "textSha256": "6b9073e830779814928fa96acc755ea2abee5a89b7150df25e7fb9f2887d7a32"
+    },
+    {
+      "id": "R-PLUGINRESOURCES-010",
+      "title": "Commands沿普通消息提交保留插件命名空间、固定组件身份与原始参数",
+      "owner": "design/patterns/plugin-resources.md#模板配置与开发",
+      "strength": "default",
+      "textSha256": "5bd18d0eb02be6c32a9ba3259b160c40ffdbe8d5ed826b464e93315a401f3f22"
+    },
+    {
+      "id": "R-PLUGINRESOURCES-011",
+      "title": "显式开发链接为后续轮次发布不可变快照，活动轮次保留受理时版本",
+      "owner": "design/patterns/plugin-resources.md#模板配置与开发",
+      "strength": "default",
+      "textSha256": "3734c78b0ced5174384097bfd84a306aa103effdb3e99e3f5587bba569899af3"
     }
   ]
 }

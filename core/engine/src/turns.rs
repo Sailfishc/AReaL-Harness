@@ -124,6 +124,7 @@ impl Engine {
                 .map(|d| d.configuration.clone())
                 .unwrap_or_default(),
         );
+        self.check_configuration_plugin_profile(&configuration)?;
         self.prepare_turn_from_configuration(thread, input, skill, configuration)
     }
 
@@ -153,6 +154,14 @@ impl Engine {
         let mut candidate = thread.clone();
         if let Some(data) = &mut candidate.desktop {
             data.prompt_prediction = None;
+            if data
+                .configuration
+                .profile
+                .as_ref()
+                .is_some_and(|profile| profile.id == "areal-discovered-skills")
+            {
+                data.configuration.profile = configuration.profile.clone();
+            }
         }
         let text = input
             .iter()
@@ -278,6 +287,7 @@ impl Engine {
         }
         cell.cancel_grace_ms.store(1000, Ordering::Release);
         state.active = Some(Active {
+            tool_exposure: Default::default(),
             context_usage: None,
             context_sequence: 0,
             generation: Default::default(),
