@@ -18,6 +18,7 @@ const labels: Record<string, string> = {
 export interface ComposerModelOption {
   value: string;
   label: string;
+  providerId?: string;
   efforts?: readonly string[];
   reasoning?: boolean;
   effortsKnown?: boolean;
@@ -38,6 +39,7 @@ export function composerModelOption(model: {
   return {
     value: model.providerId ? `${model.providerId}/${model.modelId}` : "",
     label: model.displayName ?? model.modelId,
+    providerId: model.providerId ?? undefined,
     efforts: model.reasoningEffortOptions,
     reasoning: model.capabilities?.reasoning,
     effortsKnown:
@@ -85,6 +87,7 @@ export function ComposerModelMenu({
   );
   const model = options.find((option) => option.value === value);
   const label = model?.label ?? "请选择模型";
+  const identityLabel = model?.providerId ? `${label} · ${model.providerId}` : label;
   const reasoning = !!model && model.reasoning !== false;
   const efforts = model?.efforts ?? [];
   const selectedEffort =
@@ -112,7 +115,7 @@ export function ComposerModelMenu({
       : selectedEffort
         ? (labels[selectedEffort] ?? selectedEffort)
         : unspecified;
-  const modelLabel = `${label}${reasoning ? ` ${effortLabel}` : ""}`;
+  const modelLabel = `${identityLabel}${reasoning ? ` ${effortLabel}` : ""}`;
   const emptyGuidance = `${model ? `${modelLabel}. ` : ""}${t("chat.composer.noModelsGuidance")}`;
   // Native range thumbs travel between half-thumb insets, including both endpoints.
   const sliderPosition = (step: number) => {
@@ -150,14 +153,16 @@ export function ComposerModelMenu({
             type="button"
             variant="ghost"
             aria-label="模型"
-            title={label}
+            title={modelLabel}
             disabled={disabled}
             aria-busy={pending || undefined}
             className="composer-model-trigger"
           />
         }
       >
-        <span>{modelLabel}</span>
+        <span className="composer-model-name">{label}</span>
+        {model?.providerId && <span className="composer-model-provider">· {model.providerId}</span>}
+        {reasoning && <span className="composer-model-effort">{effortLabel}</span>}
         {model?.unavailableReason && (
           <span
             className="text-destructive"
@@ -196,6 +201,7 @@ export function ComposerModelMenu({
               >
                 {label} ›
               </Button>
+              {model?.providerId && <div className="composer-model-source">{model.providerId}</div>}
             </div>
             {reasoning && efforts.length > 0 && onEffortChange ? (
               <div
@@ -384,7 +390,10 @@ export function ComposerModelMenu({
                     else setPage("effort");
                   }}
                 >
-                  <span>{option.label}</span>
+                  <span className="composer-model-option-text">
+                    <span>{option.label}</span>
+                    {option.providerId && <small>{option.providerId}</small>}
+                  </span>
                   {value === option.value && <MenuSelectedIcon size={16} />}
                 </Button>
               ))}

@@ -57,6 +57,7 @@ export function ConversationComposer({
     options.push({
       value,
       label: config.model.modelId,
+      providerId: config.model.providerId,
       historical: true,
       unavailableReason: project.state?.connected ? "模型不可用" : undefined,
     });

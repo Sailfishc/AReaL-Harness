@@ -1,0 +1,61 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vite-plus/test";
+import { ComposerModelMenu, composerModelOption } from "./ComposerModelMenu.js";
+
+vi.mock("./i18n/IntlProvider.js", () => ({
+  useI18n: () => ({ t: (id: string) => id }),
+}));
+
+const catalog = ["direct", "relay"].map((providerId) => ({
+  providerId,
+  modelId: "family/shared-model",
+  displayName: "Shared model",
+  capabilities: { reasoning: false },
+}));
+
+function render(value: string) {
+  return renderToStaticMarkup(
+    createElement(ComposerModelMenu, {
+      options: catalog.map(composerModelOption),
+      value,
+      onChange: vi.fn(),
+      onClose: vi.fn(),
+    }),
+  );
+}
+
+describe("composer model provider identity", () => {
+  it("preserves distinct providers and model IDs containing slashes without mutating the catalog", () => {
+    const original = structuredClone(catalog);
+    const options = catalog.map(composerModelOption);
+    expect(options.map((option) => option.value)).toEqual([
+      "direct/family/shared-model",
+      "relay/family/shared-model",
+    ]);
+    expect(options.map((option) => option.providerId)).toEqual(["direct", "relay"]);
+    expect(catalog).toEqual(original);
+  });
+
+  it.each(["direct", "relay"])("shows the selected %s provider beside the model", (provider) => {
+    const markup = render(`${provider}/family/shared-model`);
+    expect(markup).toContain(`title="Shared model · ${provider}"`);
+    expect(markup).toContain(`composer-model-provider">· ${provider}</span>`);
+    expect(markup).not.toContain(`· ${provider === "direct" ? "relay" : "direct"}</span>`);
+  });
+
+  it("does not invent a provider for an implicit legacy default", () => {
+    const option = composerModelOption({ modelId: "legacy" });
+    expect(option.value).toBe("");
+    expect(option.providerId).toBeUndefined();
+    const markup = renderToStaticMarkup(
+      createElement(ComposerModelMenu, {
+        options: [option],
+        value: "",
+        onChange: vi.fn(),
+        onClose: vi.fn(),
+      }),
+    );
+    expect(markup).not.toContain('class="composer-model-provider"');
+  });
+});

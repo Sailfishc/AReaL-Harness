@@ -1070,6 +1070,7 @@ export function DraftComposer({
                         {
                           value: effectiveModel,
                           label: effectiveModel.slice(effectiveModel.indexOf("/") + 1),
+                          providerId: effectiveModel.slice(0, effectiveModel.indexOf("/")),
                           historical: true,
                         },
                       ]
