@@ -256,7 +256,6 @@ test("real builder cold download enforces the configured production request dead
 test("real builder toolset cold path verifies and extracts a task-owned archive", async () => {
   const { execFile } = await import("node:child_process");
   const { promisify } = await import("node:util");
-  const { writeFile, mkdir } = await import("node:fs/promises");
   const root = await mkdtemp(join(tmpdir(), "areal-builder-toolset-"));
   const archive = join(root, "toolset.tar.gz");
   await promisify(execFile)("/usr/bin/python3", [
