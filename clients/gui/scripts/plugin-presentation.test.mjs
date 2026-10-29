@@ -120,3 +120,40 @@ test("optional Hooks do not block pure Skills, required compatibility and partia
     "partial",
   );
 });
+
+test("required configuration and Agent publication diagnostics preserve available Skills and give a concrete next step", () => {
+  const missing = presentPlugin({
+    detail: { ...detail, userConfiguration: { missingRequired: ["TOKEN"] } },
+    runtimeObserved: true,
+  });
+  assert.equal(missing.state, "partial");
+  assert.equal(missing.nextAction, "configure");
+  assert.equal(missing.skillsAvailable, true);
+  const diagnostics = presentPlugin({
+    detail,
+    runtimeObserved: true,
+    runtimeDiagnostics: ["Profile capacity exceeded"],
+  });
+  assert.equal(diagnostics.state, "partial");
+  assert.equal(diagnostics.nextAction, "components");
+});
+
+test("offline installation gives an explicit project selection or connection step before source resolution", () => {
+  const candidate = { ...detail, installed: false, installedDigest: null };
+  assert.equal(
+    presentPlugin({ detail: candidate, runtimeObserved: false, projectSelected: false }).nextAction,
+    "chooseProject",
+  );
+  assert.equal(
+    presentPlugin({ detail: candidate, runtimeObserved: false, projectSelected: true }).nextAction,
+    "connectProject",
+  );
+  assert.equal(
+    presentPlugin({ detail: candidate, runtimeObserved: true, projectSelected: true }).nextAction,
+    "install",
+  );
+  assert.equal(
+    presentPlugin({ detail, runtimeObserved: false, projectSelected: true }).nextAction,
+    "connectProject",
+  );
+});

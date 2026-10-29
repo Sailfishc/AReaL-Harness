@@ -174,3 +174,19 @@ LocalArgs 新增 permissions（YOLO/ASK_PERMISSIONS）与 scratch。生效权限
 launcher 握手临时目录放入 `data_dir/launcher-state/`，正常退出自动删除，下次启动按租约回收崩溃残留。宿主取得实例锁并确认 Store 没有旧所有者后，清理旧 UUID generation 目录与登记原子写临时文件；不会删除其他实例、用户 scratch 或权威状态。旧版本在系统临时目录中留下的无归属目录无法安全识别，不做全局扫描。模型/Core 诊断保留策略见 [Core API](core.md#recovery)。
 
 新建会话的受理覆盖、Engine 代际绑定、日志格式迁移及明确未受理的判定遵循[桌面提交契约](desktop.md#submissions)。服务发现 generation 与该 Engine 代际绑定不是同一身份，不得互相替代。
+
+### 插件命令与 Agent 模板
+
+`areal/turn/submit` 的 `message` 和 `edit` intent 接受可选 `command` 对象，字段为 `pluginId`、`componentId`、`installedDigest` 和原样 `arguments`。`input` 可以为空。Core 在普通提交准入中检查当前插件启用和摘要，并展开安装快照内的模板。引用和参数参与原 `requestId` 的幂等身份，响应回执保留 `command`。队列保存已展开的输入，后续源文件更新不重写已受理内容。重复受理查询返回原回执，改变同一请求参数会冲突。未知模板、过时摘要、停用或卸载会拒绝新提交。Edit 使用同一展开边界。
+
+插件 Agent 注册到既有 Profile 目录。`areal/plugin/components` 的组件摘要提供 `agents[].profile` 版本引用与 `agentDiagnostics`。调用方使用现有 AgentSpawn 的 `agentProfile`。模型标识必须唯一匹配已配置模型，工具名称必须匹配宿主已注册工具。导入的 Profile 继承父任务的工具、只读和强制审批限制。新准入会核对来源仍启用且摘要一致。已受理配置保留完整 Profile，用于活动执行及历史恢复。可发现目录回收过时的插件与自动发现 Profile revision，开发更新不会无限累计占用 64 项预算。来源记录回收后，旧插件引用仍拒绝新准入。运行期插件、Skill 与 provider 的目录发布共用既有写事务。
+
+### 插件配置与开发来源
+
+`areal/plugin/userConfig/set` 使用既有管理受理日志，参数为 `requestId`、`id`、`expectedRevision`、`expectedDigest`、`values` 和可选 `clearKeys`。`values` 是键到 `{kind,value}` 的映射，kind 支持 `string`、`boolean`、`number`、`secretRef`。提交仅替换列出的键，未列出的私有值保留。`clearKeys` 显式移除配置，不能同时设置和移除同一键。Main 是秘密输入和 credential reference 的所有者，公开列表与详情只返回 configured 和非敏感值。包内容与安装摘要不受配置修改影响。
+
+Core 仅在已授权 MCP 连接边界解析秘密引用，敏感值只绑定声明的 env 或 header。配置 revision 参与连接代身份，并在换包及卸载重装后保持单调；配置值不跨包摘要继承。新配置移除旧代与其 App handle 的新调用资格，后续换包不能恢复已撤代连接。已进入执行的调用仍由原 owner 结算。缺少配置或凭据时拒绝连接，查询组件与 MCP 列表不解析秘密，也不启动连接。
+
+`areal/plugin/development/link` 参数为 `requestId`、`id`、`expectedRevision`、`expectedDigest`。`areal/plugin/development/unlink` 省略摘要参数。两者均返回 PluginList 并复用原管理回执。链接只使用已选择的本地来源。服务现有 watcher 每秒检查链接，变化通过 Store 发布不可变新快照。错误保留上一成功版本，组件摘要的 `developmentError` 返回诊断。新摘要不继承 MCP 或 Hook 信任。活动 Turn 持有旧快照，后续准入采用最新快照。
+
+可信 server 装配声明普通 Skill 的 workspace 与 home 来源，watcher 同步刷新元信息。自动发现 Profile 在同会话下一次 Turn 使用最新引用，全部删除会发布空集合。显式 Profile 保留原引用。普通 Skill 正文维持当前文件读取语义，插件 Skill 正文由安装快照固定。

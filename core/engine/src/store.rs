@@ -65,6 +65,13 @@ pub struct Store {
     io: Arc<Semaphore>,
     #[cfg(test)]
     paused_write: tokio::sync::Notify,
+    #[cfg(test)]
+    catalog_pause: std::sync::Mutex<
+        Option<(
+            tokio::sync::oneshot::Sender<()>,
+            tokio::sync::oneshot::Receiver<()>,
+        )>,
+    >,
     blob_write: Arc<tokio::sync::Mutex<()>>,
     fork_reads: Arc<Semaphore>,
     own_history_entry: Arc<std::sync::Mutex<Option<Arc<CachedOwnHistoryEntry>>>>,
@@ -117,6 +124,8 @@ impl Store {
             io: Arc::new(Semaphore::new(8)),
             #[cfg(test)]
             paused_write: tokio::sync::Notify::new(),
+            #[cfg(test)]
+            catalog_pause: Default::default(),
             blob_write: Arc::new(tokio::sync::Mutex::new(())),
             // 最多同时解析两份 64 MiB 快照；页请求不占满通用 Store 写入容量。
             fork_reads: Arc::new(Semaphore::new(2)),
@@ -585,8 +594,28 @@ if keep.contains(&name){retained+=e.metadata()?.len();}else{reclaimed+=e.metadat
         .await?
     }
 
+    #[cfg(test)]
+    pub(crate) fn pause_next_catalog_write(
+        &self,
+    ) -> (
+        tokio::sync::oneshot::Receiver<()>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        let (entered, ready) = tokio::sync::oneshot::channel();
+        let (release, resume) = tokio::sync::oneshot::channel();
+        *self.catalog_pause.lock().unwrap() = Some((entered, resume));
+        (ready, release)
+    }
     pub(crate) async fn save_metadata(&self, name: &str, value: &impl Serialize) -> Result<()> {
         let bytes = serde_json::to_vec(value)?;
+        #[cfg(test)]
+        if name == "catalog" {
+            let pause = self.catalog_pause.lock().unwrap().take();
+            if let Some((entered, resume)) = pause {
+                let _ = entered.send(());
+                let _ = resume.await;
+            }
+        }
         let root = self.root.join("desktop");
         let name = name.to_owned();
         tokio::task::spawn_blocking(move || write_metadata(&root, &name, &bytes)).await?

@@ -17,6 +17,8 @@ const states: Record<PluginPresentation["state"], MessageId> = {
   available: "settings.pluginCenter.declaredComponentsAvailable",
 };
 const actions: Partial<Record<PluginPresentation["nextAction"], MessageId>> = {
+  connectProject: "settings.pluginCenter.connectProjectBackend",
+  chooseProject: "settings.pluginCenter.chooseProjectToInstall",
   queryOriginal: "settings.pluginCenter.checkPluginSubmission",
   install: "settings.pluginCenter.reviewInstallation",
   enable: "settings.pluginCenter.enablePlugin",

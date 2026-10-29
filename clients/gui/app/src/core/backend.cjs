@@ -2003,6 +2003,7 @@ class CoreBackend {
         this.requireConnection(project, project.client);
         const configuration = project.configurations[request.threadId];
         if (isTaskDraftConfiguration(configuration)) {
+          if (request.command) throw new Error("定时任务配置草稿不支持插件命令");
           const zone = configuration.options.appendInstructions
             .split("\n")[1]
             .slice("Time zone: ".length);
@@ -2030,6 +2031,7 @@ class CoreBackend {
           (modelRecord(current?.conversation?.policy) &&
             current.conversation.policy.kind === "sideReadOnlyV1")
         ) {
+          if (request.command) throw new Error("插件命令需在普通任务中提交");
           const enqueue = current.turns?.some((turn) => turn.status === "inProgress");
           submitted = readAdmission(
             await this.submit(
@@ -2054,7 +2056,11 @@ class CoreBackend {
                 expectedConfigRevision: readInspection({
                   configuration: project.configurations[request.threadId],
                 }).configuration.revision,
-                intent: { type: "message", input },
+                intent: {
+                  type: "message",
+                  input,
+                  ...(request.command ? { command: request.command } : {}),
+                },
               },
               { requestId: request.requestId },
             ),
@@ -2081,6 +2087,7 @@ class CoreBackend {
               expectedConfigRevision: request.expectedConfigRevision,
               intent: {
                 type: "edit",
+                ...(request.command ? { command: request.command } : {}),
                 expectedTurnId: request.expectedTurnId,
                 itemId: request.itemId,
                 input: messageInput(this, {

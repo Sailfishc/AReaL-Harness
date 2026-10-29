@@ -54,7 +54,7 @@
     {
       "id": "offline",
       "condition": "没有项目或当前项目Core未连接",
-      "expected": "读取同产物CLI的本地Store快照，显示作用域、revision和读取时间，运行状态明确未观察；不启动项目Core"
+      "expected": "读取同产物CLI的本地Store快照，显示作用域、revision和读取时间，运行状态明确未观察；浏览不启动项目Core，继续安装时给出显式选择项目或连接后台动作"
     },
     {
       "id": "mixed-components",
@@ -70,6 +70,31 @@
       "id": "unknown-reading",
       "condition": "当前插件写入回执未确认，切换查看其他插件或项目",
       "expected": "原requestId及归属保留，阅读切换可用，只能查询原操作，不自动重放"
+    },
+    {
+      "id": "configuration",
+      "condition": "插件声明普通字段、必填敏感字段或已保存配置",
+      "expected": "主下一步指向缺失配置；密码保存后清空，空输入保留已保存秘密，显式清除沿原回执处理；公开快照不返回私有引用"
+    },
+    {
+      "id": "command-profile",
+      "condition": "已安装Commands或Agents并已连接普通任务",
+      "expected": "保留命名空间、固定组件引用及原始参数，沿普通Message提交；Agent草稿选用真实Profile并接受Core准入"
+    },
+    {
+      "id": "development",
+      "condition": "用户链接现有本地来源并修改包内容",
+      "expected": "显示显式链接状态与运行诊断，活动轮次保持固定版本，后续轮次取新快照，执行信任独立重审"
+    },
+    {
+      "id": "credentials-reload",
+      "condition": "其他已运行项目尚未载入共享配置中的新秘密引用",
+      "expected": "说明该Core需要重载；当前项目提供空闲drain与重新载入入口，不自动重启其他项目"
+    },
+    {
+      "id": "doctor",
+      "condition": "用户主动读取插件诊断",
+      "expected": "仅展示静态Store事实、作用域与读取时间，运行状态未观察，与连接观察分别展示"
     }
   ],
   "conditions": {

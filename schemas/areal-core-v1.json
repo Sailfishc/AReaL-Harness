@@ -21344,6 +21344,19 @@
       ],
       "type": "object"
     },
+    "areal/plugin/components": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "ComponentRead",
+      "type": "object"
+    },
     "areal/plugin/configure": {
       "additionalProperties": false,
       "properties": {
@@ -21432,6 +21445,56 @@
         "expectedDigest"
       ],
       "title": "Connector",
+      "type": "object"
+    },
+    "areal/plugin/development/link": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedDigest": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "id",
+        "expectedRevision",
+        "expectedDigest"
+      ],
+      "title": "DevelopmentLink",
+      "type": "object"
+    },
+    "areal/plugin/development/unlink": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedRevision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "id",
+        "expectedRevision"
+      ],
+      "title": "DevelopmentUnlink",
       "type": "object"
     },
     "areal/plugin/hooks/configure": {
@@ -21617,6 +21680,121 @@
         "expectedRevision",
         "requestId"
       ],
+      "type": "object"
+    },
+    "areal/plugin/userConfig/set": {
+      "$defs": {
+        "UserConfigValue": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "string",
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "boolean",
+                  "type": "string"
+                },
+                "value": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "number",
+                  "type": "string"
+                },
+                "value": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "kind",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "secretRef",
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "value"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "clearKeys": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "expectedDigest": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "values": {
+          "additionalProperties": {
+            "$ref": "#/$defs/UserConfigValue"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "requestId",
+        "id",
+        "expectedRevision",
+        "expectedDigest",
+        "values"
+      ],
+      "title": "UserConfigSet",
       "type": "object"
     },
     "areal/process/acknowledgeCleanup": {
@@ -27212,11 +27390,45 @@
             }
           ]
         },
+        "PluginCommandRef": {
+          "additionalProperties": false,
+          "properties": {
+            "arguments": {
+              "type": "string"
+            },
+            "componentId": {
+              "type": "string"
+            },
+            "installedDigest": {
+              "type": "string"
+            },
+            "pluginId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pluginId",
+            "componentId",
+            "installedDigest",
+            "arguments"
+          ],
+          "type": "object"
+        },
         "TurnSubmitIntent": {
           "oneOf": [
             {
               "additionalProperties": false,
               "properties": {
+                "command": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/PluginCommandRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "input": {
                   "items": {
                     "$ref": "#/$defs/Input"
@@ -27254,6 +27466,16 @@
             {
               "additionalProperties": false,
               "properties": {
+                "command": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/PluginCommandRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "expectedTurnId": {
                   "type": "string"
                 },
@@ -47032,6 +47254,17 @@
               ],
               "type": "object"
             },
+            "DevelopmentLink": {
+              "properties": {
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "source"
+              ],
+              "type": "object"
+            },
             "InstalledMetadata": {
               "properties": {
                 "components": {
@@ -47184,6 +47417,58 @@
               ],
               "type": "object"
             },
+            "PluginConfigPublicField": {
+              "properties": {
+                "configured": {
+                  "type": "boolean"
+                },
+                "definition": {
+                  "$ref": "#/oneOf/0/$defs/UserConfigField"
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/PublicConfigValue"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "definition",
+                "configured"
+              ],
+              "type": "object"
+            },
+            "PluginConfigurationView": {
+              "properties": {
+                "fields": {
+                  "additionalProperties": {
+                    "$ref": "#/oneOf/0/$defs/PluginConfigPublicField"
+                  },
+                  "type": "object"
+                },
+                "missingRequired": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "revision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "fields",
+                "missingRequired",
+                "revision"
+              ],
+              "type": "object"
+            },
             "PluginDetail": {
               "properties": {
                 "admissionDigest": {
@@ -47222,6 +47507,17 @@
                 },
                 "description": {
                   "type": "string"
+                },
+                "developmentLink": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/DevelopmentLink"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
                 },
                 "diagnostics": {
                   "items": {
@@ -47365,6 +47661,14 @@
                     "null"
                   ]
                 },
+                "userConfiguration": {
+                  "$ref": "#/oneOf/0/$defs/PluginConfigurationView",
+                  "default": {
+                    "fields": {},
+                    "missingRequired": [],
+                    "revision": 0
+                  }
+                },
                 "version": {
                   "type": [
                     "string",
@@ -47387,6 +47691,19 @@
                 "skills"
               ],
               "type": "object"
+            },
+            "PublicConfigValue": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "number"
+                }
+              ]
             },
             "SupportStatus": {
               "enum": [
@@ -47418,6 +47735,55 @@
                 "distribution"
               ],
               "type": "object"
+            },
+            "UserConfigField": {
+              "properties": {
+                "default": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/PublicConfigValue"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "sensitive": {
+                  "type": "boolean"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "$ref": "#/oneOf/0/$defs/UserConfigType"
+                }
+              },
+              "required": [
+                "type",
+                "required",
+                "sensitive"
+              ],
+              "type": "object"
+            },
+            "UserConfigType": {
+              "enum": [
+                "string",
+                "boolean",
+                "number"
+              ],
+              "type": "string"
             }
           },
           "properties": {
@@ -47581,6 +47947,17 @@
               ],
               "type": "object"
             },
+            "DevelopmentLink": {
+              "properties": {
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "source"
+              ],
+              "type": "object"
+            },
             "InstalledMetadata": {
               "properties": {
                 "components": {
@@ -47733,6 +48110,58 @@
               ],
               "type": "object"
             },
+            "PluginConfigPublicField": {
+              "properties": {
+                "configured": {
+                  "type": "boolean"
+                },
+                "definition": {
+                  "$ref": "#/oneOf/0/$defs/UserConfigField"
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/PublicConfigValue"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "definition",
+                "configured"
+              ],
+              "type": "object"
+            },
+            "PluginConfigurationView": {
+              "properties": {
+                "fields": {
+                  "additionalProperties": {
+                    "$ref": "#/oneOf/0/$defs/PluginConfigPublicField"
+                  },
+                  "type": "object"
+                },
+                "missingRequired": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "revision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "fields",
+                "missingRequired",
+                "revision"
+              ],
+              "type": "object"
+            },
             "PluginDetail": {
               "properties": {
                 "admissionDigest": {
@@ -47771,6 +48200,17 @@
                 },
                 "description": {
                   "type": "string"
+                },
+                "developmentLink": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/DevelopmentLink"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
                 },
                 "diagnostics": {
                   "items": {
@@ -47914,6 +48354,14 @@
                     "null"
                   ]
                 },
+                "userConfiguration": {
+                  "$ref": "#/oneOf/0/$defs/PluginConfigurationView",
+                  "default": {
+                    "fields": {},
+                    "missingRequired": [],
+                    "revision": 0
+                  }
+                },
                 "version": {
                   "type": [
                     "string",
@@ -47936,6 +48384,19 @@
                 "skills"
               ],
               "type": "object"
+            },
+            "PublicConfigValue": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "number"
+                }
+              ]
             },
             "SupportStatus": {
               "enum": [
@@ -47967,6 +48428,55 @@
                 "distribution"
               ],
               "type": "object"
+            },
+            "UserConfigField": {
+              "properties": {
+                "default": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/PublicConfigValue"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "sensitive": {
+                  "type": "boolean"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "$ref": "#/oneOf/0/$defs/UserConfigType"
+                }
+              },
+              "required": [
+                "type",
+                "required",
+                "sensitive"
+              ],
+              "type": "object"
+            },
+            "UserConfigType": {
+              "enum": [
+                "string",
+                "boolean",
+                "number"
+              ],
+              "type": "string"
             }
           },
           "properties": {
@@ -48130,6 +48640,17 @@
               ],
               "type": "object"
             },
+            "DevelopmentLink": {
+              "properties": {
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "source"
+              ],
+              "type": "object"
+            },
             "InstalledMetadata": {
               "properties": {
                 "components": {
@@ -48282,6 +48803,58 @@
               ],
               "type": "object"
             },
+            "PluginConfigPublicField": {
+              "properties": {
+                "configured": {
+                  "type": "boolean"
+                },
+                "definition": {
+                  "$ref": "#/oneOf/0/$defs/UserConfigField"
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/PublicConfigValue"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "definition",
+                "configured"
+              ],
+              "type": "object"
+            },
+            "PluginConfigurationView": {
+              "properties": {
+                "fields": {
+                  "additionalProperties": {
+                    "$ref": "#/oneOf/0/$defs/PluginConfigPublicField"
+                  },
+                  "type": "object"
+                },
+                "missingRequired": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "revision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "fields",
+                "missingRequired",
+                "revision"
+              ],
+              "type": "object"
+            },
             "PluginDetail": {
               "properties": {
                 "admissionDigest": {
@@ -48320,6 +48893,17 @@
                 },
                 "description": {
                   "type": "string"
+                },
+                "developmentLink": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/DevelopmentLink"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
                 },
                 "diagnostics": {
                   "items": {
@@ -48463,6 +49047,14 @@
                     "null"
                   ]
                 },
+                "userConfiguration": {
+                  "$ref": "#/oneOf/0/$defs/PluginConfigurationView",
+                  "default": {
+                    "fields": {},
+                    "missingRequired": [],
+                    "revision": 0
+                  }
+                },
                 "version": {
                   "type": [
                     "string",
@@ -48485,6 +49077,19 @@
                 "skills"
               ],
               "type": "object"
+            },
+            "PublicConfigValue": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "number"
+                }
+              ]
             },
             "SupportStatus": {
               "enum": [
@@ -48516,6 +49121,55 @@
                 "distribution"
               ],
               "type": "object"
+            },
+            "UserConfigField": {
+              "properties": {
+                "default": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/PublicConfigValue"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "sensitive": {
+                  "type": "boolean"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "$ref": "#/oneOf/0/$defs/UserConfigType"
+                }
+              },
+              "required": [
+                "type",
+                "required",
+                "sensitive"
+              ],
+              "type": "object"
+            },
+            "UserConfigType": {
+              "enum": [
+                "string",
+                "boolean",
+                "number"
+              ],
+              "type": "string"
             }
           },
           "properties": {
@@ -48679,6 +49333,17 @@
               ],
               "type": "object"
             },
+            "DevelopmentLink": {
+              "properties": {
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "source"
+              ],
+              "type": "object"
+            },
             "InstalledMetadata": {
               "properties": {
                 "components": {
@@ -48831,6 +49496,58 @@
               ],
               "type": "object"
             },
+            "PluginConfigPublicField": {
+              "properties": {
+                "configured": {
+                  "type": "boolean"
+                },
+                "definition": {
+                  "$ref": "#/oneOf/0/$defs/UserConfigField"
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/PublicConfigValue"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "definition",
+                "configured"
+              ],
+              "type": "object"
+            },
+            "PluginConfigurationView": {
+              "properties": {
+                "fields": {
+                  "additionalProperties": {
+                    "$ref": "#/oneOf/0/$defs/PluginConfigPublicField"
+                  },
+                  "type": "object"
+                },
+                "missingRequired": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "revision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "fields",
+                "missingRequired",
+                "revision"
+              ],
+              "type": "object"
+            },
             "PluginDetail": {
               "properties": {
                 "admissionDigest": {
@@ -48869,6 +49586,17 @@
                 },
                 "description": {
                   "type": "string"
+                },
+                "developmentLink": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/DevelopmentLink"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
                 },
                 "diagnostics": {
                   "items": {
@@ -49012,6 +49740,14 @@
                     "null"
                   ]
                 },
+                "userConfiguration": {
+                  "$ref": "#/oneOf/0/$defs/PluginConfigurationView",
+                  "default": {
+                    "fields": {},
+                    "missingRequired": [],
+                    "revision": 0
+                  }
+                },
                 "version": {
                   "type": [
                     "string",
@@ -49034,6 +49770,19 @@
                 "skills"
               ],
               "type": "object"
+            },
+            "PublicConfigValue": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "number"
+                }
+              ]
             },
             "SupportStatus": {
               "enum": [
@@ -49065,6 +49814,55 @@
                 "distribution"
               ],
               "type": "object"
+            },
+            "UserConfigField": {
+              "properties": {
+                "default": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/PublicConfigValue"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "sensitive": {
+                  "type": "boolean"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "$ref": "#/oneOf/0/$defs/UserConfigType"
+                }
+              },
+              "required": [
+                "type",
+                "required",
+                "sensitive"
+              ],
+              "type": "object"
+            },
+            "UserConfigType": {
+              "enum": [
+                "string",
+                "boolean",
+                "number"
+              ],
+              "type": "string"
             }
           },
           "properties": {
@@ -51617,6 +52415,17 @@
           ],
           "type": "object"
         },
+        "DevelopmentLink": {
+          "properties": {
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "source"
+          ],
+          "type": "object"
+        },
         "InstalledMetadata": {
           "properties": {
             "components": {
@@ -51740,6 +52549,71 @@
           ],
           "type": "object"
         },
+        "PluginConfigPublicField": {
+          "properties": {
+            "configured": {
+              "type": "boolean"
+            },
+            "definition": {
+              "$ref": "#/$defs/UserConfigField"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "definition",
+            "configured"
+          ],
+          "type": "object"
+        },
+        "PluginConfigurationView": {
+          "properties": {
+            "fields": {
+              "additionalProperties": {
+                "$ref": "#/$defs/PluginConfigPublicField"
+              },
+              "type": "object"
+            },
+            "missingRequired": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "fields",
+            "missingRequired",
+            "revision"
+          ],
+          "type": "object"
+        },
+        "PublicConfigValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
         "SupportStatus": {
           "enum": [
             "supported",
@@ -51770,6 +52644,55 @@
             "distribution"
           ],
           "type": "object"
+        },
+        "UserConfigField": {
+          "properties": {
+            "default": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "sensitive": {
+              "type": "boolean"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "$ref": "#/$defs/UserConfigType"
+            }
+          },
+          "required": [
+            "type",
+            "required",
+            "sensitive"
+          ],
+          "type": "object"
+        },
+        "UserConfigType": {
+          "enum": [
+            "string",
+            "boolean",
+            "number"
+          ],
+          "type": "string"
         }
       },
       "properties": {
@@ -51809,6 +52732,17 @@
         },
         "description": {
           "type": "string"
+        },
+        "developmentLink": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLink"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "diagnostics": {
           "items": {
@@ -51952,6 +52886,14 @@
             "null"
           ]
         },
+        "userConfiguration": {
+          "$ref": "#/$defs/PluginConfigurationView",
+          "default": {
+            "fields": {},
+            "missingRequired": [],
+            "revision": 0
+          }
+        },
         "version": {
           "type": [
             "string",
@@ -51974,6 +52916,142 @@
         "skills"
       ],
       "title": "PluginDetail",
+      "type": "object"
+    },
+    "areal/plugin/components": {
+      "additionalProperties": true,
+      "properties": {
+        "agentDiagnostics": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "agents": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "componentId": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "profile": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "revision": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "revision"
+                ],
+                "title": "VersionRef",
+                "type": "object"
+              }
+            },
+            "required": [
+              "componentId",
+              "description",
+              "name",
+              "profile"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "apps": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "appsNeedingAuth": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "commands": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "argumentHint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "componentId": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "installedDigest": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "argumentHint",
+              "componentId",
+              "description",
+              "installedDigest",
+              "name"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "developmentError": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "installedDigest": {
+          "type": "string"
+        },
+        "mcpServers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "pluginId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "agentDiagnostics",
+        "agents",
+        "apps",
+        "appsNeedingAuth",
+        "commands",
+        "developmentError",
+        "installedDigest",
+        "mcpServers",
+        "pluginId"
+      ],
       "type": "object"
     },
     "areal/plugin/configure": {
@@ -52082,6 +53160,17 @@
           ],
           "type": "object"
         },
+        "DevelopmentLink": {
+          "properties": {
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "source"
+          ],
+          "type": "object"
+        },
         "InstalledMetadata": {
           "properties": {
             "components": {
@@ -52205,6 +53294,71 @@
           ],
           "type": "object"
         },
+        "PluginConfigPublicField": {
+          "properties": {
+            "configured": {
+              "type": "boolean"
+            },
+            "definition": {
+              "$ref": "#/$defs/UserConfigField"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "definition",
+            "configured"
+          ],
+          "type": "object"
+        },
+        "PluginConfigurationView": {
+          "properties": {
+            "fields": {
+              "additionalProperties": {
+                "$ref": "#/$defs/PluginConfigPublicField"
+              },
+              "type": "object"
+            },
+            "missingRequired": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "fields",
+            "missingRequired",
+            "revision"
+          ],
+          "type": "object"
+        },
+        "PublicConfigValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
         "SupportStatus": {
           "enum": [
             "supported",
@@ -52235,6 +53389,55 @@
             "distribution"
           ],
           "type": "object"
+        },
+        "UserConfigField": {
+          "properties": {
+            "default": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "sensitive": {
+              "type": "boolean"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "$ref": "#/$defs/UserConfigType"
+            }
+          },
+          "required": [
+            "type",
+            "required",
+            "sensitive"
+          ],
+          "type": "object"
+        },
+        "UserConfigType": {
+          "enum": [
+            "string",
+            "boolean",
+            "number"
+          ],
+          "type": "string"
         }
       },
       "properties": {
@@ -52274,6 +53477,17 @@
         },
         "description": {
           "type": "string"
+        },
+        "developmentLink": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLink"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "diagnostics": {
           "items": {
@@ -52416,6 +53630,14 @@
             "string",
             "null"
           ]
+        },
+        "userConfiguration": {
+          "$ref": "#/$defs/PluginConfigurationView",
+          "default": {
+            "fields": {},
+            "missingRequired": [],
+            "revision": 0
+          }
         },
         "version": {
           "type": [
@@ -52782,6 +54004,1350 @@
       ],
       "type": "object"
     },
+    "areal/plugin/development/link": {
+      "$defs": {
+        "CompatibilityState": {
+          "enum": [
+            "allowed",
+            "blocked"
+          ],
+          "type": "string"
+        },
+        "ComponentChoices": {
+          "properties": {
+            "disabledMcpServers": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "disabledSkills": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "type": "object"
+        },
+        "ComponentCompatibility": {
+          "properties": {
+            "reasonCodes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "state": {
+              "$ref": "#/$defs/CompatibilityState"
+            }
+          },
+          "required": [
+            "state",
+            "reasonCodes"
+          ],
+          "type": "object"
+        },
+        "ComponentKind": {
+          "enum": [
+            "skills",
+            "mcp",
+            "hooks",
+            "apps",
+            "commands",
+            "agents",
+            "uiSurfaces",
+            "outputStyles",
+            "themes",
+            "lsp"
+          ],
+          "type": "string"
+        },
+        "ComponentSupport": {
+          "properties": {
+            "activationRequirements": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "$ref": "#/$defs/ComponentKind"
+            },
+            "reasonCodes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "sourceField": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/SupportStatus"
+            },
+            "supportedSchema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "sourceField",
+            "status",
+            "reasonCodes",
+            "required",
+            "activationRequirements"
+          ],
+          "type": "object"
+        },
+        "DevelopmentLink": {
+          "properties": {
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "source"
+          ],
+          "type": "object"
+        },
+        "InstalledMetadata": {
+          "properties": {
+            "components": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": {
+              "type": "string"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "interface": true,
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "displayName",
+            "description",
+            "components"
+          ],
+          "type": "object"
+        },
+        "InstalledSkill": {
+          "properties": {
+            "allowImplicitInvocation": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "onboarding": {
+              "type": "boolean"
+            },
+            "packageRoot": {
+              "type": "string"
+            },
+            "pluginId": {
+              "type": "string"
+            },
+            "requiredTools": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "revision": {
+              "type": "string"
+            },
+            "root": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "revision",
+            "root",
+            "packageRoot",
+            "pluginId",
+            "name",
+            "description",
+            "allowImplicitInvocation",
+            "onboarding"
+          ],
+          "type": "object"
+        },
+        "ManifestFormat": {
+          "enum": [
+            "portable1",
+            "codex",
+            "claude",
+            "cursor",
+            "zcode"
+          ],
+          "type": "string"
+        },
+        "Marketplace": {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "resolvedCommit": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "root": {
+              "type": "string"
+            },
+            "sourceUrl": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "root"
+          ],
+          "type": "object"
+        },
+        "PackageComponentSupport": {
+          "properties": {
+            "compatibility": {
+              "$ref": "#/$defs/ComponentCompatibility"
+            },
+            "components": {
+              "items": {
+                "$ref": "#/$defs/ComponentSupport"
+              },
+              "type": "array"
+            },
+            "digest": {
+              "type": "string"
+            },
+            "manifestFormat": {
+              "$ref": "#/$defs/ManifestFormat"
+            },
+            "validation": {
+              "$ref": "#/$defs/SupportValidation"
+            }
+          },
+          "required": [
+            "digest",
+            "manifestFormat",
+            "components",
+            "compatibility",
+            "validation"
+          ],
+          "type": "object"
+        },
+        "PluginConfigPublicField": {
+          "properties": {
+            "configured": {
+              "type": "boolean"
+            },
+            "definition": {
+              "$ref": "#/$defs/UserConfigField"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "definition",
+            "configured"
+          ],
+          "type": "object"
+        },
+        "PluginConfigurationView": {
+          "properties": {
+            "fields": {
+              "additionalProperties": {
+                "$ref": "#/$defs/PluginConfigPublicField"
+              },
+              "type": "object"
+            },
+            "missingRequired": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "fields",
+            "missingRequired",
+            "revision"
+          ],
+          "type": "object"
+        },
+        "PluginDetail": {
+          "properties": {
+            "admissionDigest": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "catalogSource": {
+              "default": null
+            },
+            "componentChoices": {
+              "$ref": "#/$defs/ComponentChoices",
+              "default": {
+                "disabledMcpServers": [],
+                "disabledSkills": []
+              }
+            },
+            "componentSupport": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PackageComponentSupport"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "components": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": {
+              "type": "string"
+            },
+            "developmentLink": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DevelopmentLink"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "diagnostics": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            },
+            "installed": {
+              "type": "boolean"
+            },
+            "installedComponentSupport": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PackageComponentSupport"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "installedDigest": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "installedMetadata": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/InstalledMetadata"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "installedOnboardingSkill": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "installedSkills": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/InstalledSkill"
+              },
+              "type": "array"
+            },
+            "installedSourceDigest": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "installedVersion": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "integrity": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "interface": {
+              "default": null
+            },
+            "name": {
+              "type": "string"
+            },
+            "onboardingSkill": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "packageVersion": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "policy": {
+              "default": null
+            },
+            "requiredTools": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "resolvedCommit": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "skills": {
+              "items": {
+                "$ref": "#/$defs/InstalledSkill"
+              },
+              "type": "array"
+            },
+            "source": {
+              "type": "string"
+            },
+            "sourceDigest": {
+              "type": "string"
+            },
+            "sourceKind": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "userConfiguration": {
+              "$ref": "#/$defs/PluginConfigurationView",
+              "default": {
+                "fields": {},
+                "missingRequired": [],
+                "revision": 0
+              }
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "revision",
+            "id",
+            "name",
+            "displayName",
+            "description",
+            "installed",
+            "enabled",
+            "source",
+            "sourceDigest",
+            "components",
+            "diagnostics",
+            "skills"
+          ],
+          "type": "object"
+        },
+        "PublicConfigValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "SupportStatus": {
+          "enum": [
+            "supported",
+            "partial",
+            "unsupported"
+          ],
+          "type": "string"
+        },
+        "SupportValidation": {
+          "properties": {
+            "distribution": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "scope": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "provider",
+            "platform",
+            "distribution"
+          ],
+          "type": "object"
+        },
+        "UserConfigField": {
+          "properties": {
+            "default": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "sensitive": {
+              "type": "boolean"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "$ref": "#/$defs/UserConfigType"
+            }
+          },
+          "required": [
+            "type",
+            "required",
+            "sensitive"
+          ],
+          "type": "object"
+        },
+        "UserConfigType": {
+          "enum": [
+            "string",
+            "boolean",
+            "number"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "data": {
+          "items": {
+            "$ref": "#/$defs/PluginDetail"
+          },
+          "type": "array"
+        },
+        "errors": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "marketplaces": {
+          "items": {
+            "$ref": "#/$defs/Marketplace"
+          },
+          "type": "array"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "data",
+        "marketplaces",
+        "errors"
+      ],
+      "title": "PluginList",
+      "type": "object"
+    },
+    "areal/plugin/development/unlink": {
+      "$defs": {
+        "CompatibilityState": {
+          "enum": [
+            "allowed",
+            "blocked"
+          ],
+          "type": "string"
+        },
+        "ComponentChoices": {
+          "properties": {
+            "disabledMcpServers": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "disabledSkills": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "type": "object"
+        },
+        "ComponentCompatibility": {
+          "properties": {
+            "reasonCodes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "state": {
+              "$ref": "#/$defs/CompatibilityState"
+            }
+          },
+          "required": [
+            "state",
+            "reasonCodes"
+          ],
+          "type": "object"
+        },
+        "ComponentKind": {
+          "enum": [
+            "skills",
+            "mcp",
+            "hooks",
+            "apps",
+            "commands",
+            "agents",
+            "uiSurfaces",
+            "outputStyles",
+            "themes",
+            "lsp"
+          ],
+          "type": "string"
+        },
+        "ComponentSupport": {
+          "properties": {
+            "activationRequirements": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "$ref": "#/$defs/ComponentKind"
+            },
+            "reasonCodes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "sourceField": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/SupportStatus"
+            },
+            "supportedSchema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "sourceField",
+            "status",
+            "reasonCodes",
+            "required",
+            "activationRequirements"
+          ],
+          "type": "object"
+        },
+        "DevelopmentLink": {
+          "properties": {
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "source"
+          ],
+          "type": "object"
+        },
+        "InstalledMetadata": {
+          "properties": {
+            "components": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": {
+              "type": "string"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "interface": true,
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "displayName",
+            "description",
+            "components"
+          ],
+          "type": "object"
+        },
+        "InstalledSkill": {
+          "properties": {
+            "allowImplicitInvocation": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "onboarding": {
+              "type": "boolean"
+            },
+            "packageRoot": {
+              "type": "string"
+            },
+            "pluginId": {
+              "type": "string"
+            },
+            "requiredTools": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "revision": {
+              "type": "string"
+            },
+            "root": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "revision",
+            "root",
+            "packageRoot",
+            "pluginId",
+            "name",
+            "description",
+            "allowImplicitInvocation",
+            "onboarding"
+          ],
+          "type": "object"
+        },
+        "ManifestFormat": {
+          "enum": [
+            "portable1",
+            "codex",
+            "claude",
+            "cursor",
+            "zcode"
+          ],
+          "type": "string"
+        },
+        "Marketplace": {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "resolvedCommit": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "root": {
+              "type": "string"
+            },
+            "sourceUrl": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "root"
+          ],
+          "type": "object"
+        },
+        "PackageComponentSupport": {
+          "properties": {
+            "compatibility": {
+              "$ref": "#/$defs/ComponentCompatibility"
+            },
+            "components": {
+              "items": {
+                "$ref": "#/$defs/ComponentSupport"
+              },
+              "type": "array"
+            },
+            "digest": {
+              "type": "string"
+            },
+            "manifestFormat": {
+              "$ref": "#/$defs/ManifestFormat"
+            },
+            "validation": {
+              "$ref": "#/$defs/SupportValidation"
+            }
+          },
+          "required": [
+            "digest",
+            "manifestFormat",
+            "components",
+            "compatibility",
+            "validation"
+          ],
+          "type": "object"
+        },
+        "PluginConfigPublicField": {
+          "properties": {
+            "configured": {
+              "type": "boolean"
+            },
+            "definition": {
+              "$ref": "#/$defs/UserConfigField"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "definition",
+            "configured"
+          ],
+          "type": "object"
+        },
+        "PluginConfigurationView": {
+          "properties": {
+            "fields": {
+              "additionalProperties": {
+                "$ref": "#/$defs/PluginConfigPublicField"
+              },
+              "type": "object"
+            },
+            "missingRequired": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "fields",
+            "missingRequired",
+            "revision"
+          ],
+          "type": "object"
+        },
+        "PluginDetail": {
+          "properties": {
+            "admissionDigest": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "catalogSource": {
+              "default": null
+            },
+            "componentChoices": {
+              "$ref": "#/$defs/ComponentChoices",
+              "default": {
+                "disabledMcpServers": [],
+                "disabledSkills": []
+              }
+            },
+            "componentSupport": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PackageComponentSupport"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "components": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": {
+              "type": "string"
+            },
+            "developmentLink": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DevelopmentLink"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "diagnostics": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            },
+            "installed": {
+              "type": "boolean"
+            },
+            "installedComponentSupport": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PackageComponentSupport"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "installedDigest": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "installedMetadata": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/InstalledMetadata"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "installedOnboardingSkill": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "installedSkills": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/InstalledSkill"
+              },
+              "type": "array"
+            },
+            "installedSourceDigest": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "installedVersion": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "integrity": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "interface": {
+              "default": null
+            },
+            "name": {
+              "type": "string"
+            },
+            "onboardingSkill": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "packageVersion": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "policy": {
+              "default": null
+            },
+            "requiredTools": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "resolvedCommit": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "skills": {
+              "items": {
+                "$ref": "#/$defs/InstalledSkill"
+              },
+              "type": "array"
+            },
+            "source": {
+              "type": "string"
+            },
+            "sourceDigest": {
+              "type": "string"
+            },
+            "sourceKind": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "userConfiguration": {
+              "$ref": "#/$defs/PluginConfigurationView",
+              "default": {
+                "fields": {},
+                "missingRequired": [],
+                "revision": 0
+              }
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "revision",
+            "id",
+            "name",
+            "displayName",
+            "description",
+            "installed",
+            "enabled",
+            "source",
+            "sourceDigest",
+            "components",
+            "diagnostics",
+            "skills"
+          ],
+          "type": "object"
+        },
+        "PublicConfigValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "SupportStatus": {
+          "enum": [
+            "supported",
+            "partial",
+            "unsupported"
+          ],
+          "type": "string"
+        },
+        "SupportValidation": {
+          "properties": {
+            "distribution": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "scope": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "provider",
+            "platform",
+            "distribution"
+          ],
+          "type": "object"
+        },
+        "UserConfigField": {
+          "properties": {
+            "default": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "sensitive": {
+              "type": "boolean"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "$ref": "#/$defs/UserConfigType"
+            }
+          },
+          "required": [
+            "type",
+            "required",
+            "sensitive"
+          ],
+          "type": "object"
+        },
+        "UserConfigType": {
+          "enum": [
+            "string",
+            "boolean",
+            "number"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "data": {
+          "items": {
+            "$ref": "#/$defs/PluginDetail"
+          },
+          "type": "array"
+        },
+        "errors": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "marketplaces": {
+          "items": {
+            "$ref": "#/$defs/Marketplace"
+          },
+          "type": "array"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "data",
+        "marketplaces",
+        "errors"
+      ],
+      "title": "PluginList",
+      "type": "object"
+    },
     "areal/plugin/hooks/configure": {
       "additionalProperties": true,
       "properties": {
@@ -53105,6 +55671,17 @@
           ],
           "type": "object"
         },
+        "DevelopmentLink": {
+          "properties": {
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "source"
+          ],
+          "type": "object"
+        },
         "InstalledMetadata": {
           "properties": {
             "components": {
@@ -53228,6 +55805,71 @@
           ],
           "type": "object"
         },
+        "PluginConfigPublicField": {
+          "properties": {
+            "configured": {
+              "type": "boolean"
+            },
+            "definition": {
+              "$ref": "#/$defs/UserConfigField"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "definition",
+            "configured"
+          ],
+          "type": "object"
+        },
+        "PluginConfigurationView": {
+          "properties": {
+            "fields": {
+              "additionalProperties": {
+                "$ref": "#/$defs/PluginConfigPublicField"
+              },
+              "type": "object"
+            },
+            "missingRequired": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "fields",
+            "missingRequired",
+            "revision"
+          ],
+          "type": "object"
+        },
+        "PublicConfigValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
         "SupportStatus": {
           "enum": [
             "supported",
@@ -53258,6 +55900,55 @@
             "distribution"
           ],
           "type": "object"
+        },
+        "UserConfigField": {
+          "properties": {
+            "default": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "sensitive": {
+              "type": "boolean"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "$ref": "#/$defs/UserConfigType"
+            }
+          },
+          "required": [
+            "type",
+            "required",
+            "sensitive"
+          ],
+          "type": "object"
+        },
+        "UserConfigType": {
+          "enum": [
+            "string",
+            "boolean",
+            "number"
+          ],
+          "type": "string"
         }
       },
       "properties": {
@@ -53297,6 +55988,17 @@
         },
         "description": {
           "type": "string"
+        },
+        "developmentLink": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLink"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "diagnostics": {
           "items": {
@@ -53439,6 +56141,14 @@
             "string",
             "null"
           ]
+        },
+        "userConfiguration": {
+          "$ref": "#/$defs/PluginConfigurationView",
+          "default": {
+            "fields": {},
+            "missingRequired": [],
+            "revision": 0
+          }
         },
         "version": {
           "type": [
@@ -53570,6 +56280,17 @@
           ],
           "type": "object"
         },
+        "DevelopmentLink": {
+          "properties": {
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "source"
+          ],
+          "type": "object"
+        },
         "InstalledMetadata": {
           "properties": {
             "components": {
@@ -53693,6 +56414,71 @@
           ],
           "type": "object"
         },
+        "PluginConfigPublicField": {
+          "properties": {
+            "configured": {
+              "type": "boolean"
+            },
+            "definition": {
+              "$ref": "#/$defs/UserConfigField"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "definition",
+            "configured"
+          ],
+          "type": "object"
+        },
+        "PluginConfigurationView": {
+          "properties": {
+            "fields": {
+              "additionalProperties": {
+                "$ref": "#/$defs/PluginConfigPublicField"
+              },
+              "type": "object"
+            },
+            "missingRequired": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "fields",
+            "missingRequired",
+            "revision"
+          ],
+          "type": "object"
+        },
+        "PublicConfigValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
         "SupportStatus": {
           "enum": [
             "supported",
@@ -53723,6 +56509,55 @@
             "distribution"
           ],
           "type": "object"
+        },
+        "UserConfigField": {
+          "properties": {
+            "default": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "sensitive": {
+              "type": "boolean"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "$ref": "#/$defs/UserConfigType"
+            }
+          },
+          "required": [
+            "type",
+            "required",
+            "sensitive"
+          ],
+          "type": "object"
+        },
+        "UserConfigType": {
+          "enum": [
+            "string",
+            "boolean",
+            "number"
+          ],
+          "type": "string"
         }
       },
       "properties": {
@@ -53762,6 +56597,17 @@
         },
         "description": {
           "type": "string"
+        },
+        "developmentLink": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLink"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "diagnostics": {
           "items": {
@@ -53905,6 +56751,14 @@
             "null"
           ]
         },
+        "userConfiguration": {
+          "$ref": "#/$defs/PluginConfigurationView",
+          "default": {
+            "fields": {},
+            "missingRequired": [],
+            "revision": 0
+          }
+        },
         "version": {
           "type": [
             "string",
@@ -54032,6 +56886,17 @@
             "reasonCodes",
             "required",
             "activationRequirements"
+          ],
+          "type": "object"
+        },
+        "DevelopmentLink": {
+          "properties": {
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "source"
           ],
           "type": "object"
         },
@@ -54187,6 +57052,58 @@
           ],
           "type": "object"
         },
+        "PluginConfigPublicField": {
+          "properties": {
+            "configured": {
+              "type": "boolean"
+            },
+            "definition": {
+              "$ref": "#/$defs/UserConfigField"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "definition",
+            "configured"
+          ],
+          "type": "object"
+        },
+        "PluginConfigurationView": {
+          "properties": {
+            "fields": {
+              "additionalProperties": {
+                "$ref": "#/$defs/PluginConfigPublicField"
+              },
+              "type": "object"
+            },
+            "missingRequired": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "fields",
+            "missingRequired",
+            "revision"
+          ],
+          "type": "object"
+        },
         "PluginDetail": {
           "properties": {
             "admissionDigest": {
@@ -54225,6 +57142,17 @@
             },
             "description": {
               "type": "string"
+            },
+            "developmentLink": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DevelopmentLink"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             },
             "diagnostics": {
               "items": {
@@ -54368,6 +57296,14 @@
                 "null"
               ]
             },
+            "userConfiguration": {
+              "$ref": "#/$defs/PluginConfigurationView",
+              "default": {
+                "fields": {},
+                "missingRequired": [],
+                "revision": 0
+              }
+            },
             "version": {
               "type": [
                 "string",
@@ -54390,6 +57326,19 @@
             "skills"
           ],
           "type": "object"
+        },
+        "PublicConfigValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "number"
+            }
+          ]
         },
         "SupportStatus": {
           "enum": [
@@ -54421,6 +57370,55 @@
             "distribution"
           ],
           "type": "object"
+        },
+        "UserConfigField": {
+          "properties": {
+            "default": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "sensitive": {
+              "type": "boolean"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "$ref": "#/$defs/UserConfigType"
+            }
+          },
+          "required": [
+            "type",
+            "required",
+            "sensitive"
+          ],
+          "type": "object"
+        },
+        "UserConfigType": {
+          "enum": [
+            "string",
+            "boolean",
+            "number"
+          ],
+          "type": "string"
         }
       },
       "properties": {
@@ -54880,6 +57878,17 @@
           ],
           "type": "object"
         },
+        "DevelopmentLink": {
+          "properties": {
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "source"
+          ],
+          "type": "object"
+        },
         "InstalledMetadata": {
           "properties": {
             "components": {
@@ -55003,6 +58012,71 @@
           ],
           "type": "object"
         },
+        "PluginConfigPublicField": {
+          "properties": {
+            "configured": {
+              "type": "boolean"
+            },
+            "definition": {
+              "$ref": "#/$defs/UserConfigField"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "definition",
+            "configured"
+          ],
+          "type": "object"
+        },
+        "PluginConfigurationView": {
+          "properties": {
+            "fields": {
+              "additionalProperties": {
+                "$ref": "#/$defs/PluginConfigPublicField"
+              },
+              "type": "object"
+            },
+            "missingRequired": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "fields",
+            "missingRequired",
+            "revision"
+          ],
+          "type": "object"
+        },
+        "PublicConfigValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
         "SupportStatus": {
           "enum": [
             "supported",
@@ -55033,6 +58107,55 @@
             "distribution"
           ],
           "type": "object"
+        },
+        "UserConfigField": {
+          "properties": {
+            "default": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "sensitive": {
+              "type": "boolean"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "$ref": "#/$defs/UserConfigType"
+            }
+          },
+          "required": [
+            "type",
+            "required",
+            "sensitive"
+          ],
+          "type": "object"
+        },
+        "UserConfigType": {
+          "enum": [
+            "string",
+            "boolean",
+            "number"
+          ],
+          "type": "string"
         }
       },
       "properties": {
@@ -55072,6 +58195,17 @@
         },
         "description": {
           "type": "string"
+        },
+        "developmentLink": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLink"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "diagnostics": {
           "items": {
@@ -55214,6 +58348,14 @@
             "string",
             "null"
           ]
+        },
+        "userConfiguration": {
+          "$ref": "#/$defs/PluginConfigurationView",
+          "default": {
+            "fields": {},
+            "missingRequired": [],
+            "revision": 0
+          }
         },
         "version": {
           "type": [
@@ -55345,6 +58487,17 @@
           ],
           "type": "object"
         },
+        "DevelopmentLink": {
+          "properties": {
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "source"
+          ],
+          "type": "object"
+        },
         "InstalledMetadata": {
           "properties": {
             "components": {
@@ -55468,6 +58621,71 @@
           ],
           "type": "object"
         },
+        "PluginConfigPublicField": {
+          "properties": {
+            "configured": {
+              "type": "boolean"
+            },
+            "definition": {
+              "$ref": "#/$defs/UserConfigField"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "definition",
+            "configured"
+          ],
+          "type": "object"
+        },
+        "PluginConfigurationView": {
+          "properties": {
+            "fields": {
+              "additionalProperties": {
+                "$ref": "#/$defs/PluginConfigPublicField"
+              },
+              "type": "object"
+            },
+            "missingRequired": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "fields",
+            "missingRequired",
+            "revision"
+          ],
+          "type": "object"
+        },
+        "PublicConfigValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
         "SupportStatus": {
           "enum": [
             "supported",
@@ -55498,6 +58716,55 @@
             "distribution"
           ],
           "type": "object"
+        },
+        "UserConfigField": {
+          "properties": {
+            "default": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "sensitive": {
+              "type": "boolean"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "$ref": "#/$defs/UserConfigType"
+            }
+          },
+          "required": [
+            "type",
+            "required",
+            "sensitive"
+          ],
+          "type": "object"
+        },
+        "UserConfigType": {
+          "enum": [
+            "string",
+            "boolean",
+            "number"
+          ],
+          "type": "string"
         }
       },
       "properties": {
@@ -55537,6 +58804,17 @@
         },
         "description": {
           "type": "string"
+        },
+        "developmentLink": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLink"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "diagnostics": {
           "items": {
@@ -55679,6 +58957,14 @@
             "string",
             "null"
           ]
+        },
+        "userConfiguration": {
+          "$ref": "#/$defs/PluginConfigurationView",
+          "default": {
+            "fields": {},
+            "missingRequired": [],
+            "revision": 0
+          }
         },
         "version": {
           "type": [
@@ -60921,6 +64207,17 @@
               ],
               "type": "object"
             },
+            "DevelopmentLink": {
+              "properties": {
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "source"
+              ],
+              "type": "object"
+            },
             "InstalledMetadata": {
               "properties": {
                 "components": {
@@ -61073,6 +64370,58 @@
               ],
               "type": "object"
             },
+            "PluginConfigPublicField": {
+              "properties": {
+                "configured": {
+                  "type": "boolean"
+                },
+                "definition": {
+                  "$ref": "#/oneOf/0/$defs/UserConfigField"
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/PublicConfigValue"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "definition",
+                "configured"
+              ],
+              "type": "object"
+            },
+            "PluginConfigurationView": {
+              "properties": {
+                "fields": {
+                  "additionalProperties": {
+                    "$ref": "#/oneOf/0/$defs/PluginConfigPublicField"
+                  },
+                  "type": "object"
+                },
+                "missingRequired": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "revision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "fields",
+                "missingRequired",
+                "revision"
+              ],
+              "type": "object"
+            },
             "PluginDetail": {
               "properties": {
                 "admissionDigest": {
@@ -61111,6 +64460,17 @@
                 },
                 "description": {
                   "type": "string"
+                },
+                "developmentLink": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/DevelopmentLink"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
                 },
                 "diagnostics": {
                   "items": {
@@ -61254,6 +64614,14 @@
                     "null"
                   ]
                 },
+                "userConfiguration": {
+                  "$ref": "#/oneOf/0/$defs/PluginConfigurationView",
+                  "default": {
+                    "fields": {},
+                    "missingRequired": [],
+                    "revision": 0
+                  }
+                },
                 "version": {
                   "type": [
                     "string",
@@ -61276,6 +64644,19 @@
                 "skills"
               ],
               "type": "object"
+            },
+            "PublicConfigValue": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "number"
+                }
+              ]
             },
             "SupportStatus": {
               "enum": [
@@ -61307,6 +64688,55 @@
                 "distribution"
               ],
               "type": "object"
+            },
+            "UserConfigField": {
+              "properties": {
+                "default": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/PublicConfigValue"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "sensitive": {
+                  "type": "boolean"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "$ref": "#/oneOf/0/$defs/UserConfigType"
+                }
+              },
+              "required": [
+                "type",
+                "required",
+                "sensitive"
+              ],
+              "type": "object"
+            },
+            "UserConfigType": {
+              "enum": [
+                "string",
+                "boolean",
+                "number"
+              ],
+              "type": "string"
             }
           },
           "properties": {
@@ -61361,6 +64791,678 @@
           "type": "object"
         }
       ]
+    },
+    "areal/plugin/userConfig/set": {
+      "$defs": {
+        "CompatibilityState": {
+          "enum": [
+            "allowed",
+            "blocked"
+          ],
+          "type": "string"
+        },
+        "ComponentChoices": {
+          "properties": {
+            "disabledMcpServers": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "disabledSkills": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "type": "object"
+        },
+        "ComponentCompatibility": {
+          "properties": {
+            "reasonCodes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "state": {
+              "$ref": "#/$defs/CompatibilityState"
+            }
+          },
+          "required": [
+            "state",
+            "reasonCodes"
+          ],
+          "type": "object"
+        },
+        "ComponentKind": {
+          "enum": [
+            "skills",
+            "mcp",
+            "hooks",
+            "apps",
+            "commands",
+            "agents",
+            "uiSurfaces",
+            "outputStyles",
+            "themes",
+            "lsp"
+          ],
+          "type": "string"
+        },
+        "ComponentSupport": {
+          "properties": {
+            "activationRequirements": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "$ref": "#/$defs/ComponentKind"
+            },
+            "reasonCodes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "sourceField": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/SupportStatus"
+            },
+            "supportedSchema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "sourceField",
+            "status",
+            "reasonCodes",
+            "required",
+            "activationRequirements"
+          ],
+          "type": "object"
+        },
+        "DevelopmentLink": {
+          "properties": {
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "source"
+          ],
+          "type": "object"
+        },
+        "InstalledMetadata": {
+          "properties": {
+            "components": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": {
+              "type": "string"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "interface": true,
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "displayName",
+            "description",
+            "components"
+          ],
+          "type": "object"
+        },
+        "InstalledSkill": {
+          "properties": {
+            "allowImplicitInvocation": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "onboarding": {
+              "type": "boolean"
+            },
+            "packageRoot": {
+              "type": "string"
+            },
+            "pluginId": {
+              "type": "string"
+            },
+            "requiredTools": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "revision": {
+              "type": "string"
+            },
+            "root": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "revision",
+            "root",
+            "packageRoot",
+            "pluginId",
+            "name",
+            "description",
+            "allowImplicitInvocation",
+            "onboarding"
+          ],
+          "type": "object"
+        },
+        "ManifestFormat": {
+          "enum": [
+            "portable1",
+            "codex",
+            "claude",
+            "cursor",
+            "zcode"
+          ],
+          "type": "string"
+        },
+        "Marketplace": {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "resolvedCommit": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "root": {
+              "type": "string"
+            },
+            "sourceUrl": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "root"
+          ],
+          "type": "object"
+        },
+        "PackageComponentSupport": {
+          "properties": {
+            "compatibility": {
+              "$ref": "#/$defs/ComponentCompatibility"
+            },
+            "components": {
+              "items": {
+                "$ref": "#/$defs/ComponentSupport"
+              },
+              "type": "array"
+            },
+            "digest": {
+              "type": "string"
+            },
+            "manifestFormat": {
+              "$ref": "#/$defs/ManifestFormat"
+            },
+            "validation": {
+              "$ref": "#/$defs/SupportValidation"
+            }
+          },
+          "required": [
+            "digest",
+            "manifestFormat",
+            "components",
+            "compatibility",
+            "validation"
+          ],
+          "type": "object"
+        },
+        "PluginConfigPublicField": {
+          "properties": {
+            "configured": {
+              "type": "boolean"
+            },
+            "definition": {
+              "$ref": "#/$defs/UserConfigField"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "definition",
+            "configured"
+          ],
+          "type": "object"
+        },
+        "PluginConfigurationView": {
+          "properties": {
+            "fields": {
+              "additionalProperties": {
+                "$ref": "#/$defs/PluginConfigPublicField"
+              },
+              "type": "object"
+            },
+            "missingRequired": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "fields",
+            "missingRequired",
+            "revision"
+          ],
+          "type": "object"
+        },
+        "PluginDetail": {
+          "properties": {
+            "admissionDigest": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "catalogSource": {
+              "default": null
+            },
+            "componentChoices": {
+              "$ref": "#/$defs/ComponentChoices",
+              "default": {
+                "disabledMcpServers": [],
+                "disabledSkills": []
+              }
+            },
+            "componentSupport": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PackageComponentSupport"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "components": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": {
+              "type": "string"
+            },
+            "developmentLink": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DevelopmentLink"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "diagnostics": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            },
+            "installed": {
+              "type": "boolean"
+            },
+            "installedComponentSupport": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PackageComponentSupport"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "installedDigest": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "installedMetadata": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/InstalledMetadata"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "installedOnboardingSkill": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "installedSkills": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/InstalledSkill"
+              },
+              "type": "array"
+            },
+            "installedSourceDigest": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "installedVersion": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "integrity": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "interface": {
+              "default": null
+            },
+            "name": {
+              "type": "string"
+            },
+            "onboardingSkill": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "packageVersion": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "policy": {
+              "default": null
+            },
+            "requiredTools": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "resolvedCommit": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "skills": {
+              "items": {
+                "$ref": "#/$defs/InstalledSkill"
+              },
+              "type": "array"
+            },
+            "source": {
+              "type": "string"
+            },
+            "sourceDigest": {
+              "type": "string"
+            },
+            "sourceKind": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "userConfiguration": {
+              "$ref": "#/$defs/PluginConfigurationView",
+              "default": {
+                "fields": {},
+                "missingRequired": [],
+                "revision": 0
+              }
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "revision",
+            "id",
+            "name",
+            "displayName",
+            "description",
+            "installed",
+            "enabled",
+            "source",
+            "sourceDigest",
+            "components",
+            "diagnostics",
+            "skills"
+          ],
+          "type": "object"
+        },
+        "PublicConfigValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "SupportStatus": {
+          "enum": [
+            "supported",
+            "partial",
+            "unsupported"
+          ],
+          "type": "string"
+        },
+        "SupportValidation": {
+          "properties": {
+            "distribution": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "scope": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "provider",
+            "platform",
+            "distribution"
+          ],
+          "type": "object"
+        },
+        "UserConfigField": {
+          "properties": {
+            "default": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigValue"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "sensitive": {
+              "type": "boolean"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "$ref": "#/$defs/UserConfigType"
+            }
+          },
+          "required": [
+            "type",
+            "required",
+            "sensitive"
+          ],
+          "type": "object"
+        },
+        "UserConfigType": {
+          "enum": [
+            "string",
+            "boolean",
+            "number"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "data": {
+          "items": {
+            "$ref": "#/$defs/PluginDetail"
+          },
+          "type": "array"
+        },
+        "errors": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "marketplaces": {
+          "items": {
+            "$ref": "#/$defs/Marketplace"
+          },
+          "type": "array"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "data",
+        "marketplaces",
+        "errors"
+      ],
+      "title": "PluginList",
+      "type": "object"
     },
     "areal/process/acknowledgeCleanup": {
       "additionalProperties": true,

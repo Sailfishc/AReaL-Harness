@@ -45,6 +45,16 @@ function snapshotProject(backend, project, taskHistoryOwners) {
       .filter((entry) => !isRemoteControl(entry))
       .map((entry) => ({
         ...entry,
+        ...(entry.method === "areal/plugin/userConfig/set"
+          ? {
+              params: {
+                id: entry.params.id,
+                expectedRevision: entry.params.expectedRevision,
+                expectedDigest: entry.params.expectedDigest,
+                requestId: entry.params.requestId,
+              },
+            }
+          : {}),
         awaitingResponse: backend.awaitingResponses.has(entry),
       })),
     outcomes: live?.outcomes ?? {},

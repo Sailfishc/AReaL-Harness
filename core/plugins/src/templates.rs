@@ -25,17 +25,37 @@ impl InstalledCommand {
             arguments.len() <= 64 * 1024,
             "command arguments exceed 64 KiB"
         );
-        let mut result = String::new();
+        let placeholders = self.body.matches("$ARGUMENTS").count();
+        let expanded_len = if placeholders == 0 {
+            self.body.len().checked_add(if arguments.is_empty() {
+                0
+            } else {
+                arguments.len() + 2
+            })
+        } else {
+            placeholders
+                .checked_mul("$ARGUMENTS".len())
+                .and_then(|placeholder_bytes| self.body.len().checked_sub(placeholder_bytes))
+                .and_then(|body_bytes| {
+                    placeholders
+                        .checked_mul(arguments.len())
+                        .and_then(|argument_bytes| body_bytes.checked_add(argument_bytes))
+                })
+        }
+        .context("command expansion length overflow")?;
+        ensure!(
+            expanded_len <= 1024 * 1024,
+            "expanded command exceeds 1 MiB input budget"
+        );
+        let mut result = String::with_capacity(expanded_len);
         let mut rest = self.body.as_str();
-        let mut substituted = false;
         while let Some(index) = rest.find("$ARGUMENTS") {
             result.push_str(&rest[..index]);
             result.push_str(arguments);
             rest = &rest[index + "$ARGUMENTS".len()..];
-            substituted = true;
         }
         result.push_str(rest);
-        if !substituted && !arguments.is_empty() {
+        if placeholders == 0 && !arguments.is_empty() {
             result.push_str("\n\n");
             result.push_str(arguments);
         }
@@ -92,38 +112,55 @@ fn paths(
     declaration: Option<&Value>,
     directory: &str,
     defaults: bool,
-) -> Result<Vec<String>> {
+) -> Vec<(String, bool)> {
     let mut roots = Vec::new();
-    if defaults || declaration.is_none() {
-        roots.push(directory.to_owned());
+    let mut rejected = Vec::new();
+    if (defaults && declaration.is_none_or(|value| !value.is_object())) || declaration.is_none() {
+        roots.push((directory.to_owned(), false));
     }
     if let Some(value) = declaration {
-        match value {
-            Value::String(path) => roots.push(package::relative(path)?),
-            Value::Array(values) => {
-                for value in values {
-                    roots.push(package::relative(
-                        value.as_str().context("template path must be a string")?,
-                    )?);
-                }
+        let entries = match value {
+            Value::Array(values) => values
+                .iter()
+                .enumerate()
+                .map(|(index, value)| (format!("{directory}#/{index}"), value))
+                .collect(),
+            Value::Object(values) => values
+                .iter()
+                .map(|(key, value)| (format!("{directory}#/{key}"), value))
+                .collect(),
+            _ => vec![(directory.into(), value)],
+        };
+        for (origin, value) in entries {
+            if !value.is_string() || declaration.is_some_and(Value::is_object) {
+                rejected.push((origin, false));
+                continue;
             }
-            _ => anyhow::bail!("template declaration must be paths"),
+            match package::relative(value.as_str().unwrap()) {
+                Ok(path) => roots.push((path, true)),
+                Err(_) => rejected.push((origin, false)),
+            }
         }
     }
-    let mut result = std::collections::BTreeSet::new();
-    for root in roots {
+    let mut result = std::collections::BTreeMap::new();
+    for (root, explicit) in roots {
         if files.contains_key(&root) {
-            result.insert(root);
-        } else {
-            result.extend(
-                files
-                    .keys()
-                    .filter(|p| p.starts_with(&format!("{root}/")) && p.ends_with(".md"))
-                    .cloned(),
-            );
+            result.insert(root, true);
+            continue;
+        }
+        let found = files
+            .keys()
+            .filter(|p| p.starts_with(&format!("{root}/")) && p.ends_with(".md"))
+            .cloned()
+            .collect::<Vec<_>>();
+        if found.is_empty() && explicit {
+            result.insert(root, false);
+        }
+        for path in found {
+            result.insert(path, true);
         }
     }
-    Ok(result.into_iter().collect())
+    result.into_iter().chain(rejected).collect()
 }
 pub(crate) fn discover(
     files: &package::Files,
@@ -141,18 +178,14 @@ pub(crate) fn discover(
         (ComponentKind::Commands, "commands"),
         (ComponentKind::Agents, "agents"),
     ] {
-        let selected = match paths(files, overlay.get(directory), directory, claude_defaults) {
-            Ok(paths) => paths,
-            Err(_) => {
-                result.reports.push((
-                    kind,
-                    directory.into(),
-                    Some("templateDeclarationUnsupported"),
-                ));
+        let selected = paths(files, overlay.get(directory), directory, claude_defaults);
+        for (path, selected) in selected {
+            if !selected {
+                result
+                    .reports
+                    .push((kind, path, Some("templateDeclarationUnsupported")));
                 continue;
             }
-        };
-        for path in selected {
             let parsed = (|| -> Result<()> {
                 ensure!(path.ends_with(".md"), "template must be Markdown");
                 let text =
@@ -192,6 +225,7 @@ pub(crate) fn discover(
                     installed_digest: digest.into(),
                 };
                 let description = optional_text(&metadata, "description")?.unwrap_or_default();
+                optional_text(&metadata, "name")?;
                 if kind == ComponentKind::Commands {
                     result.commands.push(InstalledCommand {
                         identity,

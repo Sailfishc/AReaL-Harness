@@ -33,6 +33,8 @@ export type PluginPresentation = {
     | "install"
     | "enable"
     | "components"
+    | "connectProject"
+    | "chooseProject"
     | "refresh"
     | "configure"
     | "connections"
@@ -44,17 +46,21 @@ export type PluginPresentation = {
 export function presentPlugin({
   detail,
   runtimeObserved,
+  projectSelected = false,
   connection,
   submission,
   working = false,
   hostAvailable,
+  runtimeDiagnostics,
 }: {
   detail: PluginDetail;
   runtimeObserved: boolean;
+  projectSelected?: boolean;
   connection?: PluginConnectionFacts | null;
   submission?: PluginOperation | null;
   working?: boolean;
   hostAvailable?: boolean;
+  runtimeDiagnostics?: string[];
 }): PluginPresentation {
   const report =
     detail.installedComponentSupport?.digest === detail.installedDigest
@@ -78,10 +84,19 @@ export function presentPlugin({
   ): PluginPresentation => ({ state, nextAction, skillsAvailable, hookReviewRequired });
   if (submission?.pluginId === detail.id) return result("unknown", "queryOriginal");
   if (working) return result("working", "wait");
-  if (!detail.installed) return result("notInstalled", "install");
+  if (!detail.installed)
+    return result(
+      "notInstalled",
+      runtimeObserved ? "install" : projectSelected ? "connectProject" : "chooseProject",
+    );
+  if (!runtimeObserved)
+    return result("notObserved", projectSelected ? "connectProject" : "chooseProject");
   if (!detail.enabled) return result("disabled", "enable");
   if (report?.compatibility.state === "blocked") return result("blocked", "components");
-  if (!runtimeObserved || !report) return result("notObserved", "refresh");
+  if (detail.userConfiguration?.missingRequired.length)
+    return result(skillsAvailable ? "partial" : "configure", "configure");
+  if (!report) return result("notObserved", "refresh");
+  if (runtimeDiagnostics?.length) return result("partial", "components");
   if (hostAvailable === false) return result("blocked", "components");
   if (facts?.configurationBlocked || facts?.mappingRequired)
     return result("configure", "configure");

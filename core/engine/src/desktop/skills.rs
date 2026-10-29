@@ -164,3 +164,73 @@ fn read_resource(
     })();
     result.with_context(|| format!("read skill resource {resource}"))
 }
+
+#[derive(Clone)]
+pub(super) struct Discovery {
+    workspace: PathBuf,
+    home: Option<PathBuf>,
+    signature: String,
+}
+impl Engine {
+    pub fn install_discovered_skill_sources(
+        self: &Arc<Self>,
+        workspace: PathBuf,
+        home: Option<PathBuf>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            workspace.is_absolute() && home.as_ref().is_none_or(|p| p.is_absolute()),
+            "skill discovery requires trusted absolute paths"
+        );
+        let locations = Self::discover_skill_locations(&workspace, home.as_deref())?;
+        let signature = digest(&locations)?;
+        self.install_default_skills(locations)?;
+        *self.desktop.discovered_skills.lock().unwrap() = Some(Discovery {
+            workspace,
+            home,
+            signature,
+        });
+        self.watch_plugin_state();
+        Ok(())
+    }
+    fn discover_skill_locations(
+        workspace: &Path,
+        home: Option<&Path>,
+    ) -> anyhow::Result<Vec<SkillLocation>> {
+        let discovered = areal_config::skills::discover(Some(workspace), home)?;
+        for warning in discovered.warnings {
+            tracing::warn!(%warning, "skill discovery warning");
+        }
+        Ok(discovered
+            .skills
+            .into_iter()
+            .map(|skill| SkillLocation {
+                id: skill.id,
+                revision: skill.revision,
+                root: skill.root,
+                metadata: Some(skill.metadata),
+            })
+            .collect())
+    }
+    pub(super) async fn refresh_discovered_skills(self: &Arc<Self>) -> Result<()> {
+        let Some(source) = self.desktop.discovered_skills.lock().unwrap().clone() else {
+            return Ok(());
+        };
+        let _catalog = self.desktop.catalog_write.lock().await;
+        let engine = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let locations =
+                Self::discover_skill_locations(&source.workspace, source.home.as_deref())?;
+            let signature = digest(&locations)?;
+            if signature != source.signature {
+                engine.install_default_skills(locations)?;
+                if let Some(current) = engine.desktop.discovered_skills.lock().unwrap().as_mut() {
+                    current.signature = signature;
+                }
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .map_err(invalid)?
+        .map_err(invalid)
+    }
+}

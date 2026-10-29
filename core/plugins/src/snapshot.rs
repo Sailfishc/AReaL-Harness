@@ -38,7 +38,11 @@ pub struct PluginDoctorEntry {
     pub installed_digest: Option<String>,
     pub candidate_digest: String,
     pub compatibility: Option<crate::ComponentCompatibility>,
+    pub state: String,
     pub next_action: String,
+    pub available_components: Vec<crate::ComponentKind>,
+    pub candidate_available: bool,
+    pub development_status: Option<String>,
 }
 impl Store {
     pub fn read_snapshot(
@@ -48,6 +52,18 @@ impl Store {
         selected_plugin_id: Option<&str>,
     ) -> Result<PluginStoreSnapshot> {
         ensure!(root.is_absolute(), "plugin root must be absolute");
+        let canonical_existing = |path: PathBuf| -> Result<PathBuf> {
+            match path.canonicalize() {
+                Ok(path) => Ok(path),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(path),
+                Err(error) => Err(error.into()),
+            }
+        };
+        if let Some(home) = &user_home {
+            ensure!(home.is_absolute(), "user home must be absolute");
+        }
+        let root = canonical_existing(root)?;
+        let user_home = user_home.map(canonical_existing).transpose()?;
         let workspace = workspace
             .map(|path| -> Result<PathBuf> {
                 ensure!(path.is_absolute(), "workspace must be absolute");
@@ -113,6 +129,61 @@ impl PluginStoreSnapshot {
                         .as_ref()
                         .or(detail.component_support.as_ref());
                     let blocked = support.is_some_and(|support| !support.allowed());
+                    let available_components = support
+                        .map(|support| {
+                            support
+                                .components
+                                .iter()
+                                .filter(|row| row.status == crate::SupportStatus::Supported)
+                                .map(|row| row.kind)
+                                .collect::<std::collections::BTreeSet<_>>()
+                                .into_iter()
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    let partial = support.is_some_and(|support| {
+                        support
+                            .components
+                            .iter()
+                            .any(|row| row.status != crate::SupportStatus::Supported)
+                    });
+                    let development_status = detail.development_link.as_ref().map(|_| {
+                        if detail.component_support.is_none() {
+                            "sourceUnavailable"
+                        } else if detail.installed_digest.as_deref() != Some(detail.review_digest())
+                        {
+                            "changed"
+                        } else {
+                            "current"
+                        }
+                        .to_owned()
+                    });
+                    let (state, next_action) = if blocked {
+                        ("blocked", "inspectCompatibility")
+                    } else if !detail.installed {
+                        ("notInstalled", "install")
+                    } else if !detail.enabled {
+                        ("disabled", "enable")
+                    } else if !detail.user_configuration.missing_required.is_empty() {
+                        ("configurationRequired", "configure")
+                    } else if development_status.as_deref() == Some("sourceUnavailable") {
+                        ("developmentSourceFailed", "inspectDevelopmentSource")
+                    } else if development_status.as_deref() == Some("changed") {
+                        ("developmentSourceChanged", "waitForDevelopmentRefresh")
+                    } else if partial {
+                        ("partiallySupported", "inspectCompatibility")
+                    } else if available_components.iter().any(|kind| {
+                        matches!(
+                            kind,
+                            crate::ComponentKind::Skills
+                                | crate::ComponentKind::Commands
+                                | crate::ComponentKind::Agents
+                        )
+                    }) {
+                        ("staticReady", "useInAuthorizedSession")
+                    } else {
+                        ("runtimeNotObserved", "observeRuntime")
+                    };
                     PluginDoctorEntry {
                         id: detail.id.clone(),
                         installed: detail.installed,
@@ -120,16 +191,11 @@ impl PluginStoreSnapshot {
                         installed_digest: detail.installed_digest.clone(),
                         candidate_digest: detail.review_digest().into(),
                         compatibility: support.map(|support| support.compatibility.clone()),
-                        next_action: if blocked {
-                            "inspectCompatibility"
-                        } else if !detail.installed {
-                            "install"
-                        } else if !detail.enabled {
-                            "enable"
-                        } else {
-                            "observeRuntime"
-                        }
-                        .into(),
+                        state: state.into(),
+                        next_action: next_action.into(),
+                        available_components,
+                        candidate_available: detail.component_support.is_some(),
+                        development_status,
                     }
                 })
                 .collect(),

@@ -31,3 +31,9 @@ The read hook owns catalog and detail generations. A pure presentation chooses o
 PluginCenter owns resource navigation and management feedback. usePluginCenter owns reads. PluginInstallReview owns installation review layout. PluginOverview presents the primary status. Main and Core own configuration and submission receipts. SettingsSearchInput owns the shared search and clear controls.
 
 Real desktop acceptance uses isolated local packages and a deterministic model. Remote marketplaces, OAuth, real providers, packaged applications, and all custom themes require separate evidence. Local captures do not approve a visual baseline. Current admission and evidence limits remain in the [GUI pattern catalog](../../clients/gui/design-system/patterns.md) and [Base](../../clients/gui/design-system/base.md).
+
+## Templates, configuration, and development
+
+Commands retain the plugin namespace, fixed component identity, and raw arguments through ordinary message submission. Agents select imported Profiles for a draft. Configuration saves patch named fields. Empty password input keeps a saved secret; clearing is explicit. Main owns credential creation and public snapshots omit private references. New shared secrets require each project Core to reload its trusted launch inputs. The current project has an idle drain and reload action.
+
+Explicit development links publish immutable snapshots for later turns. Active turns retain their admitted snapshot. Static doctor results and runtime diagnostics remain separate facts. Required configuration and Agent publication failures appear in the primary next step while enabled Skills remain visible.

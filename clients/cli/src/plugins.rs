@@ -56,6 +56,23 @@ enum Command {
         #[arg(long, default_value = "user", value_parser = ["user", "project"])]
         scope: String,
     },
+    /// 保存普通配置值或可信凭据引用，不接受秘密明文。
+    Configure {
+        id: String,
+        #[arg(long)]
+        values_file: PathBuf,
+        #[arg(long = "clear")]
+        clear_keys: Vec<String>,
+    },
+    /// 链接已安装包的本地目录，后续变化发布为新快照。
+    DevLink {
+        id: String,
+        #[arg(long)]
+        expected_digest: String,
+    },
+    DevUnlink {
+        id: String,
+    },
     Enable {
         id: String,
         #[arg(long, default_value = "user", value_parser = ["user", "project"])]
@@ -243,6 +260,38 @@ pub async fn run(options: Options) -> Result<()> {
                 true,
             )
         }
+        Command::Configure {
+            id,
+            values_file,
+            clear_keys,
+        } => {
+            let bytes = std::fs::read(values_file)?;
+            ensure!(
+                bytes.len() <= 256 * 1024,
+                "plugin configuration exceeds 256 KiB"
+            );
+            let values: std::collections::BTreeMap<String, areal_plugins::PluginConfigValue> =
+                serde_json::from_slice(&bytes)
+                    .map_err(|_| anyhow::anyhow!("invalid plugin configuration value document"))?;
+            (
+                "areal/plugin/userConfig/set",
+                json!({"id":id,"expectedRevision":revision,"expectedDigest":installed_digest(&list,&id)?,"values":values,"clearKeys":clear_keys}),
+                true,
+            )
+        }
+        Command::DevLink {
+            id,
+            expected_digest,
+        } => (
+            "areal/plugin/development/link",
+            json!({"id":id,"expectedRevision":revision,"expectedDigest":expected_digest}),
+            true,
+        ),
+        Command::DevUnlink { id } => (
+            "areal/plugin/development/unlink",
+            json!({"id":id,"expectedRevision":revision}),
+            true,
+        ),
         Command::Enable { id, scope } => (
             "areal/plugin/configure",
             json!({"id":id,"scope":scope,"enabled":true,"expectedRevision":revision}),

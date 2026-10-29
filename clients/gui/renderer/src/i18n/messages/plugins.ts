@@ -1,4 +1,114 @@
 export const pluginMessages = {
+  "settings.pluginCenter.commandsTitle": { "zh-CN": "命令", en: "Commands" },
+  "settings.pluginCenter.agentsTitle": { "zh-CN": "智能体", en: "Agents" },
+  "settings.pluginCenter.connectProjectBackend": {
+    "zh-CN": "连接项目后台",
+    en: "Connect project Core",
+  },
+  "settings.pluginCenter.chooseProjectToInstall": {
+    "zh-CN": "选择项目以继续安装",
+    en: "Choose a project to continue installation",
+  },
+  "settings.pluginCenter.agentProfileUnavailable": {
+    "zh-CN": "插件 Agent 配置已不可用，请刷新后选择。原草稿已保留。",
+    en: "The plugin Agent profile is unavailable. Refresh and select it again. Your draft is preserved.",
+  },
+  "settings.pluginCenter.sharedCredentialReloadRequired": {
+    "zh-CN": "共享配置中的新凭据需各项目 Core 重新载入。当前项目可在后台空闲时重新载入。",
+    en: "Each project Core must reload new credentials from shared configuration. Reload this project while its Core is idle.",
+  },
+  "settings.pluginCenter.reloadProjectCredentials": {
+    "zh-CN": "重新载入当前项目凭据",
+    en: "Reload credentials for this project",
+  },
+  "settings.pluginCenter.credentialsReloaded": {
+    "zh-CN": "当前项目已重新载入凭据，请检查组件连接。",
+    en: "This project reloaded its credentials. Check component connections.",
+  },
+  "settings.pluginCenter.userConfiguration": { "zh-CN": "插件配置", en: "Plugin configuration" },
+  "settings.pluginCenter.secretConfigurationBoundary": {
+    "zh-CN": "敏感值保存到桌面受保护凭据中，只在服务连接时使用。留空会保留已保存值。",
+    en: "Sensitive values use protected desktop credentials and are consumed only when services connect. Leave an input empty to keep its saved value.",
+  },
+  "settings.pluginCenter.missingConfiguration": {
+    "zh-CN": "需要配置 {fields}",
+    en: "Configure {fields}",
+  },
+  "settings.pluginCenter.secretAlreadyConfigured": {
+    "zh-CN": "已配置，输入新值可替换",
+    en: "Configured. Enter a new value to replace it",
+  },
+  "settings.pluginCenter.clearSavedConfiguration": {
+    "zh-CN": "清除已保存值",
+    en: "Clear saved value",
+  },
+  "settings.pluginCenter.undoClearConfiguration": {
+    "zh-CN": "保留已保存值",
+    en: "Keep saved value",
+  },
+  "settings.pluginCenter.saveConfiguration": {
+    "zh-CN": "保存插件配置",
+    en: "Save plugin configuration",
+  },
+  "settings.pluginCenter.developmentSource": {
+    "zh-CN": "本地开发来源",
+    en: "Local development source",
+  },
+  "settings.pluginCenter.developmentLinkActive": {
+    "zh-CN":
+      "已链接本地来源。内容更新会发布新快照，下一轮使用新版本。正在执行的轮次继续使用原版本，执行信任需要重新确认。",
+    en: "The local source is linked. Changes publish a new snapshot for the next turn. Active turns keep their original version. Execution trust requires a new review.",
+  },
+  "settings.pluginCenter.developmentLinkExplanation": {
+    "zh-CN": "显式链接当前本地来源后，后台会检查内容变化并发布不可变快照。",
+    en: "Link this local source to let Core check changes and publish immutable snapshots.",
+  },
+  "settings.pluginCenter.stopDevelopmentLink": {
+    "zh-CN": "停止跟踪本地来源",
+    en: "Stop tracking local source",
+  },
+  "settings.pluginCenter.linkDevelopmentSource": {
+    "zh-CN": "链接当前本地来源",
+    en: "Link current local source",
+  },
+  "settings.pluginCenter.commandSubmissionBoundary": {
+    "zh-CN": "命令将固定快照引用和原始参数提交到当前任务，由 Core 展开模板并沿普通提交处理。",
+    en: "Commands submit a fixed snapshot reference and raw arguments to the current task. Core expands the template through ordinary turn submission.",
+  },
+  "settings.pluginCenter.selectTaskForCommand": {
+    "zh-CN": "打开一个普通任务后再提交命令。",
+    en: "Open an ordinary task to submit a command.",
+  },
+  "settings.pluginCenter.commandArguments": { "zh-CN": "命令参数", en: "Command arguments" },
+  "settings.pluginCenter.submitCommandToTask": {
+    "zh-CN": "提交到当前任务",
+    en: "Submit to current task",
+  },
+  "settings.pluginCenter.agentProfileBoundary": {
+    "zh-CN": "Agent 使用已导入的任务配置。工具、只读与审批限制继续由 Core 在目标任务准入时检查。",
+    en: "Agents use imported task profiles. Core checks tool, read-only, and approval restrictions when admitting the target task.",
+  },
+  "settings.pluginCenter.agentDraftPrompt": {
+    "zh-CN": "请使用 {name} 的任务配置协助处理当前需求。",
+    en: "Use the {name} task profile to help with this request.",
+  },
+  "settings.pluginCenter.useAgentProfile": {
+    "zh-CN": "使用此配置创建草稿",
+    en: "Create a draft with this profile",
+  },
+  "settings.pluginCenter.pluginDoctor": { "zh-CN": "插件诊断", en: "Plugin diagnostics" },
+  "settings.pluginCenter.doctorStaticBoundary": {
+    "zh-CN": "诊断仅描述静态安装与支持事实。当前项目的运行状态未在此报告中观察。",
+    en: "This report describes static installation and support facts. It does not observe project runtime state.",
+  },
+  "settings.pluginCenter.readDoctorReport": {
+    "zh-CN": "读取诊断报告",
+    en: "Read diagnostic report",
+  },
+  "settings.pluginCenter.componentSnapshotChanged": {
+    "zh-CN": "组件摘要已变化，请刷新插件详情后再操作。",
+    en: "The component snapshot changed. Refresh plugin details before continuing.",
+  },
   "settings.pluginCenter.installTrustBoundary": {
     "zh-CN": "安装会自动核对来源与快照。MCP 执行和 Hook 信任需分别授权。",
     en: "Installation verifies the source and snapshot automatically. Authorize MCP execution and Hook trust separately.",

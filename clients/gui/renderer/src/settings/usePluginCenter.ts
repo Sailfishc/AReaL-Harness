@@ -40,15 +40,21 @@ export function usePluginCenter({
   const [detail, setDetail] = useState<PluginDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<UiMessage | string>("");
+  const [components, setComponents] = useState<ManagementResponseMap["pluginComponents"] | null>(
+    null,
+  );
+  const [componentError, setComponentError] = useState<UiMessage | string>("");
   const [readiness, setReadiness] = useState<PluginReadiness | null>(null);
   const [readinessError, setReadinessError] = useState<UiMessage | string>("");
   const mounted = useRef(true);
+  const scope = useRef({ projectId, active });
+  scope.current = { projectId, active };
   const readGeneration = useRef(0);
   const detailGeneration = useRef(0);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const refresh = useCallback(async () => {
-    if (!active) return;
+    if (!active || !scope.current.active || scope.current.projectId !== projectId) return;
     const generation = ++readGeneration.current;
     setLoading(true);
     setReadError("");
@@ -104,7 +110,13 @@ export function usePluginCenter({
   }, [api, projectId, connected, active]);
   const readDetail = useCallback(
     async (id: string) => {
-      if (!active || selectedRef.current !== id) return;
+      if (
+        !active ||
+        !scope.current.active ||
+        scope.current.projectId !== projectId ||
+        selectedRef.current !== id
+      )
+        return;
       const generation = ++detailGeneration.current;
       setDetailLoading(true);
       setDetail((current) => (current?.id === id ? current : null));
@@ -194,8 +206,31 @@ export function usePluginCenter({
     detail?.enabled,
     catalog?.revision,
   ]);
+  useEffect(() => {
+    let current = true;
+    setComponents(null);
+    setComponentError("");
+    if (!active || !connected || !projectId || !detail?.installedDigest) return;
+    void api({ projectId, operation: "pluginComponents", id: detail.id })
+      .then((value) => {
+        if (!current) return;
+        if (value.pluginId !== detail.id || value.installedDigest !== detail.installedDigest) {
+          setComponentError({ id: "settings.pluginCenter.componentSnapshotChanged" });
+          return;
+        }
+        setComponents(value);
+      })
+      .catch((cause) => {
+        if (current) setComponentError(readFailure(cause));
+      });
+    return () => {
+      current = false;
+    };
+  }, [api, active, connected, projectId, detail?.id, detail?.installedDigest, catalog?.revision]);
   return {
     catalog,
+    components,
+    componentError,
     snapshot,
     supported,
     loading,

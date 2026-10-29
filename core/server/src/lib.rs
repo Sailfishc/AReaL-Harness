@@ -528,17 +528,9 @@ async fn serve(
         let reload = if args.service_info.is_some() { Some(reload::Reload::open(inputs.clone(), &config, &engine)?) } else { None };
         if let Some(path) = &args.desktop_config { engine.install_deployment(path)?; }
         let workspace = PathBuf::from(engine.default_cwd());
-        let skills = areal_config::skills::discover(Some(&workspace), homedir.as_deref())?;
-        for warning in &skills.warnings { eprintln!("Warning: {warning}"); }
-        engine.install_default_skills(skills.skills.into_iter().map(|s| areal_engine::desktop::SkillLocation {
-            id: s.id, revision: s.revision, root: s.root,
-            metadata: Some(s.metadata),
-        }).collect())?;
+        engine.install_discovered_skill_sources(workspace.clone(), homedir.clone())?;
         // Trusted launcher paths determine plugin discovery and shared installation state.
         engine.install_hook_configuration(config.home.clone(), config.config_file.clone())?;
-        engine.install_plugin_store(Arc::new(areal_plugins::Store::open(
-            config.home.join("plugins"), args.workspace.clone().unwrap_or(workspace.clone()).canonicalize()?, homedir.clone(),
-        )?))?;
         for name in mcp_env.keys() {
             if let Some(name) = name.to_str()
                 && let Some(reference) = name.strip_prefix("AREAL_CREDENTIAL_")
@@ -550,6 +542,9 @@ async fn serve(
         let (configured, credentials) = configured_models(&config, &mcp_env)?;
         for (reference, value) in credentials { engine.register_credential(reference, value)?; }
         engine.install_configured_models(configured)?;
+        engine.install_plugin_store(Arc::new(areal_plugins::Store::open(
+            config.home.join("plugins"), args.workspace.clone().unwrap_or(workspace.clone()).canonicalize()?, homedir.clone(),
+        )?))?;
         engine.recover_desktop_default_models().await?;
         if let Some(policy_path) = &args.workgroup_policy {
             use areal_engine::workgroup::service::{NativeFactory, Policy, Service};

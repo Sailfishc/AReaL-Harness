@@ -1,13 +1,6 @@
 import { SettingsGroupCard, SettingsRow } from "@areal/ui/compositions";
 import { Textarea } from "@areal/ui";
-import {
-  useI18n,
-  UiMessageError,
-  type UiMessage,
-  type Translate,
-  type MessageId,
-  formatUiMessage,
-} from "../i18n/IntlProvider.js";
+import { useI18n, UiMessageError, type UiMessage, formatUiMessage } from "../i18n/IntlProvider.js";
 import { SettingsSelect } from "./SettingsPageParts.js";
 import { SettingsDisclosure } from "./SettingsDisclosure.js";
 import { useGuardedNavigation } from "./UnsavedChanges.js";
@@ -48,8 +41,12 @@ import type { Data } from "../services.js";
 import { isIndependentCreation, recoveredOutcome } from "../recoveryPresentation.js";
 import { buildPluginMentionMarkdown } from "../mentions/mentionMarkdown.js";
 import { presentPlugin, type PluginConnectionFacts } from "./pluginPresentation.js";
+import { PluginConfiguration } from "./PluginConfiguration.js";
+import { PluginTemplateActions } from "./PluginTemplateActions.js";
+import { PluginDoctorSummary } from "./PluginDoctorSummary.js";
 import { PluginInstallReview } from "./PluginInstallReview.js";
 import { PluginOverview } from "./PluginOverview.js";
+import { usePluginSubmission, failure, failureText } from "./usePluginSubmission.js";
 import { usePluginCenter } from "./usePluginCenter.js";
 import { pluginMcpStateLabel } from "./pluginResources.js";
 
@@ -57,11 +54,8 @@ import type { ManagementRequest } from "@areal/workbench/desktop-contract/manage
 import type {
   PluginDetail,
   PluginReadiness,
-  PluginMutationRequest,
   PluginOperation,
-  PluginActivity,
   PluginPreview,
-  PluginReceipt,
 } from "./pluginTypes.js";
 export type { PluginDetail, PluginCommand, PluginMutate } from "./pluginTypes.js";
 const pluginMethods: Record<string, PluginOperation["mutation"]> = {
@@ -81,15 +75,9 @@ const pluginMethods: Record<string, PluginOperation["mutation"]> = {
   "areal/plugin/auth": "pluginAuth",
   "areal/plugin/auth/configure": "pluginAuthConfigure",
   "areal/plugin/connector/configure": "connectorConfigure",
-};
-type PluginFailure = {
-  message: string | UiMessage;
-  context?: MessageId;
-  code?: string | number;
-  reason?: string;
-  submissionUnknown?: boolean;
-  requestId?: string;
-  operation?: PluginOperation;
+  "areal/plugin/userConfig/set": "pluginUserConfigSave",
+  "areal/plugin/development/link": "pluginDevelopmentLink",
+  "areal/plugin/development/unlink": "pluginDevelopmentUnlink",
 };
 function isSourceOperation(
   operation: PluginOperation | null | undefined,
@@ -160,24 +148,6 @@ function previewFromResult(result: Partial<PluginDetail> | undefined): PluginPre
     integrity: typeof result.integrity === "string" ? result.integrity : undefined,
   };
 }
-function failure(cause: unknown): PluginFailure {
-  if (cause instanceof UiMessageError) return { message: cause.descriptor };
-  if (cause instanceof Error) return cause;
-  return { message: { id: "settings.pluginCenter.pluginOperationFailed" } };
-}
-function failureText(error: PluginFailure | null, t: Translate) {
-  const text = error ? formatUiMessage(t, error.message) : "";
-  if (!error) return "";
-  return [
-    error.submissionUnknown ? t("settings.pluginCenter.submissionResultUnconfirmed") : "",
-    error.context ? t(error.context, { value0: text }) : text,
-    error.code !== undefined ? t("settings.pluginCenter.errorCode", { value0: error.code }) : "",
-    error.reason,
-    error.requestId ? t("settings.pluginCenter.requestId", { value0: error.requestId }) : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-}
 
 type ListRoute =
   | { kind: "market"; audience: "public" | "personal" }
@@ -206,6 +176,9 @@ export type PluginCenterProps = ScopedProps & {
   onChooseProject: () => void;
   onSelectProject: (id: string) => void;
   onStartDraft: (seed: ResourceDraftSeed) => Promise<void>;
+  onRunCommand?: (
+    command: import("@areal/workbench/desktop-contract/conversation").PluginCommandRef,
+  ) => Promise<void>;
   onReturnToTask?: () => void;
 };
 const officialMarket = (url?: string | null) =>
@@ -223,7 +196,9 @@ export function PluginCenter({
   initialTab = "plugins",
   onSettings,
   onMarket,
+  onChooseProject,
   onStartDraft,
+  onRunCommand,
   onReturnToTask,
 }: PluginCenterProps) {
   const { t } = useI18n();
@@ -231,6 +206,8 @@ export function PluginCenter({
   const [ownerId, setOwnerId] = useState<string | undefined>(selectedProject?.id);
   const project = projects.find((item) => item.id === ownerId);
   const projectId = project?.id;
+  const currentProject = useRef(projectId);
+  currentProject.current = projectId;
   const connected = !!project?.state?.connected;
   const [route, setRoute] = useState<CenterRoute>({ kind: "market", audience: "public" });
   const listReturn = useRef<PluginListReturn | null>(null);
@@ -263,11 +240,10 @@ export function PluginCenter({
       setRoute(id ? { kind: "plugin", id, returnTo: listRoute } : listRoute);
     });
   };
-  const [error, setError] = useState<PluginFailure | null>(null);
-  const [message, setMessage] = useState<UiMessage | string>("");
+  const writes = usePluginSubmission();
+  const { error, setError, message, setMessage, submission, setSubmission, activity, active } =
+    writes;
   const [setupThreadId, setSetupThreadId] = useState<string | null>(null);
-  const [submission, setSubmission] = useState<PluginOperation | null>(null);
-  const [activity, setActivity] = useState<PluginActivity | null>(null);
   const [checkingProjectOperation, setCheckingProjectOperation] = useState(false);
   const [projectCheckMessages, setProjectCheckMessages] = useState<
     Record<string, UiMessage | string>
@@ -276,8 +252,9 @@ export function PluginCenter({
   const blockingPending = pendingEntries.filter(
     (entry) => !isIndependentCreation(entry, [submission?.requestId, error?.requestId]),
   );
+  const [connectingProject, setConnectingProject] = useState(false);
   const pending = !!blockingPending.length;
-  const busy = activity !== null || checkingProjectOperation;
+  const busy = activity !== null || checkingProjectOperation || connectingProject;
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<"user" | "project">("user");
   const [adding, setAdding] = useState(false);
@@ -338,7 +315,6 @@ export function PluginCenter({
   useEffect(() => {
     panelGeneration.current++;
   }, [panelActive]);
-  const active = useRef(false);
   const actionRef = useRef(action);
   actionRef.current = action;
   useEffect(() => {
@@ -373,6 +349,8 @@ export function PluginCenter({
   );
   const {
     catalog,
+    components,
+    componentError,
     snapshot: storeSnapshot,
     supported,
     loading,
@@ -479,31 +457,32 @@ export function PluginCenter({
     setPreview(next);
     return true;
   };
-  const mutate = async (values: PluginMutationRequest) => {
-    const operation = values.operation;
-    if (active.current || disabled || !connected) return;
-    active.current = true;
-    const requestId = crypto.randomUUID();
-    const original: PluginOperation = {
-      mutation: operation,
-      projectId: projectId!,
-      requestId,
-      ...("id" in values ? { pluginId: values.id } : {}),
-    };
-    setActivity({ ...original, kind: "submit" });
-    setError(null);
-    setMessage("");
-    if (operation === "pluginResolve") {
-      setPreview(null);
-    }
-    try {
-      const result = await api({ projectId, ...values, requestId });
-      if (!mounted.current) return;
+  const writeContext = {
+    projectId,
+    connected,
+    disabled,
+    api,
+    mounted,
+    selectedRef,
+    refresh,
+    readDetail,
+    onPreparing: (operation: PluginOperation) => {
+      if (operation.mutation === "pluginResolve") setPreview(null);
+    },
+    onAccepted: (
+      result:
+        | import("@areal/workbench/desktop-contract/management").ManagementResponseMap[
+            | import("@areal/workbench/desktop-contract/management").PluginMutation
+            | "pluginAuth"]
+        | undefined,
+      original: PluginOperation,
+      recovered: boolean,
+    ) => {
+      if (original.projectId !== currentProject.current) return true;
+      const operation = original.mutation;
       if (operation === "pluginResolve" || operation === "pluginArchiveImport") {
-        if (!acceptPreview(result && "sourceDigest" in result ? result : undefined, original)) {
-          window.dispatchEvent(new Event("areal-plugins-changed"));
-          return;
-        }
+        if (!acceptPreview(result && "sourceDigest" in result ? result : undefined, original))
+          return false;
         if (operation === "pluginArchiveImport" && result && "sourceDigest" in result) {
           setArchive(null);
           setInstallReview(true);
@@ -511,7 +490,6 @@ export function PluginCenter({
           setRoute({ kind: "plugin", id: result.id, returnTo: listRoute });
         }
       }
-      window.dispatchEvent(new Event("areal-plugins-changed"));
       if (operation === "pluginSetup" && result && "thread" in result)
         setSetupThreadId(result.thread.id);
       if (operation === "marketplaceAdd" || operation === "marketplaceAddGit") {
@@ -519,49 +497,21 @@ export function PluginCenter({
         setRoot("");
       }
       if (operation === "pluginInstall") setInstallReview(false);
-      setMessage(
-        operation === "pluginAuth"
-          ? ""
-          : operation === "pluginSetup"
-            ? { id: "settings.pluginCenter.theSetupSkillWasSubmittedReturnTo" }
-            : operation === "pluginResolve" ||
-                operation === "pluginConnection" ||
-                operation === "pluginInstall"
-              ? ""
-              : { id: "settings.pluginCenter.operationCompleted" },
-      );
-      return result;
-    } catch (cause) {
-      if (mounted.current) {
-        const error = failure(cause);
-        const failedOperation = { ...original, requestId: error.requestId ?? requestId };
-        if (error.submissionUnknown && operation !== "pluginAuth") setSubmission(failedOperation);
-        setError(
-          error.submissionUnknown && operation !== "pluginAuth"
-            ? {
-                ...error,
-                message: error.message,
-                requestId: error.requestId ?? requestId,
-                operation: failedOperation,
-              }
-            : {
-                ...error,
-                message: error.message,
-                ...(operation === "pluginAuth" ? { submissionUnknown: false } : {}),
-                operation: failedOperation,
-              },
+      if (!recovered)
+        setMessage(
+          operation === "pluginAuth"
+            ? ""
+            : operation === "pluginSetup"
+              ? { id: "settings.pluginCenter.theSetupSkillWasSubmittedReturnTo" }
+              : ["pluginResolve", "pluginConnection", "pluginInstall"].includes(operation)
+                ? ""
+                : { id: "settings.pluginCenter.operationCompleted" },
         );
-      }
-    } finally {
-      // 只重读权威状态；冲突或 UNKNOWN 不会触发任何写入重试。
-      if (mounted.current) {
-        await refresh();
-        if (selectedRef.current) await readDetail(selectedRef.current);
-        if (mounted.current) setActivity(null);
-      }
-      active.current = false;
-    }
+      return true;
+    },
   };
+  const mutate: import("./pluginTypes.js").PluginMutate = (values) =>
+    writes.mutate(values, writeContext);
   const submissionAwaiting =
     !!submission &&
     submission.projectId === projectId &&
@@ -682,101 +632,8 @@ export function PluginCenter({
     </div>
   );
   const projectRecovery = projectPendingEntries.length > 0 && projectRecoveryDetails;
-  const recoverSubmission = async () => {
-    if (!recoverable || recoverable.mutation === "pluginAuth" || active.current || !connected)
-      return;
-    active.current = true;
-    setActivity({ ...recoverable, kind: "check" });
-    setMessage("");
-    try {
-      const receipt: PluginReceipt = await actionRef.current("manage", {
-        operation: "pluginSubmission",
-        mutation: recoverable.mutation,
-        projectId: recoverable.projectId,
-        requestId: recoverable.requestId,
-      });
-      if (!mounted.current) return;
-      if (!receipt.confirmed) {
-        setSubmission(recoverable);
-        setError({
-          message:
-            receipt.state === "accepted"
-              ? { id: "settings.pluginCenter.theOriginalSubmissionIsStillProcessingCheck" }
-              : { id: "settings.pluginCenter.theOriginalSubmissionResultIsStillUnconfirmed" },
-          submissionUnknown: true,
-          requestId: recoverable.requestId,
-          operation: recoverable,
-        });
-        return;
-      }
-      setSubmission(null);
-      if (receipt.status === "failed" || !receipt.accepted) {
-        setError({
-          message: receipt.error?.message ?? {
-            id: "settings.pluginCenter.theOriginalPluginOperationIsConfirmedFailed",
-          },
-          code: receipt.error?.code,
-          reason: receipt.error?.reason,
-          requestId: recoverable.requestId,
-          operation: recoverable,
-        });
-        return;
-      }
-      setError(null);
-      if (
-        recoverable.mutation === "pluginResolve" &&
-        !acceptPreview(
-          receipt.result && "sourceDigest" in receipt.result ? receipt.result : undefined,
-          recoverable,
-        )
-      )
-        return;
-      if (
-        recoverable.mutation === "pluginArchiveImport" &&
-        receipt.result &&
-        "sourceDigest" in receipt.result
-      ) {
-        updateSelected(receipt.result.id);
-        setRoute({ kind: "plugin", id: receipt.result.id, returnTo: listRoute });
-        setArchive(null);
-        setPreview(null);
-        await readDetail(receipt.result.id);
-      }
-      if (recoverable.mutation === "pluginSetup" && receipt.result && "thread" in receipt.result)
-        setSetupThreadId(receipt.result.thread.id);
-      if (
-        recoverable.mutation === "marketplaceAdd" ||
-        recoverable.mutation === "marketplaceAddGit"
-      ) {
-        setAdding(false);
-        setRoot("");
-      }
-      setMessage(
-        receipt.warning ?? {
-          id: "settings.pluginCenter.theOriginalSubmissionIsConfirmedCompleteIt",
-        },
-      );
-    } catch (cause) {
-      if (mounted.current) {
-        const error = failure(cause);
-        setSubmission(recoverable);
-        setError({
-          ...error,
-          context: "settings.pluginCenter.couldNotCheckTheOriginalSubmissionValue",
-          submissionUnknown: true,
-          requestId: recoverable.requestId,
-          operation: recoverable,
-        });
-      }
-    } finally {
-      if (mounted.current) {
-        await refresh();
-        if (selectedRef.current) await readDetail(selectedRef.current);
-        if (mounted.current) setActivity(null);
-      }
-      active.current = false;
-    }
-  };
+  const recoverSubmission = () =>
+    recoverable ? writes.recover(recoverable, writeContext) : Promise.resolve();
   const recoveryButton = recoverable && (
     <Button variant="outline" disabled={busy || loading} onClick={() => void recoverSubmission()}>
       {recoverable?.mutation === "pluginConnection"
@@ -1164,6 +1021,33 @@ export function PluginCenter({
   const componentWarning =
     detailSupport?.components.some((row) => row.status !== "supported") ||
     detailSupport?.compatibility.state === "blocked";
+  const detailPresentation = detail
+    ? presentPlugin({
+        detail,
+        runtimeObserved: connected,
+        projectSelected: !!projectId,
+        runtimeDiagnostics: components?.agentDiagnostics,
+        connection: connectionFacts,
+        hostAvailable:
+          readiness?.pluginId === detail.id && readiness.installedDigest === detail.installedDigest
+            ? readiness.available
+            : undefined,
+        submission: recoverable?.projectId === projectId ? recoverable : null,
+      })
+    : null;
+  const connectProject = async () => {
+    if (!projectId || connectingProject) return;
+    const owner = projectId;
+    setConnectingProject(true);
+    setError(null);
+    try {
+      await actionRef.current("connect", { projectId: owner });
+    } catch (cause) {
+      if (currentProject.current === owner) setError(failure(cause));
+    } finally {
+      setConnectingProject(false);
+    }
+  };
   const configureComponent = (kind: "skill" | "mcpServer", id: string, enabled: boolean) => {
     if (!detail?.installedDigest) return;
     void mutate({
@@ -1394,7 +1278,25 @@ export function PluginCenter({
             }
           />
           {(!project || !connected) && (
-            <Feedback message={t("settings.pluginCenter.runtimeNotObserved")} />
+            <>
+              <Feedback message={t("settings.pluginCenter.runtimeNotObserved")} />
+              {(!isDetail || pendingKind === "unknown" || pendingKind === "active") && (
+                <Button
+                  variant="outline"
+                  disabled={connectingProject}
+                  onClick={() => {
+                    if (projectId) void connectProject();
+                    else onChooseProject();
+                  }}
+                >
+                  {t(
+                    projectId
+                      ? "settings.pluginCenter.connectProjectBackend"
+                      : "settings.pluginCenter.chooseProjectToInstall",
+                  )}
+                </Button>
+              )}
+            </>
           )}
           {supported === false && (
             <Feedback error={t("settings.pluginCenter.thisCoreDoesNotSupportThePlugin")} />
@@ -1471,6 +1373,9 @@ export function PluginCenter({
                 ))}
               </SettingsDisclosure>
             )}
+          {!isDetail && (
+            <PluginDoctorSummary key={projectId ?? "user"} command={api} projectId={projectId} />
+          )}
           {!isDetail && !adding && recoveryButton}
           {!isDetail && setupThreadId && onOpenThread && (
             <Button onClick={() => onOpenThread(projectId, setupThreadId)}>
@@ -1900,13 +1805,6 @@ export function PluginCenter({
                   )}
                   {detail?.installed && (
                     <>
-                      <Button variant="outline" onClick={() => setDetailsOpen((value) => !value)}>
-                        {t(
-                          detailsOpen
-                            ? "settings.pluginCenter.hideDetails"
-                            : "settings.pluginCenter.viewPluginDetails",
-                        )}
-                      </Button>
                       {managing ? (
                         <Button
                           variant="outline"
@@ -1983,30 +1881,24 @@ export function PluginCenter({
                 <div className="plugin-detail-body">
                   {pendingKind !== "unknown" && pendingKind !== "active" && !installReview && (
                     <PluginOverview
-                      presentation={presentPlugin({
-                        detail,
-                        runtimeObserved: connected,
-                        hostAvailable:
-                          readiness?.pluginId === detail.id &&
-                          readiness.installedDigest === detail.installedDigest
-                            ? readiness.available
-                            : undefined,
-                        connection: connectionFacts,
-                        submission: recoverable?.projectId === projectId ? recoverable : null,
-                      })}
-                      disabled={busy || loading}
+                      presentation={detailPresentation!}
+                      disabled={
+                        busy ||
+                        loading ||
+                        ((detailPresentation?.nextAction === "install" ||
+                          detailPresentation?.nextAction === "enable") &&
+                          disabled)
+                      }
                       onNext={() => {
-                        const next = presentPlugin({
-                          detail,
-                          runtimeObserved: connected,
-                          hostAvailable:
-                            readiness?.pluginId === detail.id &&
-                            readiness.installedDigest === detail.installedDigest
-                              ? readiness.available
-                              : undefined,
-                          connection: connectionFacts,
-                          submission: recoverable?.projectId === projectId ? recoverable : null,
-                        }).nextAction;
+                        const next = detailPresentation?.nextAction;
+                        if (next === "connectProject") {
+                          void connectProject();
+                          return;
+                        }
+                        if (next === "chooseProject") {
+                          onChooseProject();
+                          return;
+                        }
                         if (next === "refresh") {
                           void refresh();
                           return;
@@ -2032,6 +1924,15 @@ export function PluginCenter({
                         }
                         if (next === "queryOriginal") {
                           void recoverSubmission();
+                          return;
+                        }
+                        if (
+                          next === "configure" &&
+                          detail.userConfiguration?.missingRequired.length
+                        ) {
+                          document
+                            .querySelector<HTMLElement>("[data-plugin-configuration]")
+                            ?.scrollIntoView({ block: "nearest" });
                           return;
                         }
                         if (next === "connections" || next === "configure")
@@ -2838,6 +2739,31 @@ export function PluginCenter({
                         </SettingsDisclosure>
                       )}
                     </div>
+                  )}
+                  {detail.installed && (
+                    <>
+                      <Feedback error={componentError} />
+                      <PluginConfiguration
+                        key={`${projectId ?? "user"}:${detail.id}:${detail.installedDigest}`}
+                        detail={detail}
+                        mutate={mutate}
+                        disabled={disabled}
+                        active={panelActive}
+                        command={api}
+                        projectId={projectId}
+                      />
+                      <PluginTemplateActions
+                        key={`${detail.id}:${detail.installedDigest}`}
+                        detail={detail}
+                        components={components}
+                        disabled={disabled}
+                        onRunCommand={onRunCommand}
+                        onStartDraft={onStartDraft}
+                      />
+                      {components?.developmentError && (
+                        <Feedback error={components.developmentError} />
+                      )}
+                    </>
                   )}
                   {connected && managing && detail.installed && detail.installedDigest && (
                     <PluginHookSettings

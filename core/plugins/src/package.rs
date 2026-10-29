@@ -698,6 +698,8 @@ pub(crate) fn parse_context(
         admission_digest: None,
         definition: None,
         installed_skills: vec![],
+        user_configuration: Default::default(),
+        development_link: None,
         component_choices: Default::default(),
         installed_metadata: None,
         component_support: None,
@@ -946,6 +948,9 @@ pub(crate) fn parse_context(
             d.diagnostics
                 .push("Connector IDs require explicit mapping and account authentication".into());
         }
+    }
+    if let Ok(schema) = crate::configuration::schema(overlay.get("userConfig")) {
+        d.user_configuration = crate::PluginUserConfiguration::default().public_view(&schema);
     }
     d.component_support = Some(crate::support::parse(
         files,
