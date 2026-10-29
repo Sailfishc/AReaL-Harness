@@ -3096,10 +3096,10 @@
     },
     {
       "id": "R-LAYOUT-012",
-      "title": "主 Composer 的模型配置保存与消息发送反馈分开：保存期间仍可编辑草稿，不播放发送中的 Spinner，也不通过禁用滑块打",
+      "title": "桌面 Composer 的模型和思考强度使用相邻的独立 Popover",
       "owner": "clients/gui/packages/ui/src/conversation/composer-surface/composer-surface.md#输入区与面板组合",
       "strength": "default",
-      "textSha256": "6c8ad10a1529b2b3c2aa9fcb15321b0b695e65e3cb2b6242c4fbc67b150ea725"
+      "textSha256": "decc612fc6c3543159bc4b7eecbf4a30066cf3f5da261012e222c2432652a930"
     },
     {
       "id": "R-LAYOUT-013",

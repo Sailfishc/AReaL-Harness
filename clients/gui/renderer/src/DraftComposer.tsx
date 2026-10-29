@@ -448,22 +448,10 @@ export function DraftComposer({
         )
           throw new Error("当前任务配置未提供所选 Skill 的确切版本，草稿已保留。");
       }
-      if (
-        effort &&
-        effort !== "default" &&
-        (chosenModel.capabilities?.reasoningEffortOptions !== undefined ||
-          chosenModel.reasoningEffortOptions?.length) &&
-        !chosenModel.reasoningEffortOptions.includes(effort)
-      )
-        throw new Error("所选推理强度已不可用，输入与选择已保留，请重新选择强度。");
       const parameters = { ...chosenModel.parameters };
-      if (chosenModel.capabilities?.reasoning === false) {
-        delete parameters.reasoningEffort;
-        delete parameters.reasoningSummary;
-      } else {
-        delete parameters.reasoningEffort;
-        if (effort) parameters.reasoningEffort = effort;
-      }
+      delete parameters.reasoningEffort;
+      if (effort) parameters.reasoningEffort = effort;
+      if (chosenModel.capabilities?.reasoning === false) delete parameters.reasoningSummary;
       creationAttempted = true;
       const creationRequest = {
         projectId: owner.id,

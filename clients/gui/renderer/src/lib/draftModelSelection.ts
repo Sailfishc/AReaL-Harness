@@ -32,7 +32,7 @@ export function draftModelSelection(
     (initialModel && modelValue(initialModel) === effectiveModel ? initialModel : undefined);
   const rememberedEffort =
     !chosenProfile?.model && model === null ? initialSelection.rememberedEffort : undefined;
-  const effort = resolveModelEffort(currentModel, efforts[effectiveModel] ?? rememberedEffort);
+  const effort = efforts[effectiveModel] ?? resolveModelEffort(currentModel, rememberedEffort);
   const notice =
     model === null && !chosenProfile?.model
       ? initialSelection.notice === "effort-unsupported"

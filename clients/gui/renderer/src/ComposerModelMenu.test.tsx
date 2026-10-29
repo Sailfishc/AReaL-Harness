@@ -44,6 +44,22 @@ describe("composer model provider identity", () => {
     expect(markup).not.toContain(`· ${provider === "direct" ? "relay" : "direct"}</span>`);
   });
 
+  it("shows an independent effort trigger for a non-reasoning model and preserves custom values", () => {
+    const markup = renderToStaticMarkup(
+      createElement(ComposerModelMenu, {
+        options: catalog.map(composerModelOption),
+        value: "direct/family/shared-model",
+        effort: "custom-effort",
+        onEffortChange: vi.fn(),
+        onChange: vi.fn(),
+        onClose: vi.fn(),
+      }),
+    );
+    expect(markup).toContain('aria-label="chat.composer.chooseModel"');
+    expect(markup).toContain('aria-label="chat.composer.chooseEffort"');
+    expect(markup).toContain('title="custom-effort"');
+  });
+
   it("does not invent a provider for an implicit legacy default", () => {
     const option = composerModelOption({ modelId: "legacy" });
     expect(option.value).toBe("");

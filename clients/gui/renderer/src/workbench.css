@@ -4043,11 +4043,14 @@ button[aria-label="停止"] {
 }
 .composer-effort-menu,
 .composer-model-menu {
-  width: 254px;
+  width: min(254px, calc(100vw - 24px));
   border-radius: var(--radius-composer);
   background: var(--color-composer-catalog, var(--color-background));
   gap: 0;
   padding: 12px;
+}
+.composer-model-menu {
+  width: min(440px, calc(100vw - 24px));
 }
 .composer-effort-center {
   text-align: center;
@@ -4058,17 +4061,7 @@ button[aria-label="停止"] {
   font-size: var(--text-ui-base);
   font-weight: 450;
   color: var(--color-brand);
-  line-height: 17px;
-}
-.composer-effort-center button {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--text-ui-caption);
-  color: var(--color-foreground-subtle);
-  padding: 1px 5px;
-  line-height: 18px;
+  line-height: var(--line-height-ui);
 }
 .composer-slider-shell {
   position: relative;
@@ -4151,14 +4144,6 @@ button[aria-label="停止"] {
   color: var(--color-foreground-subtle);
   margin-top: 8px;
   text-align: center;
-}
-.composer-model-heading {
-  padding: 2px 8px 7px;
-  font-size: var(--text-ui-caption);
-  color: var(--color-foreground-subtle);
-}
-.composer-model-heading button {
-  margin-right: 8px;
 }
 @media (max-width: 760px) {
   .composer-catalog-description {

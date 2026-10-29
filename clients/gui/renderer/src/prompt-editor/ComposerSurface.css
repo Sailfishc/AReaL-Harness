@@ -47,7 +47,8 @@
 .composer-model-trigger {
   max-width: 220px;
   min-width: 0;
-  height: 28px;
+  min-height: 28px;
+  height: auto;
   padding: 4px 8px;
   gap: 4px;
   border-radius: var(--radius-navigation);
@@ -67,36 +68,88 @@
   max-width: 45%;
   color: var(--color-foreground-subtle);
 }
-.composer-model-trigger .composer-model-effort,
 .composer-model-trigger > svg {
   flex-shrink: 0;
 }
-.composer-model-menu {
-  width: 254px;
-  padding: 7px 4px 6px;
+.composer-model-controls {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 2px;
 }
-.composer-model-menu [role="menuitemradio"] {
-  font-size: var(--text-ui-caption);
-  font-weight: 430;
-  padding-block: 5px;
+.composer-model-controls .composer-effort-trigger {
+  flex-shrink: 0;
+}
+.composer-model-menu .composer-model-browser {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr);
+  gap: 8px;
+  min-width: 0;
+}
+.composer-model-menu .composer-provider-list {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  max-height: min(360px, 60dvh);
+  overflow-y: auto;
+  padding: 0 8px 0 0;
+  border-right: 1px solid var(--color-border);
+  border-radius: 0;
+  background: transparent;
+}
+.composer-model-menu .composer-provider-option {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 32px;
+  padding: 6px 8px;
   border-radius: var(--radius-choice);
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: var(--text-ui-base);
+  font-weight: 430;
 }
-.composer-model-menu [role="radio"] {
+.composer-model-menu .composer-provider-option[data-active] {
+  background: var(--color-hover);
+}
+.composer-model-list {
+  min-width: 0;
+  max-height: min(360px, 60dvh);
+  overflow-y: auto;
+}
+.composer-model-option {
+  position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
   width: 100%;
+  min-height: 32px;
   text-align: left;
-  padding: 5px 8px;
-  border-radius: var(--radius-feedback);
+  padding: 6px 8px;
+  border-radius: var(--radius-choice);
   font-size: var(--text-ui-base);
-  min-height: 29px;
+  cursor: pointer;
 }
-.composer-model-menu [role="radio"]:enabled:is(:hover, :focus-visible) {
+.composer-model-option:has(input:enabled):is(:hover, :focus-within) {
   background: var(--color-hover);
 }
-.composer-model-menu [role="radio"]:disabled {
+.composer-model-option:has(input:focus-visible) {
+  outline: 2px solid var(--color-brand);
+  outline-offset: -2px;
+}
+.composer-model-option:has(input:disabled) {
   color: var(--color-foreground-subtle);
+  cursor: default;
+}
+.composer-model-option input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
 }
 .composer-model-source {
   overflow-wrap: anywhere;
@@ -107,13 +160,8 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.composer-model-menu [role="radio"] > svg {
+.composer-model-option > svg {
   flex-shrink: 0;
-}
-.composer-model-menu [role="radio"] small {
-  display: block;
-  font-size: var(--text-ui-sm);
-  color: var(--color-foreground-subtle);
 }
 
 @media (max-width: 1100px) {
