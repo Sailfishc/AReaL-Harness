@@ -24,7 +24,12 @@ import {
  * 2. ChatComposerPasteEvent 收口为本文件导出的结构类型；
  * 3. mention 面板用 enableMentionPanel 控制；slash command 始终读取 CLI workspace catalog。
  */
-import { $getPromptMarkdown } from "@/mentions/promptSerialization.js";
+import {
+  INLINE_PROMPT_MENTION_PATTERN,
+  $getPromptMarkdown,
+  $appendPromptTextLines,
+  $createPromptParagraph,
+} from "@/mentions/promptSerialization.js";
 import { PromptMentionTooltipPlugin } from "@/mentions/PromptMentionTooltipPlugin.js";
 import { PromptClipboardPlugin } from "@/mentions/PromptClipboardPlugin.js";
 import {
@@ -40,7 +45,6 @@ import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import {
   $createParagraphNode,
-  $createLineBreakNode,
   $createTextNode,
   $getSelection,
   $getNodeByKey,
@@ -57,11 +61,9 @@ import {
   KEY_TAB_COMMAND,
   type EditorState,
   type LexicalEditor,
-  type ParagraphNode,
 } from "lexical";
 import { SlashCommandPlugin } from "./SlashCommandPlugin.js";
 import type { ComposerCatalogData } from "./prompt-editor/ComposerCatalog.js";
-import { parsePluginStableId, parseSessionThreadId } from "./mentions/mentionMarkdown.js";
 import type { AppSlashCommand } from "./slashCommandHelpers.js";
 
 import {
@@ -115,20 +117,10 @@ function getEditorMarkdown(editorState: EditorState): string {
   return text;
 }
 
-// Literal TextNode newlines do not produce a final empty line, and adjacent
-// zero-margin Paragraph nodes collapse a canonical double newline visually.
-// Match keyboard/paste line boxes without changing the serialized draft text.
-function appendPlainTextLines(paragraph: ParagraphNode, text: string) {
-  for (const [index, line] of text.split("\n").entries()) {
-    if (index) paragraph.append($createLineBreakNode());
-    if (line) paragraph.append($createTextNode(line));
-  }
-}
-
 function replacePlainTextRoot(text: string) {
   const root = $getRoot();
   const paragraph = $createParagraphNode();
-  appendPlainTextLines(paragraph, text);
+  $appendPromptTextLines(paragraph, text);
   root.clear();
   root.append(paragraph);
   paragraph.selectEnd();
@@ -138,75 +130,10 @@ function replaceEditorText(editor: LexicalEditor, text: string) {
   editor.update(() => replacePlainTextRoot(text), { tag: PROGRAMMATIC_UPDATE_TAG });
 }
 
-const INLINE_PROMPT_MENTION_PATTERN = /\[((?:\\.|[^\\\]])*)\]\(/g;
-
-function inlineMentionNodes(text: string) {
-  const paragraph = $createParagraphNode();
-  let cursor = 0;
-  for (const match of text.matchAll(INLINE_PROMPT_MENTION_PATTERN)) {
-    const start = match.index ?? 0;
-    if (start < cursor) continue;
-    const destinationStart = start + match[0].length;
-    const angleDestination = text[destinationStart] === "<";
-    let depth = 1;
-    let destinationEnd = destinationStart + (angleDestination ? 1 : 0);
-    for (; destinationEnd < text.length; destinationEnd += 1) {
-      const character = text[destinationEnd];
-      if (character === "\\") {
-        destinationEnd += 1;
-        continue;
-      }
-      if (angleDestination) {
-        if (character === ">") break;
-        continue;
-      }
-      if (character === "(") depth += 1;
-      if (character === ")" && --depth === 0) break;
-    }
-    if (destinationEnd >= text.length || (angleDestination && text[destinationEnd + 1] !== ")"))
-      continue;
-    const markdownEnd = destinationEnd + (angleDestination ? 2 : 1);
-    const destination = text.slice(destinationStart + (angleDestination ? 1 : 0), destinationEnd);
-    const pluginId = parsePluginStableId(destination);
-    const threadId = parseSessionThreadId(destination);
-    const relativePath =
-      destination.startsWith("./") && !match[1]?.startsWith("$")
-        ? destination.slice(2).replace(/\\(.)/g, "$1")
-        : undefined;
-    if (!pluginId && !threadId && !relativePath) continue;
-    if (start > cursor) appendPlainTextLines(paragraph, text.slice(cursor, start));
-    const label = (match[1]?.replace(/\\(.)/g, "$1") ?? "").replace(
-      pluginId ? /^@/ : threadId ? /^#/ : /^@/,
-      "",
-    );
-    paragraph.append(
-      $createPromptMentionNode({
-        id: pluginId
-          ? `plugin:${pluginId}`
-          : threadId
-            ? `session:${threadId}`
-            : `file:${relativePath}`,
-        category: pluginId ? "plugins" : threadId ? "sessions" : "files",
-        label,
-        value: pluginId ?? threadId ?? relativePath!,
-        markdown: text.slice(start, markdownEnd),
-        ...(pluginId
-          ? { data: { pluginId } }
-          : relativePath
-            ? { data: { relativePath, kind: relativePath.endsWith("/") ? "directory" : "file" } }
-            : {}),
-      }),
-    );
-    cursor = markdownEnd;
-  }
-  if (cursor < text.length) appendPlainTextLines(paragraph, text.slice(cursor));
-  return paragraph;
-}
-
 function replaceEditorTextWithMentions(editor: LexicalEditor, text: string) {
   editor.update(
     () => {
-      const paragraph = inlineMentionNodes(text);
+      const paragraph = $createPromptParagraph(text);
       $getRoot().clear().append(paragraph);
       paragraph.selectEnd();
     },
@@ -404,7 +331,7 @@ function appendEditorPlainText(editor: LexicalEditor, text: string) {
         paragraph.append($createTextNode(" "));
       }
 
-      paragraph.append(...inlineMentionNodes(text).getChildren());
+      paragraph.append(...$createPromptParagraph(text).getChildren());
       paragraph.selectEnd();
     },
     { tag: PROGRAMMATIC_UPDATE_TAG },
@@ -1180,7 +1107,7 @@ function PasteCapturePlugin({
         editor.update(() => {
           const selection = $getSelection();
           if ($isRangeSelection(selection))
-            selection.insertNodes(inlineMentionNodes(text).getChildren());
+            selection.insertNodes($createPromptParagraph(text).getChildren());
         });
         return;
       }

@@ -21,7 +21,7 @@ exports: ["Tooltip", "TooltipContent", "TooltipProvider", "TooltipTrigger"]
 
 本合同覆盖同模块导出的整组组件：Tooltip, TooltipContent, TooltipProvider, TooltipTrigger。真实API读取生成的TypeScript声明。
 
-`TooltipContent.anchor` 与 Base UI `Tooltip.Positioner.anchor` 同型，为现有 DOM 或虚拟锚点定位提示，适用于 Lexical 行内节点。省略时定位现有 `TooltipTrigger`，视觉与交互继续由本组件提供。
+`TooltipContent.anchor` 与 Base UI `Tooltip.Positioner.anchor` 同型，支持 DOM 或虚拟锚点，可用于 Lexical 行内节点；省略时使用 `TooltipTrigger`。
 
 ## 状态
 
@@ -29,7 +29,7 @@ exports: ["Tooltip", "TooltipContent", "TooltipProvider", "TooltipTrigger"]
 
 ## 行为
 
-`R-TOOLTIP-001` 不作为唯一按钮名称，不在提示中放必须完成的业务动作。浮层使用 `tooltip` 语义角色；原生 DOM 适配由宿主将触发节点的 `aria-describedby` 关联到提示。
+`R-TOOLTIP-001` 不作为唯一按钮名称，不在提示中放必须完成的业务动作。浮层使用 `tooltip` 角色；DOM 宿主用 `aria-describedby` 关联触发节点与提示。
 
 ## 内容
 

@@ -14,10 +14,7 @@ import {
 import { parseSideSlashCommand } from "./sideSlashCommand.js";
 import { composerDraftStorage } from "./composerDraftStorage.js";
 import { composerPending } from "./composerPending.js";
-import {
-  composerWorkspaceFiles,
-  validateWorkspaceFileReference,
-} from "./lib/workspaceFileComposer.js";
+import { useComposerWorkspaceFiles } from "./lib/workspaceFileComposer.js";
 import { stripGenUiModelContext } from "@areal/gen-ui/contract";
 import { useI18n } from "./i18n/IntlProvider.js";
 import { FeedbackNotice } from "./FeedbackNotice.js";
@@ -26,7 +23,7 @@ import { CircleAlert } from "lucide-react";
 import { useComposerPrediction } from "./useComposerPrediction.js";
 import { ContextMeter } from "./ContextMeter.js";
 import { isOrdinaryConversation, interruptedConversationTurn } from "./ordinaryConversation.js";
-import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { McpComposerAttachments, useMcpDraft } from "./McpComposerAttachments.js";
 import { readMcpDraft, consumeMcpDraft, clearMcpDraft } from "./mcp-app-draft.js";
 import {
@@ -169,19 +166,7 @@ export function Composer({
   conversationReferences?: readonly ConversationReference[];
   onAnnotate?: (target: ImageAnnotationTarget) => void;
 }) {
-  const workspaceFiles = useMemo(
-    () =>
-      project.root
-        ? composerWorkspaceFiles(
-            readAction,
-            project.id,
-            project.root,
-            project.core?.connectionGeneration,
-            thread.id,
-          )
-        : undefined,
-    [readAction, project.id, project.root, project.core?.connectionGeneration, thread.id],
-  );
+  const workspaceFiles = useComposerWorkspaceFiles(readAction, project, thread.id);
   const { t } = useI18n();
   const referenceEntries = conversationReferenceEntries(
     conversationReferences,
@@ -998,9 +983,7 @@ export function Composer({
           }
           enableWorkspaceFileDrop={!!project.root && !editorDisabled}
           enableExternalFileDrop={!editorDisabled}
-          validateWorkspaceFile={(payload) =>
-            validateWorkspaceFileReference(readAction, project.id, project.root, payload)
-          }
+          validateWorkspaceFile={workspaceFiles?.validate}
           onFileDrop={(files) => setFiles((current) => [...current, ...files])}
           onWorkspaceReferencePendingChange={setWorkspaceReferencePending}
           taskId={thread.id}

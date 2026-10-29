@@ -151,7 +151,7 @@ export function MobileComposer({
   return (
     <>
       <div
-        className="mobile-composer [&_.composer-editor]:rounded-none [&_.composer-editor]:shadow-none flex-[0_0_auto] min-w-0 composer-dock"
+        className="mobile-composer p-0! max-w-none! w-full [&_.composer-primary-action]:min-w-[var(--size-touch-target)] [&_.composer-primary-action]:min-h-[var(--size-touch-target)] [&_[data-composer-leading-actions]]:flex-[0_1_auto]! [&_[data-composer-leading-actions]]:max-w-[45%] [&_[data-composer-trailing-actions]]:flex-1! [&_[data-composer-trailing-actions]]:min-w-0 [&_.composer-editor]:rounded-none [&_.composer-editor]:shadow-none flex-[0_0_auto] min-w-0 composer-dock"
         data-field="composer"
         data-config-revision={snapshot?.configRevision}
         data-active-turn={snapshot?.activeTurnId ?? ""}
@@ -201,7 +201,7 @@ export function MobileComposer({
           modelControl={
             <Button
               variant="ghost"
-              className="mobile-composer-chip text-fixed-caption text-foreground-subtle"
+              className="mobile-composer-chip h-auto min-h-[var(--size-touch-target)] min-w-0 max-w-full py-[calc(var(--spacing-inline)/2)] px-inline gap-[calc(var(--spacing-inline)/2)] shrink [&_span]:min-w-0 [&_span]:truncate [&_svg]:size-[var(--activity-chevron-size)]! text-fixed-caption text-foreground-subtle"
               data-action="model-sheet"
               disabled={disabled || command.busy || blocked}
               onClick={() => choose("model")}
@@ -218,7 +218,7 @@ export function MobileComposer({
           leadingActions={
             <Button
               variant="ghost"
-              className="mobile-composer-chip text-fixed-caption text-foreground-subtle"
+              className="mobile-composer-chip h-auto min-h-[var(--size-touch-target)] min-w-0 max-w-full py-[calc(var(--spacing-inline)/2)] px-inline gap-[calc(var(--spacing-inline)/2)] shrink [&_span]:min-w-0 [&_span]:truncate [&_svg]:size-[var(--activity-chevron-size)]! text-fixed-caption text-foreground-subtle"
               data-action="permission-sheet"
               aria-label={t("mobile.permissions")}
               disabled={disabled || command.busy || blocked}
@@ -300,15 +300,15 @@ export function MobileComposer({
           showCloseButton={false}
         >
           <div
-            className="mobile-sheet-handle bg-border [border-radius:var(--radius-pill)]"
+            className="mobile-sheet-handle shrink-0 self-center my-inline w-[calc(var(--spacing-section)+var(--spacing-inline))] h-[calc(var(--spacing-inline)/2)] bg-border [border-radius:var(--radius-pill)]"
             aria-hidden="true"
           />
-          <div className="mobile-sheet-header [&_h2]:text-fixed-emphasis [&_h2]:text-center">
+          <div className="mobile-sheet-header flex items-center justify-between gap-inline min-h-[var(--size-touch-target)] shrink-0 mb-field [&_h2]:flex-1 [&_h2]:text-fixed-emphasis [&_h2]:text-center">
             {panel === "model" && modelView !== "quick" && (
               <Button
                 variant="ghost"
                 size="icon"
-                className="mobile-sheet-back"
+                className="mobile-sheet-back min-w-[var(--size-touch-target)] min-h-[var(--size-touch-target)]"
                 aria-label={t("mobile.back")}
                 onClick={() => setModelView(modelView === "advanced" ? "quick" : "advanced")}
               >
@@ -328,7 +328,7 @@ export function MobileComposer({
             </DialogTitle>
             <Button
               variant="ghost"
-              className="mobile-sheet-done text-fixed-body font-semibold"
+              className="mobile-sheet-done h-[var(--size-touch-target)] min-w-[var(--size-touch-target)] p-0 text-fixed-body font-semibold"
               data-action="model-done"
               disabled={command.busy || (running && !!Object.keys(sheet ?? {}).length)}
               onClick={() => void save()}
@@ -336,7 +336,7 @@ export function MobileComposer({
               {t("mobile.done")}
             </Button>
           </div>
-          <div className="mobile-sheet-scroll">
+          <div className="mobile-sheet-scroll overflow-y-auto min-h-0 flex flex-col gap-section">
             {panel === "model" && (
               <>
                 {isNew && view.catalog?.unsupported && (
@@ -345,7 +345,7 @@ export function MobileComposer({
                 {modelView === "quick" && (
                   <Button
                     variant="ghost"
-                    className="mobile-model-summary text-fixed-section-title! justify-center"
+                    className="mobile-model-summary w-full h-auto min-h-[var(--size-touch-target)] gap-inline [&>span]:min-w-0 text-fixed-section-title! justify-center"
                     data-action="model-advanced"
                     onClick={() => setModelView("advanced")}
                   >
@@ -359,15 +359,15 @@ export function MobileComposer({
                   </Button>
                 )}
                 {modelView === "advanced" && (
-                  <div className="mobile-choice-group rounded-[var(--radius-card)] bg-hover">
+                  <div className="mobile-choice-group overflow-hidden rounded-[var(--radius-card)] bg-hover">
                     <Button
                       variant="ghost"
-                      className="mobile-setting-row text-fixed-emphasis! [&:not(:last-child)]:border-b [&:not(:last-child)]:border-border"
+                      className="mobile-setting-row flex w-full h-auto min-h-[var(--size-touch-target)] p-field gap-inline justify-start [&_svg]:size-[var(--spacing-field)]! text-fixed-emphasis! [&:not(:last-child)]:border-b [&:not(:last-child)]:border-border"
                       data-action="model-list"
                       onClick={() => setModelView("models")}
                     >
                       <span>{t("mobile.models")}</span>
-                      <span className="mobile-setting-value truncate">
+                      <span className="mobile-setting-value ml-auto min-w-0 truncate">
                         {selectedModel?.displayName || modelName}
                       </span>
                       <ChevronDown />
@@ -376,12 +376,12 @@ export function MobileComposer({
                       visibleEfforts.length > 0 && (
                         <Button
                           variant="ghost"
-                          className="mobile-setting-row text-fixed-emphasis! [&:not(:last-child)]:border-b [&:not(:last-child)]:border-border"
+                          className="mobile-setting-row flex w-full h-auto min-h-[var(--size-touch-target)] p-field gap-inline justify-start [&_svg]:size-[var(--spacing-field)]! text-fixed-emphasis! [&:not(:last-child)]:border-b [&:not(:last-child)]:border-border"
                           data-action="effort-list"
                           onClick={() => setModelView("effort")}
                         >
                           <span>{t("mobile.reasoning")}</span>
-                          <span className="mobile-setting-value">
+                          <span className="mobile-setting-value ml-auto min-w-0">
                             {selectedEffort && effortLabels[selectedEffort]
                               ? t(effortLabels[selectedEffort])
                               : t("chat.composer.serviceDefault")}
@@ -393,7 +393,7 @@ export function MobileComposer({
                 )}
                 {modelView === "models" && (
                   <RadioGroup
-                    className="mobile-choice-group rounded-[var(--radius-card)] bg-hover"
+                    className="mobile-choice-group overflow-hidden rounded-[var(--radius-card)] bg-hover"
                     aria-label={t("mobile.models")}
                     value={
                       selectedModel
@@ -419,11 +419,11 @@ export function MobileComposer({
                       <Radio.Root
                         key={`${value.providerId}/${value.modelId}`}
                         value={`${value.providerId ?? ""}/${value.modelId}`}
-                        className="mobile-model-choice mobile-choice-row border-0 [border-bottom:var(--border-width-default)_solid_var(--color-border)] bg-transparent text-foreground [font-family:inherit] text-fixed-body [line-height:1.4] cursor-pointer [&:last-child]:[border-bottom:0] [&_small]:text-fixed-caption [&_small]:text-foreground-subtle [&[data-disabled]]:opacity-50 [&[data-disabled]]:cursor-default [&:focus-visible]:[outline:var(--focus-width)_solid_var(--color-ring)] [&:focus-visible]:[outline-offset:calc(-1_*_var(--focus-width))]"
+                        className="mobile-model-choice mobile-choice-row flex items-center w-full min-h-[var(--size-touch-target)] h-auto p-field gap-inline text-start [&>span:first-child]:flex-1 [&>span:first-child]:min-w-0 border-0 [border-bottom:var(--border-width-default)_solid_var(--color-border)] bg-transparent text-foreground [font-family:inherit] text-fixed-body [line-height:1.4] cursor-pointer [&:last-child]:[border-bottom:0] [&_small]:text-fixed-caption [&_small]:text-foreground-subtle [&[data-disabled]]:opacity-50 [&[data-disabled]]:cursor-default [&:focus-visible]:[outline:var(--focus-width)_solid_var(--color-ring)] [&:focus-visible]:[outline-offset:calc(-1_*_var(--focus-width))]"
                         data-model-id={value.modelId}
                         disabled={running || command.busy || value.available === false}
                       >
-                        <span className="mobile-choice-copy [&_>_span]:font-semibold">
+                        <span className="mobile-choice-copy flex flex-col [&_>_span]:font-semibold">
                           <span>{value.displayName || value.modelId}</span>
                           {(value.isDefault || !value.providerId) && (
                             <small>{t("mobile.computerDefault")}</small>
@@ -432,7 +432,7 @@ export function MobileComposer({
                             <small>{t("mobile.modelUnavailable")}</small>
                           )}
                         </span>
-                        <Radio.Indicator className="mobile-choice-check text-brand">
+                        <Radio.Indicator className="mobile-choice-check inline-flex ml-auto [&_svg]:size-[var(--spacing-field)] text-brand">
                           <Check />
                         </Radio.Indicator>
                       </Radio.Root>
@@ -443,7 +443,7 @@ export function MobileComposer({
                   selectedModel?.capabilities?.reasoning !== false &&
                   visibleEfforts.length > 0 && (
                     <RadioGroup
-                      className="mobile-efforts rounded-[var(--radius-pill)] bg-hover"
+                      className="mobile-efforts grid grid-flow-col auto-cols-fr p-[calc(var(--spacing-inline)/2)] gap-[calc(var(--spacing-inline)/2)] rounded-[var(--radius-pill)] bg-hover"
                       aria-label={t("mobile.reasoning")}
                       value={selectedEffort ?? "default"}
                       onValueChange={(value) =>
@@ -458,11 +458,11 @@ export function MobileComposer({
                           key={value}
                           value={value}
                           aria-label={effortLabels[value] ? t(effortLabels[value]) : value}
-                          className="mobile-effort-choice rounded-[var(--radius-pill)] border-0 bg-transparent text-foreground-subtle text-fixed-caption [&[data-checked]]:bg-brand [&[data-checked]_.mobile-effort-dot]:bg-control-thumb [&:focus-visible]:ring-2 [&:focus-visible]:ring-ring"
+                          className="mobile-effort-choice grid place-items-center min-h-[var(--size-touch-target)] py-[calc(var(--spacing-inline)/2)] px-0 whitespace-nowrap [&[data-checked]_.mobile-effort-dot]:size-[calc(var(--size-touch-target)-var(--spacing-inline))] rounded-[var(--radius-pill)] border-0 bg-transparent text-foreground-subtle text-fixed-caption [&[data-checked]]:bg-brand [&[data-checked]_.mobile-effort-dot]:bg-control-thumb [&:focus-visible]:ring-2 [&:focus-visible]:ring-ring"
                           disabled={running || command.busy}
                         >
                           <span
-                            className="mobile-effort-dot rounded-[var(--radius-pill)] bg-current"
+                            className="mobile-effort-dot size-inline rounded-[var(--radius-pill)] bg-current"
                             aria-hidden="true"
                           />
                           <span className="sr-only">
@@ -476,11 +476,11 @@ export function MobileComposer({
             )}
             {panel === "permissions" && (
               <>
-                <p className="mobile-permission-question text-fixed-emphasis text-center">
+                <p className="mobile-permission-question m-0 text-fixed-emphasis text-center">
                   {t("mobile.permissionQuestion")}
                 </p>
                 <RadioGroup
-                  className="mobile-choice-group rounded-[var(--radius-overlay)] bg-hover"
+                  className="mobile-choice-group overflow-hidden rounded-[var(--radius-overlay)] bg-hover"
                   aria-label={t("mobile.permissions")}
                   value={selectedPermission(sheet?.options)}
                   onValueChange={(mode) =>
@@ -497,7 +497,7 @@ export function MobileComposer({
                     <Radio.Root
                       key={option.id}
                       value={option.id}
-                      className={`mobile-permission-choice mobile-choice-row border-0 [border-bottom:var(--border-width-default)_solid_var(--color-border)] bg-transparent text-foreground [font-family:inherit] text-fixed-body [line-height:1.4] cursor-pointer [&:last-child]:[border-bottom:0] [&_small]:text-fixed-caption [&_small]:text-foreground-subtle [&[data-disabled]]:opacity-50 [&[data-disabled]]:cursor-default [&:focus-visible]:[outline:var(--focus-width)_solid_var(--color-ring)] [&:focus-visible]:[outline-offset:calc(-1_*_var(--focus-width))] ${option.id === "fullAccess" ? "text-status-attention! [&_small]:text-status-attention!" : ""}`}
+                      className={`mobile-permission-choice gap-field [&>svg]:shrink-0 [&>svg]:size-section [&>.mobile-choice-copy]:flex-1 [&>.mobile-choice-copy]:min-w-0 mobile-choice-row flex items-center w-full min-h-[var(--size-touch-target)] h-auto p-field gap-inline text-start [&>span:first-child]:flex-1 [&>span:first-child]:min-w-0 border-0 [border-bottom:var(--border-width-default)_solid_var(--color-border)] bg-transparent text-foreground [font-family:inherit] text-fixed-body [line-height:1.4] cursor-pointer [&:last-child]:[border-bottom:0] [&_small]:text-fixed-caption [&_small]:text-foreground-subtle [&[data-disabled]]:opacity-50 [&[data-disabled]]:cursor-default [&:focus-visible]:[outline:var(--focus-width)_solid_var(--color-ring)] [&:focus-visible]:[outline-offset:calc(-1_*_var(--focus-width))] ${option.id === "fullAccess" ? "text-status-attention! [&_small]:text-status-attention!" : ""}`}
                       data-permission-preset={option.id}
                       disabled={
                         running ||
@@ -515,11 +515,11 @@ export function MobileComposer({
                       ) : (
                         <AutoPermissionIcon />
                       )}
-                      <span className="mobile-choice-copy">
+                      <span className="mobile-choice-copy flex flex-col">
                         <span className="text-fixed-emphasis">{t(option.labelId)}</span>
                         <small>{t(option.descriptionId)}</small>
                       </span>
-                      <Radio.Indicator className="mobile-choice-check text-foreground">
+                      <Radio.Indicator className="mobile-choice-check inline-flex ml-auto [&_svg]:size-[var(--spacing-field)] text-foreground">
                         <Check />
                       </Radio.Indicator>
                     </Radio.Root>
@@ -529,12 +529,12 @@ export function MobileComposer({
                   ) && (
                     <Radio.Root
                       value={selectedPermission(sheet?.options)}
-                      className="mobile-permission-choice mobile-choice-row border-0 [border-bottom:var(--border-width-default)_solid_var(--color-border)] bg-transparent text-foreground [font-family:inherit] text-fixed-body [line-height:1.4] cursor-pointer [&:last-child]:[border-bottom:0] [&_small]:text-fixed-caption [&_small]:text-foreground-subtle [&[data-disabled]]:opacity-50 [&[data-disabled]]:cursor-default [&:focus-visible]:[outline:var(--focus-width)_solid_var(--color-ring)] [&:focus-visible]:[outline-offset:calc(-1_*_var(--focus-width))]"
+                      className="mobile-permission-choice gap-field [&>svg]:shrink-0 [&>svg]:size-section [&>.mobile-choice-copy]:flex-1 [&>.mobile-choice-copy]:min-w-0 mobile-choice-row flex items-center w-full min-h-[var(--size-touch-target)] h-auto p-field gap-inline text-start [&>span:first-child]:flex-1 [&>span:first-child]:min-w-0 border-0 [border-bottom:var(--border-width-default)_solid_var(--color-border)] bg-transparent text-foreground [font-family:inherit] text-fixed-body [line-height:1.4] cursor-pointer [&:last-child]:[border-bottom:0] [&_small]:text-fixed-caption [&_small]:text-foreground-subtle [&[data-disabled]]:opacity-50 [&[data-disabled]]:cursor-default [&:focus-visible]:[outline:var(--focus-width)_solid_var(--color-ring)] [&:focus-visible]:[outline-offset:calc(-1_*_var(--focus-width))]"
                       disabled
                     >
                       <Shield />
                       <span>{permissionLabel(selectedPermission(sheet?.options))}</span>
-                      <Radio.Indicator className="mobile-choice-check">
+                      <Radio.Indicator className="mobile-choice-check inline-flex ml-auto [&_svg]:size-[var(--spacing-field)]">
                         <Check />
                       </Radio.Indicator>
                     </Radio.Root>
@@ -542,7 +542,7 @@ export function MobileComposer({
                 </RadioGroup>
               </>
             )}
-            <p className="mobile-sheet-note text-fixed-caption leading-normal text-foreground-subtle">
+            <p className="mobile-sheet-note m-0 text-fixed-caption leading-normal text-foreground-subtle">
               {t("mobile.configureAfterTurn")} {t("mobile.applyOnSend")}
             </p>
             {intent && command.error && (

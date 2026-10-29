@@ -34,7 +34,7 @@ editor、toolbar为必要插槽；context承载附件/引用/可读阻塞理由�
 
 ## 工作区文件引用
 
-`R-COMPOSERSURFACE-007` 裸 `@` 不展示文件候选或文件搜索状态；关键词在 Composer 中输入并显示，菜单不另设搜索框。输入关键词后才搜索工作区文件，文件组排在其他候选组之后。清空关键词后隐藏文件组。 从 `@` 选择的工作区文件引用必须在 Composer 和已发送的用户消息正文中采用与 Skills 一致的行内标识形式，显示既有文件图标与文件名，复用现有引用展示所有者。不得显示为上传附件卡片，也不得新增独立的展示组件或样式。悬停标识时，使用既有 Tooltip 显示完整绝对路径，路径由该草稿或聊天实际所属的项目或 Worktree 根目录与规范相对引用组成。发送、排队和草稿持久化继续保存规范相对引用，不能把绝对路径写回消息。实际上传的文件继续使用既有附件展示与上传链路。编辑器由 `PromptMentionNode` 与 `promptMentionDecoration` 接线，已发送正文由 `UserMessageBody` 与 `message-response-renderer` 接线，`Messages` 提供实际工作区根目录。复验运行 `AREAL_COMPOSER_FILES_REGRESSION=1 pnpm --dir clients/gui test:composer`，核对行内标识、完整悬停路径、真实 Worktree 根目录与上传附件的区别。**检查：**`clients/gui/scripts/composer-files-acceptance.mjs`
+`R-COMPOSERSURFACE-007` 裸 `@` 或清空关键词时隐藏文件候选及搜索状态。关键词在 Composer 输入，菜单不另设搜索框；搜索结果中的文件组排在最后。文件引用复用 Skills 行内标识的图标、文件名与展示所有者，覆盖编辑器和已发送正文，不采用上传附件卡片或新展示组件、样式。既有 Tooltip 显示实际项目或 Worktree 根目录与规范相对引用组成的完整绝对路径；发送、排队、持久化只保存相对引用。上传文件沿用附件链路。生产接线为 `PromptMentionNode`、`promptMentionDecoration`、`UserMessageBody`、`message-response-renderer`；`Messages` 提供根目录。运行 `AREAL_COMPOSER_FILES_REGRESSION=1 pnpm --dir clients/gui test:composer` 复验标识、悬停路径、Worktree 归属和上传附件。**检查：**`clients/gui/scripts/composer-files-acceptance.mjs`
 
 ## 可访问性
 

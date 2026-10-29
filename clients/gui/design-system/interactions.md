@@ -49,7 +49,7 @@
 ## I-INPUT 输入与提交
 
 - 意图：表达需求、填写信息、确认系统已受理。
-- `R-INTERACTION-008` 默认结构：ConversationComposer、现有 Input/表单与明确提交动作；继承业务提交所有者。工作区文件引用遵循 [R-COMPOSERSURFACE-007](../packages/ui/src/conversation/composer-surface/composer-surface.md#工作区文件引用)。
+- `R-INTERACTION-008` 默认结构：ConversationComposer、现有 Input/表单与明确提交动作；继承业务提交所有者。
 - 状态：空、编辑、组合输入、可提交、提交中、失败、结果未知。
 - `INPUT-TRUTH-01`：必须。草稿与已受理结果分开；IME 组合输入不触发提交；失败保留可恢复输入；未知受理不自动重发。
 - `INPUT-DEFAULT-01`：默认。标签说明预期输入；校验就近显示；明确采用即时生效或显式保存，不能同时暗示两种方式。

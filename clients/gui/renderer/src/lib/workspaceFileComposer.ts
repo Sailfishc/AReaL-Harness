@@ -1,6 +1,6 @@
 import { UiMessageError } from "@/i18n/IntlProvider.js";
-import type { Action } from "@/services.js";
-import type { MutableRefObject } from "react";
+import type { Action, Data } from "@/services.js";
+import { useMemo, type MutableRefObject } from "react";
 // LexicalChatInput 壳恢复后回归原始句柄类型（过渡的 ComposerInputHandle 最小面退役）。
 import type { LexicalChatInputHandle } from "@/LexicalChatInput.js";
 import {
@@ -37,7 +37,7 @@ export function appendWorkspaceFileMentionToComposer(params: {
   return nextText;
 }
 
-export async function validateWorkspaceFileReference(
+async function validateWorkspaceFileReference(
   action: Action,
   projectId: string,
   workspacePath: string,
@@ -92,29 +92,34 @@ export interface ComposerWorkspaceFiles {
   }>;
 }
 
-export function composerWorkspaceFiles(
-  action: Action,
-  projectId: string,
-  root: string,
-  connectionGeneration: unknown,
-  scope: string,
-): ComposerWorkspaceFiles {
-  return {
-    owner: JSON.stringify([projectId, root, connectionGeneration, scope]),
-    root,
-    search: async (query) => {
-      if (query.length > 256) throw new UiMessageError({ id: "chat.composer.fileQueryTooLong" });
-      if (query) return action("workspace", { projectId, operation: "search", query });
-      const result = await action("workspace", {
-        projectId,
-        operation: "list",
-        path: "",
-        showAll: true,
-      });
-      return {
-        entries: result.entries.map((entry) => ({ path: entry.name, dir: entry.dir })),
-        truncated: result.truncated,
-      };
-    },
-  };
+export function useComposerWorkspaceFiles(action: Action, project: Data, scope: string) {
+  const { id: projectId, root, core } = project;
+  const connectionGeneration = core?.connectionGeneration;
+  return useMemo(
+    () =>
+      root
+        ? {
+            owner: JSON.stringify([projectId, root, connectionGeneration, scope]),
+            root,
+            validate: (payload: WorkspaceFileDragPayload) =>
+              validateWorkspaceFileReference(action, projectId, root, payload),
+            search: async (query: string) => {
+              if (query.length > 256)
+                throw new UiMessageError({ id: "chat.composer.fileQueryTooLong" });
+              if (query) return action("workspace", { projectId, operation: "search", query });
+              const result = await action("workspace", {
+                projectId,
+                operation: "list",
+                path: "",
+                showAll: true,
+              });
+              return {
+                entries: result.entries.map((entry) => ({ path: entry.name, dir: entry.dir })),
+                truncated: result.truncated,
+              };
+            },
+          }
+        : undefined,
+    [action, projectId, root, connectionGeneration, scope],
+  );
 }
