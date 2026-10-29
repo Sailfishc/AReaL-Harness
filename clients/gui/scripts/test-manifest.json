@@ -937,5 +937,19 @@
       "playwright-webkit"
     ],
     "notes": "Production mobile UI, encrypted pairing and reload in Chromium/WebKit; browser memory and fixture Host only."
+  },
+  {
+    "script": "test:mobile-android",
+    "layer": "e2e",
+    "platforms": ["darwin", "linux"],
+    "areas": ["remote", "mobile"],
+    "requires": ["android-sdk", "android-emulator", "node-24.22.1", "relay-node-24.2.0", "openssl"]
+  },
+  {
+    "script": "test:mobile-android-storage",
+    "layer": "e2e",
+    "platforms": ["darwin", "linux"],
+    "areas": ["remote", "mobile"],
+    "requires": ["android-sdk", "android-emulator"]
   }
 ]

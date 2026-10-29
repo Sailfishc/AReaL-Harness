@@ -19,6 +19,10 @@ export const remoteMessages = {
     "zh-CN": "允许这个 iOS App 访问吗？",
     en: "Allow this iOS app to connect?",
   },
+  "settings.mobileSettings.clientKindAndroid": {
+    "zh-CN": "Android",
+    en: "Android",
+  },
   "settings.mobileSettings.clientKindIOS": {
     "zh-CN": "iPhone",
     en: "iPhone",
