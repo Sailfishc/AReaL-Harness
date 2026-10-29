@@ -3921,6 +3921,13 @@
       "textSha256": "f55f5411e6264678fe44ccfe8d5234bc05522f813688fc7a345ed1ad1a4681ba"
     },
     {
+      "id": "R-SCHEDULEDWORKSPACE-006",
+      "title": "TaskRow 只显示名称、规则与下次时间、状态三类信息",
+      "owner": "clients/gui/packages/ui/src/workbench/scheduled-workspace/scheduled-workspace.md#内容",
+      "strength": "default",
+      "textSha256": "efc272883ca154d34310236465b5129e1193fc35e369d8d194f333cfdb2aa2a2"
+    },
+    {
       "id": "R-TASKLISTITEM-001",
       "title": "任务运行/未读/置顶/Worktree事实来自宿主",
       "owner": "clients/gui/packages/ui/src/workbench/task-list-item/task-list-item.md#规则",

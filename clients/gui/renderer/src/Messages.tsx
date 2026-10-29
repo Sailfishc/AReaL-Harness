@@ -50,6 +50,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -65,7 +66,7 @@ import { sentImageAnnotations } from "./imageAnnotations.js";
 import { ImageAnnotationList } from "./ImageAnnotationViews.js";
 import { sentBrowserAnnotations } from "./browserAnnotations.js";
 import { SentReviewComments } from "./ReviewCommentViews.js";
-import { ScheduledTaskCards } from "./ScheduledTasks.js";
+import { latestScheduleItems, ScheduledTaskCards } from "./ScheduledTasks.js";
 import { TurnChangesPill, TurnFileSummary } from "./TurnFileSummary.js";
 import type { Data, Action } from "./services.js";
 type TranscriptSelectionSnapshot = {
@@ -246,6 +247,7 @@ export function Messages({
   const readingViewport = useRef<{ width: number; height: number } | undefined>(undefined);
   const owner = JSON.stringify([project.id, thread.id, embedded]);
   const latestTurnId = thread.turns?.at(-1)?.id;
+  const latestSchedules = useMemo(() => latestScheduleItems(thread.turns ?? []), [thread.turns]);
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<{ turnId: string; message: string } | null>(null);
   const selectionOwner = JSON.stringify([
@@ -1491,7 +1493,12 @@ export function Messages({
                         action={action}
                       />
                     ))}
-                <ScheduledTaskCards items={turn.items ?? []} project={project} action={action} />
+                <ScheduledTaskCards
+                  items={turn.items ?? []}
+                  project={project}
+                  action={action}
+                  latest={latestSchedules}
+                />
                 <TurnFileSummary
                   turn={turn}
                   readTurnReview={readTurnReview}

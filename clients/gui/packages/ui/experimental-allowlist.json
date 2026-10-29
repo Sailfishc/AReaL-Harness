@@ -84,6 +84,12 @@
     "exitCondition": "Evaluate ScheduledWorkspace against its component contract and Base admission before graduation, or remove this consumer."
   },
   {
+    "file": "renderer/src/ScheduledTasks.tsx",
+    "symbol": "ScheduledWorkspace",
+    "owner": "renderer/src/ScheduledTasks.tsx",
+    "exitCondition": "Evaluate ScheduledWorkspace.TaskRow against its component contract and Base admission before graduation, or remove this consumer."
+  },
+  {
     "file": "renderer/src/TaskListItem.tsx",
     "symbol": "MemoTaskItem",
     "owner": "renderer/src/TaskListItem.tsx",

@@ -416,6 +416,20 @@ const card = (id) =>
   page.locator(`[data-testid="scheduled-task-card"][data-task-id="${id}"]`).first();
 const resourceRow = (id) =>
   page.getByLabel("本会话定时任务", { exact: true }).locator(`[data-task-id="${id}"]`);
+// 行内操作收进“更多操作”菜单；删除在菜单内二次确认。
+async function rowMenu(id, name) {
+  await resourceRow(id).getByRole("button", { name: "更多操作", exact: true }).click();
+  const item = page.getByRole("menuitem", { name, exact: true });
+  if (name === "删除…") {
+    await item.click();
+    await page.getByRole("menuitem", { name: "确认删除", exact: true }).click();
+  } else await item.click();
+}
+async function rowMenuHas(id, name) {
+  await resourceRow(id).getByRole("button", { name: "更多操作", exact: true }).click();
+  await page.getByRole("menuitem", { name, exact: true }).waitFor();
+  await page.keyboard.press("Escape");
+}
 async function resources() {
   const panel = page.getByLabel("任务资源面板", { exact: true });
   if (!(await panel.isVisible()))
@@ -987,13 +1001,13 @@ try {
     for (const entry of [A, B]) await resourceRow(entry.id).waitFor();
     await shot("02-source-resources");
     let count = requests.length;
-    await resourceRow(A.id).getByRole("button", { name: "暂停", exact: true }).click();
+    await rowMenu(A.id, "暂停");
     await until(async () => (await task(A.id)).paused, "resource pause is authoritative");
     assert.equal(requests.length, count, "pause needs no model call");
-    await resourceRow(A.id).getByRole("button", { name: "开启", exact: true }).click();
+    await rowMenu(A.id, "开启");
     await until(async () => !(await task(A.id)).paused, "resource enable is authoritative");
     assert.equal(requests.length, count, "enable needs no model call");
-    await resourceRow(A.id).getByRole("button", { name: "立即运行", exact: true }).click();
+    await rowMenu(A.id, "立即运行");
     const completedA = await until(async () => {
       const value = await task(A.id);
       return value.runs.some((run) => run.status === "completed") && value;
@@ -1040,7 +1054,7 @@ try {
     await resourceRow(B.id).waitFor();
     assert.equal(await resourceRow(B.id).count(), 1);
     count = requests.length;
-    await resourceRow(B.id).getByRole("button", { name: "立即运行", exact: true }).click();
+    await rowMenu(B.id, "立即运行");
     const busyB = await until(async () => {
       const value = await task(B.id);
       return value.runs.some((run) => run.status === "running") && held.size && value;
@@ -1050,9 +1064,9 @@ try {
       const view = (await snapshot()).projects.find((project) => project.id === projectId);
       return view?.state?.tasks?.[B.id]?.revision >= busyB.revision;
     }, "running task revision reaches the controls projection");
-    await resourceRow(B.id).getByRole("button", { name: "停止本次", exact: true }).waitFor();
+    await rowMenuHas(B.id, "停止本次");
     count = requests.length;
-    await resourceRow(B.id).getByRole("button", { name: "删除", exact: true }).click();
+    await rowMenu(B.id, "删除…");
     const deletedB = await until(async () => {
       const value = await task(B.id);
       return (

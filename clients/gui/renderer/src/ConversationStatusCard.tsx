@@ -3,11 +3,7 @@ import { Disclosure, TaskContext } from "@areal/ui/experimental";
 import "@areal/ui/conversation.css";
 import { Button } from "./components/ui/button.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import {
-  ScheduledTaskControls,
-  ScheduledTaskSummary,
-  ThreadScheduledTasks,
-} from "./ScheduledTasks.js";
+import { ScheduledTaskRow, ThreadScheduledTasks } from "./ScheduledTasks.js";
 import { processItems, toolPresentation } from "./conversationPresentation.js";
 import { ReviewPanelIcon, TerminalPanelIcon, DocumentPanelIcon } from "./app-shell/panelIcons.js";
 import { AgentsPane } from "./AgentsPane.js";
@@ -281,13 +277,12 @@ export function ConversationStatusCard({
             data-scheduled-task-card={scheduledTask.id}
             data-task-id={scheduledTask.id}
           >
-            <h3 className="task-resources-heading">定时任务</h3>
-            <p className="scheduled-task-description">{scheduledTask.objective}</p>
-            <ScheduledTaskSummary task={scheduledTask} project={project} />
-            <ScheduledTaskControls
+            <h3 className="task-resources-heading">{t("operations.schedules.title")}</h3>
+            <ScheduledTaskRow
               task={scheduledTask}
               project={project}
               action={action}
+              variant="compact"
               disabled={scheduledTask.controlDisabled}
             />
           </section>

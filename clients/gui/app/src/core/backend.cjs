@@ -491,7 +491,11 @@ class CoreBackend {
               ...projectCoreCapabilities(this.binary, live?.client?.capabilities),
               instanceId: live?.service?.serviceId ?? null,
               connectionGeneration: live?.connectionGeneration ?? 0,
-              taskDirectoryRevision: this.ownerTasks.revision,
+              taskDirectoryRevision: this.ownerTasks.revision(project.id),
+            },
+            scheduling: {
+              suppressed: this.lifecycleOperations.schedulingSuppressed(project.id),
+              activationError: this.scheduleOwners?.error(project.id) ?? null,
             },
             state: state && live?.resourceInitializing ? { ...state, connected: false } : state,
             pending: (live?.pending ?? [])

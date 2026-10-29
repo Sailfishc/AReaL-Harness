@@ -7,8 +7,16 @@ import {
   activeScheduledTask,
   scheduledTaskStatus,
   ScheduledTaskControls,
-  ScheduledTaskSummary,
 } from "./ScheduledTasks.js";
+import { ScheduledTaskEditDialog } from "./ScheduledTaskEditDialog.js";
+import {
+  describeMoment,
+  describeSchedule,
+  scheduledTaskName,
+  scheduledTaskState,
+  scheduledTaskStateLabel,
+  scheduledTaskSummary,
+} from "./scheduleText.js";
 import { scheduleZone, runZone } from "./TaskRunConversations.js";
 import { useI18n, type MessageId, type Translate } from "./i18n/IntlProvider.js";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -729,6 +737,8 @@ export function TaskCenter({
   const refreshRead = useRef<(more?: boolean, retryProjectId?: string) => Promise<void>>(
     async () => {},
   );
+  // 后台变化只做静默重读：已有行的项目不回到读取中，失败时保留上一版。
+  const quietRead = useRef<(projectIds?: string[]) => Promise<void>>(async () => {});
   const pages = useRef(1);
   const [controlView, setControlView] = useState<Data | null>(null);
   const [channelError, setChannelError] = useState("");
@@ -1021,16 +1031,23 @@ export function TaskCenter({
     let active = true,
       reading = false;
     const queued = new Set<string>();
+    const quietQueued = new Set<string>();
     const owners = selection.current.projects;
     setCatalog((previous) =>
       Object.fromEntries(
         owners.flatMap((owner) => (previous[owner.id] ? [[owner.id, previous[owner.id]]] : [])),
       ),
     );
-    const read = async (more = false, retryProjectId?: string, explicitRefresh = false) => {
+    const read = async (
+      more = false,
+      retryProjectId?: string,
+      explicitRefresh = false,
+      quietOwners?: string[],
+    ) => {
       if (!active || !connected || !catalogSupported) return;
       if (reading) {
-        queued.add(retryProjectId ?? "");
+        if (quietOwners) for (const id of quietOwners) quietQueued.add(id);
+        else queued.add(retryProjectId ?? "");
         return;
       }
       if (more) pages.current++;
@@ -1040,6 +1057,7 @@ export function TaskCenter({
       catalogTrace("begin", identity);
       const queue = owners
         .filter((owner) => !retryProjectId || owner.id === retryProjectId)
+        .filter((owner) => !quietOwners || quietOwners.includes(owner.id))
         .sort(
           (a, b) =>
             Number(
@@ -1058,53 +1076,60 @@ export function TaskCenter({
           while (active && queue.length) {
             const owner = queue.shift();
             if (!owner) continue;
-            setCatalog((previous) => ({
-              ...previous,
-              [owner.id]: { status: "pending", identity, previous: ownerRows(previous[owner.id]) },
-            }));
-            let observed = false;
-            void action("tasks", {
-              operation: "preview",
-              projectId: owner.id,
-              limit: Math.min(1024, 30 * pages.current),
-              ...identity,
-            })
-              .then((result) => {
-                if (
-                  !active ||
-                  observed ||
-                  result.errors.length ||
-                  result.projectId !== owner.id ||
-                  result.requestId !== identity.requestId ||
-                  result.viewEpoch !== viewEpoch
-                )
-                  return;
-                const observation = result.owners[0];
-                if (observation.status !== "unobserved") return;
-                setCatalog((previous) => {
-                  const read = previous[owner.id];
-                  if (
-                    (read?.status !== "pending" && read?.status !== "error") ||
-                    read.identity !== identity ||
-                    (!result.data.length && read.previous)
-                  )
-                    return previous;
-                  return {
-                    ...previous,
-                    [owner.id]: {
-                      ...read,
-                      previous: {
-                        source: "published",
-                        data: result.data,
-                        hasMore: result.hasMore,
-                        readAt: observation.readAt,
-                        coverage: observation.coverage,
-                      },
-                    },
-                  };
-                });
+            const quiet = !!quietOwners && catalogState.current[owner.id]?.status === "ready";
+            if (!quiet)
+              setCatalog((previous) => ({
+                ...previous,
+                [owner.id]: {
+                  status: "pending",
+                  identity,
+                  previous: ownerRows(previous[owner.id]),
+                },
+              }));
+            let observed = quiet;
+            if (!quiet)
+              void action("tasks", {
+                operation: "preview",
+                projectId: owner.id,
+                limit: Math.min(1024, 30 * pages.current),
+                ...identity,
               })
-              .catch(() => {});
+                .then((result) => {
+                  if (
+                    !active ||
+                    observed ||
+                    result.errors.length ||
+                    result.projectId !== owner.id ||
+                    result.requestId !== identity.requestId ||
+                    result.viewEpoch !== viewEpoch
+                  )
+                    return;
+                  const observation = result.owners[0];
+                  if (observation.status !== "unobserved") return;
+                  setCatalog((previous) => {
+                    const read = previous[owner.id];
+                    if (
+                      (read?.status !== "pending" && read?.status !== "error") ||
+                      read.identity !== identity ||
+                      (!result.data.length && read.previous)
+                    )
+                      return previous;
+                    return {
+                      ...previous,
+                      [owner.id]: {
+                        ...read,
+                        previous: {
+                          source: "published",
+                          data: result.data,
+                          hasMore: result.hasMore,
+                          readAt: observation.readAt,
+                          coverage: observation.coverage,
+                        },
+                      },
+                    };
+                  });
+                })
+                .catch(() => {});
             try {
               if (retryProjectId)
                 await action("connect", { projectId: owner.id, resumeScheduling: true });
@@ -1148,6 +1173,7 @@ export function TaskCenter({
                 throw new Error("后台任务目录响应身份不匹配，请更新后台后重试。");
               const observation = result.owners[0];
               if (result.errors.length || observation.status === "error") {
+                if (quiet) continue;
                 setCatalog((previous) => ({
                   ...previous,
                   [owner.id]: {
@@ -1173,6 +1199,7 @@ export function TaskCenter({
                 catalogTrace("epoch_discarded", identity, owner.id);
                 continue;
               }
+              if (quiet) continue;
               setCatalog((previous) => ({
                 ...previous,
                 [owner.id]: {
@@ -1193,23 +1220,40 @@ export function TaskCenter({
         queued.clear();
         if (pending.includes("")) void read();
         else for (const id of pending) void read(false, id);
+      } else if (active && quietQueued.size) {
+        const pending = [...quietQueued];
+        quietQueued.clear();
+        void read(false, undefined, false, pending);
       }
     };
     refreshRead.current = (more, retryProjectId) => read(more, retryProjectId, true);
+    quietRead.current = (projectIds) =>
+      read(false, undefined, false, projectIds ?? owners.map((owner) => owner.id));
     void read();
-    const listener = () => {
-      if (!mutation.current) void read(false, undefined, true);
+    const listener = (event: Event) => {
+      const projectId = (event as CustomEvent).detail;
+      if (!mutation.current)
+        void read(false, undefined, false, typeof projectId === "string" ? [projectId] : undefined);
     };
     window.addEventListener("areal-scheduled-tasks-changed", listener);
-    window.addEventListener("focus", listener);
     return () => {
       active = false;
       window.removeEventListener("areal-scheduled-tasks-changed", listener);
-      window.removeEventListener("focus", listener);
       for (const identity of batches) catalogTrace("abandoned", identity);
       batches.clear();
     };
-  }, [action, connected, catalogSupported, projectIds, directoryRevision]);
+  }, [action, connected, catalogSupported, projectIds]);
+  const seenRevisions = useRef(new Map<string, number>());
+  useEffect(() => {
+    const changed = projects.flatMap((project) => {
+      const revision = project.core?.taskDirectoryRevision ?? 0;
+      const previous = seenRevisions.current.get(project.id);
+      seenRevisions.current.set(project.id, revision);
+      return previous !== undefined && previous !== revision ? [project.id] : [];
+    });
+    if (changed.length) void quietRead.current(changed);
+    // projects 每次渲染都是新数组；只看各项目的目录版本。
+  }, [directoryRevision]);
   useEffect(() => {
     setConfirmedWatch(null);
     if (!task || !connected || !project?.state?.connected || ownerFailed) return;
@@ -1564,22 +1608,31 @@ export function TaskCenter({
       row.mode === "scheduled" &&
       (row.objectivePreview ?? row.objective).toLowerCase().includes(search.toLowerCase()),
   );
+  const rowDescription = (row: Data) => {
+    const cached =
+      ownerRows(catalog[row.projectId])?.source === "published" ||
+      !connected ||
+      catalog[row.projectId]?.status === "error";
+    const state = scheduledTaskState(
+      row,
+      projects.find((owner) => owner.id === row.projectId),
+      t,
+    );
+    const text =
+      row.deletedAt != null
+        ? scheduledTaskStatus(row, t)
+        : state.kind === "attention"
+          ? `${t("operations.schedules.attention")} · ${state.reason}`
+          : state.kind === "paused" || state.kind === "finished"
+            ? taskStatus(row, t)
+            : row.nextRunAt != null
+              ? `${describeMoment(row.nextRunAt, t, scheduleZone(row))} · ${describeSchedule(row, t)}`
+              : taskStatus(row, t);
+    return cached ? `${text} · ${t("operations.schedules.cached")}` : text;
+  };
   const runHistory = task && project && (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        <Button
-          size="sm"
-          disabled={
-            disabled ||
-            task.cancelled ||
-            !!activeRun ||
-            history.owner !== selected ||
-            !history.runNow
-          }
-          onClick={() => void control({ operation: "taskRunNow" })}
-        >
-          {t("operations.runNow")}
-        </Button>
         {activeRun && (
           <Button
             size="sm"
@@ -1922,13 +1975,10 @@ export function TaskCenter({
             {!connected && <p role="status">{t("operations.schedules.disconnectedCatalog")}</p>}
             {projects.map((owner) => {
               const read = catalog[owner.id];
-              const saved = ownerRows(read);
               return (
                 <TaskCatalogNotice
                   key={owner.id}
                   projectName={projectLabel(owner)}
-                  published={saved?.source === "published"}
-                  taskCount={saved?.data.length ?? 0}
                   error={
                     catalogSupported && read?.status === "error"
                       ? read.message || t("operations.schedules.readFailed")
@@ -1972,19 +2022,7 @@ export function TaskCenter({
                         aria-pressed={taskKey(row) === selected}
                         disabled={!connected}
                         title={row.objectivePreview ?? row.objective}
-                        description={
-                          ownerRows(catalog[row.projectId])?.source === "published" ||
-                          !connected ||
-                          catalog[row.projectId]?.status === "error"
-                            ? t("operations.schedules.cached")
-                            : row.deletedAt != null
-                              ? scheduledTaskStatus(row, t)
-                              : row.paused || row.cancelled || finished(row)
-                                ? taskStatus(row, t)
-                                : row.nextRunAt != null
-                                  ? date(row.nextRunAt, scheduleZone(row))
-                                  : taskStatus(row, t)
-                        }
+                        description={rowDescription(row)}
                         onClick={() => {
                           setCreating(false);
                           setSelected(taskKey(row));
@@ -2201,6 +2239,8 @@ function ScheduledTaskConversation({
     status: "pending",
   });
   const [retry, setRetry] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const state = scheduledTaskState(task, project, t);
   useEffect(() => {
     if (!project.state?.connected) return;
     let live = true;
@@ -2230,29 +2270,40 @@ function ScheduledTaskConversation({
       aria-label={t("operations.schedules.conversation")}
       data-task-id={task.id}
     >
-      <header>
-        <h2>{task.objectivePreview ?? task.objective}</h2>
+      <header className="scheduled-task-header">
+        <h2 title={task.objective}>{scheduledTaskName(task)}</h2>
+        <ScheduledWorkspace.Status state={state.kind} label={scheduledTaskStateLabel(state, t)} />
+        <span className="scheduled-task-header-summary" title={project.root}>
+          {state.kind === "attention" ? state.reason : scheduledTaskSummary(task, t)}
+        </span>
+        <ScheduledTaskControls
+          task={task}
+          project={project}
+          action={action}
+          disabled={disabled}
+          onEdit={() => setEditing(true)}
+        />
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={read.status !== "ready" || !thread}
+          onClick={() => onOpenThread(project.id, task.sourceThreadId)}
+        >
+          {t("operations.schedules.openSource")}
+        </Button>
         {thread && renderResources(project, thread)}
         <Button size="sm" variant="ghost" onClick={onClose}>
           {t("operations.schedules.closeDetails")}
         </Button>
       </header>
-      <div className="task-plan-summary">
-        <ScheduledTaskSummary task={task} project={project} />
-        <ScheduledTaskControls task={task} project={project} action={action} disabled={disabled} />
-        <details>
-          <summary>{t("operations.schedules.location")}</summary>
-          <p className="break-all">{project.root}</p>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={read.status !== "ready" || !thread}
-            onClick={() => onOpenThread(project.id, task.sourceThreadId)}
-          >
-            {t("operations.schedules.openSource")}
-          </Button>
-        </details>
-      </div>
+      {editing && (
+        <ScheduledTaskEditDialog
+          task={task}
+          project={project}
+          action={action}
+          onClose={() => setEditing(false)}
+        />
+      )}
       {read.status === "error" && (
         <p role="alert" className="task-plan-note">
           {t("operations.schedules.sourceUnavailable")}
