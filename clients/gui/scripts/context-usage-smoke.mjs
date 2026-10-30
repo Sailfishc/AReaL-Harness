@@ -325,6 +325,7 @@ const context = (id) =>
   call("manage", { projectId, threadId: id, operation: "context", offset: 0, limit: 1 });
 async function choose(label) {
   await page.getByTestId("composer-model-trigger").click();
+  await page.getByRole("tab", { name: "Fixture", exact: true }).click();
   await page.getByRole("radio", { name: label, exact: true }).click();
   await dismissPopovers();
   await page.waitForFunction((label) => {

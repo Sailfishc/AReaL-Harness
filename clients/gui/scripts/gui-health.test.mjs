@@ -171,7 +171,7 @@ test("an explicit base detects baseline relaxation in the same change", async (t
   assert.match(result.stderr, /baseline/i);
 });
 
-test("an explicit base reports regressions it already carries and rejects further growth", async (t) => {
+test("an explicit base classifies inherited regressions without waiving the reviewed baseline", async (t) => {
   const f = await fixture(t);
   const git = (...args) => spawnSync("git", args, { cwd: join(f.root, "../.."), encoding: "utf8" });
   assert.equal(f.run("--write").status, 0);
@@ -191,10 +191,12 @@ test("an explicit base reports regressions it already carries and rejects furthe
     0,
   );
   const inherited = f.run("--check", "--base=HEAD");
-  assert.equal(inherited.status, 0, inherited.stderr);
+  assert.notEqual(inherited.status, 0);
   assert.match(inherited.stderr, /appLines.*inherited/);
+  const allowed = f.run("--check", "--base=HEAD", "--allow-regression=appLines");
+  assert.equal(allowed.status, 0, allowed.stderr);
   assert.deepEqual(
-    JSON.parse(inherited.stdout).inheritedRegressions.map((failure) => failure.metric),
+    JSON.parse(allowed.stdout).inheritedRegressions.map((failure) => failure.metric),
     ["appLines"],
   );
   await f.put("renderer/src/App.tsx", 'import { useState } from "react";\nuseState(1);\n\n\n');

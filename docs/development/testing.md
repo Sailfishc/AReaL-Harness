@@ -393,6 +393,10 @@ PR #111 在初始 G0 快照后整合历史恢复与定时任务所有权。以�
 
 本地与 CI 通过 `scripts/ci-preflight.py --groups <组名>` 执行同一计划，`--plan` 只展示。`make ci-gui-static CI_BASE=<ref>` 运行 Portable 的提交阶段，`make ci-gui-portable CI_BASE=<ref>` 运行完整 Portable 组，`make ci-core-contracts CI_BASE=<ref>` 连同产物依赖运行 Core 契约。`make ci-gui-health` 保留轻量健康入口。显式 `AREAL_CORE_BIN` 必须与刚构建的 Core 哈希一致；macOS 原生执行按固定产物路径流程准备。CI 只有同一 run/attempt 的产物依赖报告可跨 job 使用，消费者重新核对产物哈希。最终 gate 独立重算计划，严格核对结果全集、子测试全集和源码/计划/run/attempt 身份，缺项或意外 skip 拒绝放行。
 
+`gui-health.mjs --check --base=<ref>` 会标记基线源码已存在的超限，仍以已审核的 `health-baseline.json` 判定失败。继承分类用于归因，不是自动豁免；显式例外与基准变更继续经过既有审查。模型菜单 smoke 通过稳定的 `composer-model-trigger` 打开入口，在对应服务商标签内选择原生 radio，并以选中模型和后续行为验证结果。
+
+`Track red main` 工作流跟踪 main 上 `Verify` 和 `GUI checks` 的 push 结果。写 issue 前核对当前 main 提交、该 workflow 最新 run/attempt 及终态；过期通知与未完成的新 attempt 不修改告警。当前失败创建或更新对应 issue，当前成功关闭；仓库保护规则拥有必需检查设置。`python3 -m unittest scripts.tests.test_ci_contracts` 在 GitHub CLI 边界使用离线响应，覆盖乱序完成、旧 attempt、新运行未完成和 API 读取失败，测试不会写入真实 issue。
+
 运行 `make hooks-install CI_BASE=upstream-readonly/main` 激活本地 hooks。安装器保存实际远程目标，不覆盖其他 hooks。提交钩子在暂存快照验证 manifest、生成 `target/ci/staged-plan.json`，再检查格式和 workflow；计划展示不等于执行验收。推送钩子要求推送 SHA 等于当前 HEAD、受控文件及非忽略未跟踪输入干净，抓取目标后运行受影响快检加失败专项和依赖。并发工作使用独立干净 worktree。`make workflow-lint` 使用校验 SHA-256 的 actionlint 1.7.12。远端独立执行适用检查；真实供应商、设备和签名安装包仍需专项验收。
 
 `pnpm --dir clients/gui test:macos-dmg` 在 macOS 上独立通过真实 `codesign` 和 `hdiutil` 验证签名 framework 暂存。它需要允许磁盘映像设备访问的环境；受限 Agent 沙箱可能返回 `Device not configured`。应记录环境失败，并在允许的宿主环境重跑相同测试，不跳过断言，也不据此宣称安装包验收通过。macOS GUI job 显式执行该检查；可移植 `verify` 不创建磁盘映像。

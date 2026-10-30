@@ -86,7 +86,8 @@ export async function runSharedWorkspace(page, scratch, report, baseline) {
       "new Side uses the same model name and effort as main",
     );
     await sideModel.click();
-    const models = page.getByRole("radiogroup", { name: "模型列表", exact: true });
+    const modelMenu = page.getByRole("dialog", { name: "选择模型", exact: true });
+    const models = modelMenu.getByRole("radiogroup", { name: "模型列表", exact: true });
     await models.waitFor();
     assert.equal(
       await models.getByRole("radio", { name: /继承/ }).count(),
@@ -98,36 +99,52 @@ export async function runSharedWorkspace(page, scratch, report, baseline) {
       1,
       "source model is selected in the shared catalog",
     );
+    assert.equal(await models.getByRole("radio").count(), 1, "current provider owns one model");
+    const preview = modelMenu.getByRole("tab", { name: "preview", exact: true });
+    const alternate = modelMenu.getByRole("tab", { name: "preview-alternate", exact: true });
+    assert.ok(await preview.isVisible());
+    assert.ok(await alternate.isVisible());
+    await alternate.click();
+    const alternatePanel = modelMenu.getByRole("tabpanel", {
+      name: "preview-alternate",
+      exact: true,
+    });
+    await alternatePanel.getByRole("radio").waitFor();
     assert.equal(
-      await models.getByRole("radio").count(),
-      2,
-      "same model from two providers remains two choices",
+      await alternatePanel.getByRole("radio").count(),
+      1,
+      "alternate provider owns one model",
     );
-    assert.equal(
-      await models.locator('[data-model-value="preview/shared"] small').innerText(),
-      "preview",
-    );
-    assert.equal(
-      await models.locator('[data-model-value="preview-alternate/shared"] small').innerText(),
-      "preview-alternate",
-    );
-    await page.keyboard.press("Escape");
-    await mainModel.click();
-    await page.locator('[data-model-value="preview-alternate/shared"]').click();
-    assert.match(await mainModel.innerText(), /preview-alternate/);
-    assert.equal(await page.locator(".composer-model-source").innerText(), "preview-alternate");
-    await page.getByRole("button", { name: "选择模型", exact: true }).click();
     assert.equal(
       await page
         .locator('[data-model-value="preview-alternate/shared"]')
-        .getAttribute("aria-checked"),
-      "true",
+        .getByRole("radio")
+        .isChecked(),
+      false,
+      "same-named model from another provider is a distinct selection",
     );
+    await page.keyboard.press("Escape");
+    await modelMenu.waitFor({ state: "detached" });
+    await mainModel.click();
+    await alternate.click();
+    await page.locator('[data-model-value="preview-alternate/shared"]').getByRole("radio").click();
+    await modelMenu.waitFor({ state: "detached" });
+    assert.match(await mainModel.getAttribute("title"), /preview-alternate/);
+    await mainModel.click();
     assert.equal(
-      await page.locator('[data-model-value="preview/shared"]').getAttribute("aria-checked"),
-      "false",
+      await page
+        .locator('[data-model-value="preview-alternate/shared"]')
+        .getByRole("radio")
+        .isChecked(),
+      true,
     );
-    await page.locator('[data-model-value="preview/shared"]').click();
+    await preview.click();
+    assert.equal(
+      await page.locator('[data-model-value="preview/shared"]').getByRole("radio").isChecked(),
+      false,
+    );
+    await page.locator('[data-model-value="preview/shared"]').getByRole("radio").click();
+    await modelMenu.waitFor({ state: "detached" });
     await page.keyboard.press("Escape");
     assert.equal(
       await main.innerText(),
@@ -135,7 +152,7 @@ export async function runSharedWorkspace(page, scratch, report, baseline) {
       "provider switch preserves the draft",
     );
     report.checks.push(
-      "Same-named models expose provider IDs in rows, trigger and effort page; selection remains provider-specific and preserves the draft (local fixture only)",
+      "Same-named models stay distinct across provider tabs and identify the selected provider in the trigger title; selection remains provider-specific and preserves the draft (local fixture only)",
     );
     report.checks.push(
       "New Side model name and effort match main, without a separate inheritance menu entry",

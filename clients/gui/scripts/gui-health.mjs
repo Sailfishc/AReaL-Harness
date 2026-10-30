@@ -292,8 +292,7 @@ function execFileSyncResult(args, root) {
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
-// Measures the base revision so a regression it already carries is reported
-// as inherited instead of failing every change built on top of it.
+// 继承问题单独归因，但仍按已审核基准判定失败，不能借比较基点自动豁免。
 async function baseHealth(base, root) {
   const gitRoot = execFileSyncResult(["rev-parse", "--show-toplevel"], root);
   if (!gitRoot) throw new Error(`Unavailable baseline base ${base}`);
@@ -494,12 +493,13 @@ async function main() {
   const inherited = before ? regressions.filter((failure) => inheritedFrom(failure, before)) : [];
   inherited.forEach((failure) =>
     console.warn(
-      JSON.stringify({ ...failure, inherited: `base ${base} is already at this value` }),
+      JSON.stringify({
+        ...failure,
+        inherited: `base ${base} already exceeds the reviewed baseline`,
+      }),
     ),
   );
-  const rejected = failures.filter(
-    (failure) => !allowed.has(failure.metric) && !inherited.includes(failure),
-  );
+  const rejected = failures.filter((failure) => !allowed.has(failure.metric));
   if (rejected.length) {
     rejected.forEach((failure) => console.error(JSON.stringify(failure)));
     process.exitCode = 1;
