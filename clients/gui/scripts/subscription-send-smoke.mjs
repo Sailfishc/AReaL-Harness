@@ -481,7 +481,7 @@ async function startup() {
 
   const subscriptionDraft = "Startup subscription draft survives until account model readiness.";
   const subscriptionReply = "STARTUP_SUBSCRIPTION_SEND_COMPLETE";
-  await page.getByRole("button", { name: "模型", exact: true }).click();
+  await page.getByTestId("composer-model-trigger").click();
   const picker = page.getByRole("button", { name: "选择模型", exact: true });
   if (await picker.isVisible()) await picker.click();
   await page.locator('[role="radio"][data-model-value="areal_openai/gpt-6.1-sol"]').click();
@@ -529,13 +529,13 @@ async function startup() {
           (await page.getByTestId("chat-input").innerText()) === subscriptionDraft &&
           (await page.getByTestId("chat-input").isEditable()) &&
           (await page.getByTestId("chat-send-button").isEnabled()) &&
-          (await page.getByRole("button", { name: "模型", exact: true }).isEnabled())
+          (await page.getByTestId("composer-model-trigger").isEnabled())
         );
       },
       "Subscription-selected restart restores history, draft and Send before account catalog readiness",
       15000,
     );
-    await page.getByRole("button", { name: "模型", exact: true }).click();
+    await page.getByTestId("composer-model-trigger").click();
     const heldPicker = page.getByRole("button", { name: "选择模型", exact: true });
     if (await heldPicker.isVisible()) await heldPicker.click();
     assert.equal(
@@ -691,7 +691,7 @@ async function worktree() {
     const text = `First prompt in ${sample}.`;
     const reply = `${sample.toUpperCase()}_COMPLETE`;
     await createProjectConversation(page, "workspace");
-    await page.getByRole("button", { name: "模型", exact: true }).click();
+    await page.getByTestId("composer-model-trigger").click();
     const picker = page.getByRole("button", { name: "选择模型", exact: true });
     if (await picker.isVisible()) await picker.click();
     await page
@@ -1076,7 +1076,7 @@ try {
   if (startupMode) await startup();
   else if (worktreeMode) await worktree();
   else {
-    await page.getByRole("button", { name: "模型", exact: true }).click();
+    await page.getByTestId("composer-model-trigger").click();
     const picker = page.getByRole("button", { name: "选择模型", exact: true });
     if (await picker.isVisible()) await picker.click();
     await page.locator('[role="radio"][data-model-value="areal_openai/gpt-6.1-sol"]').click();

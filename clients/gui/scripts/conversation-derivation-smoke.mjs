@@ -791,7 +791,7 @@ try {
   await until((s) => project(s)?.state?.connected, "project connection");
   projectId = project(await state()).id;
   const sourceModelTrigger = page
-    .getByRole("button", { name: "模型", exact: true })
+    .getByTestId("composer-model-trigger")
     .filter({ hasText: "fixture" });
   await sourceModelTrigger.waitFor();
   // 新草稿需显式选择目录中的模型，再开始本专项的来源对话。

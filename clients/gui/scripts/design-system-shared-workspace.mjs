@@ -78,12 +78,8 @@ export async function runSharedWorkspace(page, scratch, report, baseline) {
     Object.values(localStorage).some((v) => v === "Side草稿：保留独立问题"),
   );
   if (!baseline) {
-    const mainModel = scope
-      .locator(".work-surface")
-      .getByRole("button", { name: "模型", exact: true });
-    const sideModel = scope
-      .locator(".side-chat-pane")
-      .getByRole("button", { name: "模型", exact: true });
+    const mainModel = scope.locator(".work-surface").getByTestId("composer-model-trigger");
+    const sideModel = scope.locator(".side-chat-pane").getByTestId("composer-model-trigger");
     assert.equal(
       await sideModel.innerText(),
       await mainModel.innerText(),
@@ -161,7 +157,7 @@ export async function runSharedWorkspace(page, scratch, report, baseline) {
     assert.equal(full.side.layout, "default");
     assert.equal(full.side.font, split.side.font);
   }
-  const model = scope.locator(".side-chat-pane").getByRole("button", { name: "模型", exact: true });
+  const model = scope.locator(".side-chat-pane").getByTestId("composer-model-trigger");
   await model.click();
   await page.keyboard.press("Escape");
   await side().waitFor();

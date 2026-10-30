@@ -171,6 +171,39 @@ test("an explicit base detects baseline relaxation in the same change", async (t
   assert.match(result.stderr, /baseline/i);
 });
 
+test("an explicit base reports regressions it already carries and rejects further growth", async (t) => {
+  const f = await fixture(t);
+  const git = (...args) => spawnSync("git", args, { cwd: join(f.root, "../.."), encoding: "utf8" });
+  assert.equal(f.run("--write").status, 0);
+  await f.put("renderer/src/App.tsx", 'import { useState } from "react";\nuseState(1);\n\n');
+  assert.equal(git("init", "-q").status, 0);
+  assert.equal(git("add", ".").status, 0);
+  assert.equal(
+    git(
+      "-c",
+      "user.name=Fixture",
+      "-c",
+      "user.email=fixture@example.test",
+      "commit",
+      "-qm",
+      "base over budget",
+    ).status,
+    0,
+  );
+  const inherited = f.run("--check", "--base=HEAD");
+  assert.equal(inherited.status, 0, inherited.stderr);
+  assert.match(inherited.stderr, /appLines.*inherited/);
+  assert.deepEqual(
+    JSON.parse(inherited.stdout).inheritedRegressions.map((failure) => failure.metric),
+    ["appLines"],
+  );
+  await f.put("renderer/src/App.tsx", 'import { useState } from "react";\nuseState(1);\n\n\n');
+  const grown = f.run("--check", "--base=HEAD");
+  assert.notEqual(grown.status, 0);
+  assert.match(grown.stderr, /appLines/);
+  assert.doesNotMatch(grown.stderr, /inherited/);
+});
+
 test("type suppression and experimental debt are counted by their existing owners", async (t) => {
   const f = await fixture(t);
   await f.put("app/src/Boundary.cjs", "// @ts-ignore\n// @ts-expect-error\nmodule.exports = {};\n");
