@@ -14,6 +14,10 @@ _Avoid_: foreground or background execution mode; an execution that has already 
 One execution of work initiated by a Schedule, together with its result. Each execution of the same Schedule can be inspected separately.
 _Avoid_: the Schedule itself; one model call
 
+**Reuse Conversation**:
+A mode in which a Schedule initiates subsequent work in the same conversation bound when the Schedule was created, continuing with the latest conversation context at execution time.
+_Avoid_: following the conversation currently open in the interface; a history snapshot from Schedule creation; creating a new conversation for each execution
+
 **AReaL client (Client)**:
 A user entry point to AReaL Harness sessions and execution capabilities; desktop, mobile, TUI and CLI are peers.
 _Avoid_: Equating a client with the execution engine, or treating mobile as a subordinate desktop product
