@@ -105,6 +105,10 @@ pub struct Limits {
     pub max_empty_completion_retries: usize,
     /// Total discarded completions that may be retried within one Turn.
     pub max_completion_retries: usize,
+    /// 显式 Goal 报告阶段的请求轮次上限；默认 0，沿用既有进度保护。
+    pub max_goal_report_rounds: usize,
+    /// 显式实验：有限 Goal 下保留未知模型用量的保守上界，使用原完成恢复额度续跑。
+    pub goal_recover_unknown_model_usage: bool,
     /// 关闭默认启用的网络 watchdog；有限响应恢复额度仍独立生效。
     pub watchdog_disable: bool,
     /// 有限模式允许每个当前请求最多五次 Core 网络恢复，不增加既有请求预算。
@@ -164,6 +168,8 @@ impl Default for Limits {
             command_stdin_closed: true,
             max_empty_completion_retries: 0,
             max_completion_retries: 0,
+            max_goal_report_rounds: 0,
+            goal_recover_unknown_model_usage: false,
             watchdog_disable: false,
             network_retry_mode: areal_config::NetworkRetryMode::Persistent,
         }
@@ -584,6 +590,7 @@ impl Engine {
                 && (limits.context_window_bytes == 0
                     || limits.context_recent_bytes < limits.context_window_bytes)
                 && limits.max_completion_retries <= 8
+                && limits.max_goal_report_rounds <= 8
                 && limits.max_empty_completion_retries <= 8
                 && limits.context_observation_tokens <= 2_000_000
                 && limits.context_reference_tokens <= 2_000_000

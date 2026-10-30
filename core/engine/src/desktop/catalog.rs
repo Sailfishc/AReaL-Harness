@@ -1069,6 +1069,7 @@ impl Engine {
                     vec![],
                     model::RequestPurpose::Solve,
                     model::ToolCallLimits {
+                        require_call: false,
                         max_calls: 0,
                         max_buffer_bytes: self.limits.max_tool_buffer_bytes,
                     },

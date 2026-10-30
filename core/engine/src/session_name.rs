@@ -120,6 +120,7 @@ impl Engine {
                     vec![],
                     RequestPurpose::Summary,
                     ToolCallLimits {
+                        require_call: false,
                         max_calls: 0,
                         ..Default::default()
                     },

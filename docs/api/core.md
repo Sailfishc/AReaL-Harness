@@ -90,9 +90,14 @@ Core 在请求前持久化领取标记。失败、取消、UNKNOWN 或重启均�
 | `AGENT_RUN_TIMEOUT` | 显式 Goal 或研究 worker 时间预算到期，`class=agent` |
 | `LLM_RESPONSE_FAILED` | 其他已识别模型故障，具体原因由 details 表达；非法 tool index 保留 `invalid_tool_call_index`，不归为 context overflow 或 invalid tool JSON |
 | `MODEL_REQUEST_TOO_LARGE` | 实际请求字节限额；`core_request_budget` 在发送前拒绝，`provider_http` 为已发送的 HTTP 413。本地拒绝的 details 保留阶段、字节/下界、上限与 requestSent；供应商 413 保留 HTTP 状态与已发送标记 |
+| `MODEL_SHARED_BUDGET_EXHAUSTED` | 模型服务明确返回 `budget_exhausted`，`class=agent`；不自动重试或解除预算。带合法最终零 usage 的拒绝按已知零结算，未提供最终 usage 仍保持 UNKNOWN |
 | `HARNESS_INTERNAL_ERROR` | 未分类 Core 错误、持久化失败或恢复到 UNKNOWN 工具结果，`class=infrastructure` |
 
 Provider HTTP 错误体最多读取 64 KiB、等待 2 秒，仅保留白名单 code/type/reason；原始响应体、Provider message、鉴权信息不写入 outcome。HTTP 状态码保留在 `details.httpStatus`。错误分类不启用重试、不将失败转换为成功、不自动续轮或评分；未识别的 code 应保留为未知原因。
+
+Responses 工具参数在成功终态后统一校验；截断参数不执行，也不抢先遮住后续真实 usage。合法终态携带的最终 usage 在工具额度、回放冲突或推理快照校验失败时仍按已知用量结算。缺少最终 usage 保持 UNKNOWN。`function_call` 显式非 `completed` 状态不得执行；省略或为 `null` 的状态字段保留兼容行为。终态同一调用的状态可更新先前快照，调用名称与参数冲突仍拒绝，不重放工具。
+
+Rust 模型适配器的完整 `ToolCallLimits` 结构体字面量需包含 `require_call`；默认值为 `false`。显式 Goal 报告阶段将其设为 `true`，HTTP 适配器在已授权工具目录内要求结构化调用，其他请求保持原行为。
 
 外部平台通过原生 CLI `exec --output-format stream-json --include-native-events` 消费 Core 通知及终态结构化错误，原始字段保持不变，见 [CLI 契约](claude-cli.md)。输入物化、进程期限、结果投影、产物收集和部署用量统计由平台负责。仓库不再提供旧 EnvArena Python runner 或 zipapp；已发布的平台不可变版本仍独立管理。
 
@@ -154,7 +159,7 @@ Responses 摘要通过可选 `reasoning_summary` / `reasoningSummary` 显式开�
 
 隔离 worker 的模型失败状态只保留当前调用的结果；Engine 已恢复的旧网络错误不能在最终成功后触发新一代执行。恢复请求仍完整计量，历史 UNKNOWN 不会因恢复成功而清零。
 
-watchdog 保留同一请求的 messages、tools、采样参数与模型轮次，不消耗 `max_completion_retries`；重试不会再次预留 Agent 逻辑请求额度，Workgroup 仍计入每次实际请求及部署预算。250 ms 指数退避封顶 30 秒，释放失败流持有的共享模型许可后等待；取消与显式任务预算仍能结束等待，求解请求还响应 steer。Core 审计并丢弃失败响应的文本、上下文与未执行工具调用，恢复该响应占用的输出字节额度，保留此前已执行工具和已观测 usage。发布 `areal/model/completionDiscarded`（新增 `retryKind=network|completion`）及 `areal/model/watchdogRetry {threadId,turnId,purpose:solve|summary,retry,delayMs}`。这里的丢弃不回滚已执行工具，也不重启整个 Turn。 这两个事件也包含在 `areal/capabilities.notifications` 与公开 JSON Schema 中；摘要重试的 `turnId` 可为 null。
+watchdog 保留同一请求的 messages、tools、采样参数与模型轮次，不消耗 `max_completion_retries`；重试不会再次预留 Agent 逻辑请求额度，Workgroup 仍计入每次实际请求及部署预算。250 ms 指数退避封顶 30 秒，释放失败流持有的共享模型许可后等待；取消与显式任务预算仍能结束等待，求解请求还响应 steer。Core 审计并丢弃失败响应的文本、上下文与未执行工具调用，恢复该响应占用的输出字节额度，保留此前已执行工具和已观测 usage。发布 `areal/model/completionDiscarded`（新增 `retryKind=network|completion|goalReport`）及 `areal/model/watchdogRetry {threadId,turnId,purpose:solve|summary,retry,delayMs}`。这里的丢弃不回滚已执行工具，也不重启整个 Turn。 这两个事件也包含在 `areal/capabilities.notifications` 与公开 JSON Schema 中；摘要重试的 `turnId` 可为 null。
 
 SSE 错误 `server_is_overloaded` 和 `service_unavailable_error` 保留为可重试的过载/暂不可用分类；鉴权、额度等明确永久错误仍优先禁止重试。分类只决定网络 watchdog 的候选范围，不绕过 Goal 的未知消费检查。
 
@@ -163,10 +168,16 @@ Goal 请求先检查共享预算与用量是否已知，再决定是否重试。
 Goal 的根线程与子线程共享账本。子模型失败后缺失最终用量，会阻止其他线程继续提交模型或工具；根线程诊断保留已观察到的子请求终止分类、账本请求 ID 和所属 thread/turn，避免把上游错误误报为无来源的内部故障。账本只新增可选的脱敏分类字段，兼容旧记录；旧记录可能无法还原失败来源。检查失败请求后，可在 TUI 使用 `/goal-resume` 确认未知消费的保守预留并继续；不会自动重放失败工具或将未知用量改为零。
 
 `max_empty_completion_retries` 是默认 0（关闭）的实验性额外恢复额度，显式开启后仅为空白或纯推理结束提供有界恢复；一般 `max_completion_retries` 仍默认 0。两者共用 Turn 计数，空白取较大上限，成功工具不清零。恢复仅丢弃本次未接受响应，不重放已执行操作；失败原文与 usage 留档，所有实际请求仍受硬预算和取消限制。
+Responses 的函数参数在成功终态结算最终用量后才进行 JSON 校验。输出中途的截断参数不会执行，也不会先于 `response.incomplete` 遮住错误类别或消费。成功终态仍含畸形参数时返回 `invalid_tool_arguments`，可使用显式未完成响应恢复额度；无终态的请求仍保持消费未知。Goal 完成还要求当前计划不存在 `pending` / `inProgress` 步骤；未完成的计划应据真实结果更新或明确取消，不能只凭完成报告结束。
+
 
 `max_completion_retries` 默认 0，可为已分类的长度截断、非法工具 index、空回复等提供有限恢复（仅 reasoning 不算最终回复）；关闭 watchdog 后，已分类网络错误也沿用此有限额度。工具仍只在完整成功流后执行；UNKNOWN、持久化错误、取消与显式任务预算错误不重放。
 
+显式开启完成恢复时，活跃根 Goal 的无工具回复若尚未提交本 Turn 的 `goal_update`，也可使用同一有限额度获得一次协议提醒。Core 只丢弃该回复并要求模型读取当前 Goal、报告真实进度；不代写报告、假定完成或重放此前工具。收尾轮、输出交接及待观察的验证优先沿用各自约束；恢复额度耗尽后仍保留 `max_unreported_turns` 暂停保护。默认额度 0 和普通 Turn 行为不变。
+
 Chat 工具 index 缺失、null、非整数类型、负数、超出 u64 范围或片段非对象时，使用明确的内部协议错误，只进入上述有限恢复，不进入网络 watchdog，也不作为 Workgroup 推理检查点。Core 不猜测编号或片段归属；数量、参数和缓冲预算错误不自动恢复。失败响应的模型视图被丢弃，已有确认工具、steer 和已观测 usage 保留。解析错误在已排队事件交付后立即传播；同事件或前序事件的已解析 usage 只累计一次，直接 EOF 保留原始错误类型。
+
+`limits.max_goal_report_rounds` 默认为 0，范围 0–8，显式启用独立的有界 Goal 报告阶段。活跃根 Goal 在无工具结束且本 Turn 缺少报告时（含纯推理或空白回复），Core 仅保留已授权的 `goal_update`；若 `limitsPending` 则先仅保留 `goal_set_limits`。内置 HTTP 使用 `tool_choice="required"`、禁止并行且最多一次调用；自定义 Model 通过 `ToolCallLimits.require_call` 获得此要求。成功流完整结算后，Core 在执行前拒绝目录外调用。当前 Goal revision 随请求提供，报告仍须满足既有计划、验证和输入检查；有效报告后恢复正常结算、Stop hook 与最终交接。额度耗尽明确返回 `GOAL_PROGRESS_UNREPORTED`，不把缺少报告的回合记为正常完成。报告检测不依赖通用响应恢复额度，所有请求仍计入原根预算，不代写报告、增加权限或重放已确认操作；默认 0 保留旧行为。
 
 Rust `Model::chat_with_limits(messages, tools, purpose, ToolCallLimits, cap)` 显式传递请求预算，内置 HTTP、共享池和 Worker 包装器均转发。可选的输出 token 上限与工具预算一起经过 Goal 计量传递。默认实现委托 `chat_limited`，保持已有自定义 Model 实现可编译，并拒绝不受支持的非空 token 上限；自定义模型自行约束内部缓冲，Engine 仍在工具执行前检查其输出。摘要使用零调用预算。`Limits` 新增 `max_tool_buffer_bytes`，`NativeFactory`/`NativeExecutor` 新增 `tool_call_limits`，显式结构体初始化需补充字段；构造器提供默认值。Rust Limits 同时区分可选累计预算与单响应资源保护。
 
@@ -395,6 +406,8 @@ goal.usage 包含 `inputTokens`、`cachedInputTokens`、`outputTokens`、`tokens
 create 返回目标投影及首轮 turnId。事件 `areal/goal/updated` / `areal/goal/cleared` 携带 threadId、revision、eventSequence 及目标投影；clear 还携带被清除的 goalId。现有 `turn/started`、`turn/completed` 不改名也不改变 Turn 终态含义。Thread 新增可选 `goals:{revision,eventSequence,goal}`，子 Thread 使用 `goalOwner:{threadId,goalId}`；Turn 新增 `goal:{goalId,sequence,origin,predecessorTurnId}`，origin 为 initial/user/continuation。无 Goal 的旧数据按原方式读取，clear 保留控制 revision 以拒绝旧请求。
 
 Goal 事件纳入现有 snapshot-and-subscribe 边界、权限过滤和背压规则。重新连接后使用完整快照替换客户端状态，再消费增量；不能以只读 get 与单独 subscribe 拼接而假设没有事件缺口。请求、响应和事件 schema 由 Rust 类型生成至 `schemas/areal-core-v1.json`。
+
+显式 `limits.goal_recover_unknown_model_usage` 可让当前已确认暂时失败的求解请求在有限 Goal 预算内使用原完成恢复额度续跑。续跑前持久保留完整声明请求上界，不清除 UNKNOWN、已知用量或预留；`areal/model/unknownUsageReserved` 与 `unknownModelUsageRecovery` 审计记录原请求、所有者、失败类别和占额。该策略默认关闭，不确认取消、重启、其他请求或工具执行的未知状态；Goal 完成与用量完整性分别投影。
 
 ### 模型状态工具
 

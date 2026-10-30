@@ -1120,7 +1120,7 @@ impl Engine {
                     let mut response_deadline = watchdog::ResponseDeadline::new(self.limits.model_request_timeout, self.limits.stream_idle_timeout);
                     let pending = tokio::time::timeout_at(response_deadline.deadline(), model::REQUEST_OWNER.scope((snapshot.id.clone(), snapshot.turns.last().map_or_else(String::new, |t| t.id.clone())), permit.scope(async {
                         let meter = crate::request_meter::RequestMeter::new(generation.clone());
-                        model.chat_with_limits(input.clone(), Vec::new(), model::RequestPurpose::Summary, model::ToolCallLimits { max_calls: 0, max_buffer_bytes: self.limits.max_tool_buffer_bytes }, None).await.map(|stream| meter.wrap(stream))
+                        model.chat_with_limits(input.clone(), Vec::new(), model::RequestPurpose::Summary, model::ToolCallLimits { require_call: false, max_calls: 0, max_buffer_bytes: self.limits.max_tool_buffer_bytes }, None).await.map(|stream| meter.wrap(stream))
                     })));
                     tokio::pin!(pending);
                     let mut stream = tokio::select! {

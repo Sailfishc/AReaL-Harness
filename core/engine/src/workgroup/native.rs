@@ -1111,6 +1111,7 @@ pub async fn propose(
             vec![],
             crate::model::RequestPurpose::Solve,
             ToolCallLimits {
+                require_call: false,
                 max_calls: 0,
                 ..ToolCallLimits::default()
             },
@@ -1584,6 +1585,7 @@ mod request_budget_tests {
                     vec![],
                     purpose,
                     ToolCallLimits {
+                        require_call: false,
                         max_calls: 3,
                         max_buffer_bytes: 1234,
                     },

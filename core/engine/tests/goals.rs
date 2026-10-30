@@ -287,6 +287,149 @@ async fn ordinary_turn_never_starts_a_goal_and_unreported_goals_stop() {
     assert_eq!(done["goal"]["usage"]["turnsStarted"], 3);
     e.shutdown().await;
 }
+
+struct ReportAfterReminder {
+    calls: AtomicUsize,
+}
+#[async_trait]
+impl Model for ReportAfterReminder {
+    fn name(&self) -> &str {
+        "goal-report-reminder"
+    }
+    async fn stream(&self, _: Vec<Message>) -> anyhow::Result<ModelStream> {
+        unreachable!()
+    }
+    async fn chat(&self, messages: Vec<Message>, tools: Vec<Value>) -> anyhow::Result<ModelStream> {
+        if let Some(reply) = session_name_reply(&messages, &tools) {
+            return Ok(reply);
+        }
+        let call = self.calls.fetch_add(1, Ordering::SeqCst);
+        let view: Value = messages
+            .iter()
+            .rev()
+            .find_map(|m| {
+                m.text_content()
+                    .split("Current authoritative goal: ")
+                    .nth(1)
+                    .and_then(|s| serde_json::from_str(s).ok())
+            })
+            .unwrap();
+        let event = match call % 4 {
+            0 => ModelEvent::text("Unreported unfinished handoff"),
+            1 => {
+                assert!(messages.iter().any(|m| {
+                    m.text_content()
+                        .contains("Before ending this Turn, call goal_read")
+                }));
+                ModelEvent::ToolCall(ToolCall {
+                    id: format!("call-{call}"),
+                    name: "goal_read".into(),
+                    arguments: "{}".into(),
+                })
+            }
+            2 => {
+                let complete = view["goal"]["usage"]["turnsStarted"].as_u64().unwrap() > 1;
+                ModelEvent::ToolCall(ToolCall {
+                    id: format!("call-{call}"),
+                    name: "goal_update".into(),
+                    arguments: json!({"expectedRevision":view["revision"],
+                        "status":if complete {"complete"}else{"continue"},
+                        "summary":"observed stage result","evidence":["fixture result observed"],
+                        "remaining":if complete {vec![]}else{vec!["remaining stage"]}})
+                    .to_string(),
+                })
+            }
+            _ => ModelEvent::text("Reported stage result"),
+        };
+        Ok(Box::pin(stream::iter([
+            Ok(event),
+            Ok(ModelEvent::Usage(ModelUsage {
+                input_tokens: 11,
+                cached_input_tokens: 3,
+                output_tokens: 7,
+            })),
+        ])))
+    }
+}
+
+#[tokio::test]
+async fn explicit_completion_recovery_reminds_goal_reports_without_losing_usage() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(ReportAfterReminder {
+        calls: AtomicUsize::new(0),
+    });
+    let engine = Engine::open(
+        dir.path(),
+        model.clone(),
+        Limits {
+            max_completion_retries: 1,
+            ..Limits::default()
+        },
+    )
+    .unwrap();
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    engine
+        .goal_create("fixture".into(), request(&thread.id))
+        .await
+        .unwrap();
+    let done = stopped(&engine, &thread.id).await;
+    assert_eq!(done["goal"]["status"], "completed", "{done}");
+    assert_eq!(done["goal"]["usage"]["turnsStarted"], 2);
+    assert_eq!(done["goal"]["usage"]["tokensUsed"], 144);
+    assert_eq!(done["goal"]["usage"]["unknownRequests"], 0);
+    assert_eq!(done["goal"]["unreportedTurns"], 0);
+    assert_eq!(model.calls.load(Ordering::SeqCst), 8);
+    let history = engine.read(&thread.id, true).await.unwrap();
+    assert!(history.turns.iter().flat_map(|t| &t.items).all(|item| !matches!(
+        item, areal_protocol::Item::AgentMessage{text,..} if text.contains("Unreported unfinished")
+    )));
+    let audits = std::fs::read_dir(dir.path().join("audit"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .map(|e| std::fs::read_to_string(e.path()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        audits
+            .iter()
+            .filter(|text| text.contains("active root Goal has no progress report"))
+            .count(),
+        2
+    );
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn ignored_goal_reminders_are_bounded_and_keep_the_pause_guard_and_ordinary_turns() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = model(false, true);
+    let engine = Engine::open(
+        dir.path(),
+        model.clone(),
+        Limits {
+            max_completion_retries: 2,
+            ..Limits::default()
+        },
+    )
+    .unwrap();
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    engine
+        .start(&thread.id, vec![Input::text("ordinary")])
+        .await
+        .unwrap();
+    engine.wait(&thread.id).await.unwrap();
+    assert_eq!(model.calls.load(Ordering::SeqCst), 1);
+    engine
+        .goal_create("fixture".into(), request(&thread.id))
+        .await
+        .unwrap();
+    let done = stopped(&engine, &thread.id).await;
+    assert_eq!(done["goal"]["reason"], "progressUnreported");
+    assert_eq!(done["goal"]["usage"]["turnsStarted"], 3);
+    assert_eq!(done["goal"]["usage"]["tokensUsed"], 162);
+    assert_eq!(model.calls.load(Ordering::SeqCst), 10);
+    engine.shutdown().await;
+}
 #[tokio::test]
 async fn budget_stops_before_request_and_can_be_increased_without_reset() {
     let dir = tempfile::tempdir().unwrap();
