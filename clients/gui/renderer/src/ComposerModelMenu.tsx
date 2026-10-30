@@ -181,6 +181,7 @@ export function ComposerModelMenu({
               disabled={disabled || pending}
               aria-busy={pending || undefined}
               className="composer-model-trigger"
+              data-testid="composer-model-trigger"
             />
           }
         >

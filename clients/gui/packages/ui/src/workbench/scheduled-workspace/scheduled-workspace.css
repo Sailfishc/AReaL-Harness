@@ -225,7 +225,7 @@
   animation: scheduled-pulse 1.6s ease-in-out infinite;
 }
 .scheduled-status[data-state="attention"] {
-  color: var(--color-status-attention);
+  color: var(--color-foreground);
 }
 .scheduled-status[data-state="attention"]::before {
   background: var(--color-status-attention);

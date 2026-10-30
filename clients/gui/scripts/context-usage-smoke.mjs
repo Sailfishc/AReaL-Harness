@@ -324,13 +324,11 @@ const currentId = () => page.getByTestId("areal-workbench").getAttribute("data-t
 const context = (id) =>
   call("manage", { projectId, threadId: id, operation: "context", offset: 0, limit: 1 });
 async function choose(label) {
-  await page.getByRole("button", { name: "模型", exact: true }).click();
-  const picker = page.getByRole("button", { name: "选择模型", exact: true });
-  if (await picker.isVisible()) await picker.click();
+  await page.getByTestId("composer-model-trigger").click();
   await page.getByRole("radio", { name: label, exact: true }).click();
   await dismissPopovers();
   await page.waitForFunction((label) => {
-    const model = document.querySelector('button[aria-label="模型"]');
+    const model = document.querySelector('[data-testid="composer-model-trigger"]');
     return model && !model.disabled && model.textContent.includes(label);
   }, label);
 }
@@ -814,7 +812,7 @@ try {
     "selected model/provider capacities before send, neutral changed instruction basis, matched generation, fork anchor and own-turn subtotal",
   );
   await createProjectConversation(page, "workspace");
-  assert.match(await page.getByRole("button", { name: "模型", exact: true }).innerText(), /Beta/);
+  assert.match(await page.getByTestId("composer-model-trigger").innerText(), /Beta/);
   await send("USAGE_NEW_ACCEPTED");
   assert.equal(requests.at(-1).model, "beta");
   await selectConversation(page, source);

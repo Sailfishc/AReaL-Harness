@@ -1,7 +1,8 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile, readdir, writeFile, realpath } from "node:fs/promises";
-import { resolve, relative } from "node:path";
+import { mkdtemp, readFile, readdir, rm, writeFile, realpath } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectUiAdoption } from "./design-system-maturity.mjs";
 import { readTestManifest } from "./test-manifest.mjs";
@@ -291,6 +292,34 @@ function execFileSyncResult(args, root) {
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
+// Measures the base revision so a regression it already carries is reported
+// as inherited instead of failing every change built on top of it.
+async function baseHealth(base, root) {
+  const gitRoot = execFileSyncResult(["rev-parse", "--show-toplevel"], root);
+  if (!gitRoot) throw new Error(`Unavailable baseline base ${base}`);
+  const gui = relative(gitRoot, root).replaceAll("\\", "/");
+  const design = relative(gitRoot, resolve(root, "../../design")).replaceAll("\\", "/");
+  const directory = await mkdtemp(join(tmpdir(), "areal-health-base-"));
+  try {
+    const archive = execFileSync("git", ["archive", "--format=tar", base, "--", gui, design], {
+      cwd: gitRoot,
+      maxBuffer: 1 << 30,
+    });
+    execFileSync("tar", ["-x", "-C", directory], { input: archive });
+    return await collectHealth({ root: join(directory, gui) });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+function inheritedFrom(failure, before) {
+  const old = failure.metric.startsWith("source:")
+    ? before.sourceLines[failure.metric.slice("source:".length)]
+    : before.metrics[failure.metric]?.value;
+  if (!Number.isFinite(old)) return false;
+  return failure.direction === "up" ? failure.current >= old : failure.current <= old;
+}
+
 function validateBaseline(baseline) {
   if (
     baseline.$schemaVersion !== 1 ||
@@ -457,7 +486,20 @@ async function main() {
           reason: "baseline added oversized source against base",
         });
   }
-  const rejected = failures.filter((failure) => !allowed.has(failure.metric));
+  const regressions = failures.filter(
+    (failure) => !failure.reason?.includes("relaxed") && Number.isFinite(failure.current),
+  );
+  const before =
+    !write && base && baseline && regressions.length ? await baseHealth(base, root) : null;
+  const inherited = before ? regressions.filter((failure) => inheritedFrom(failure, before)) : [];
+  inherited.forEach((failure) =>
+    console.warn(
+      JSON.stringify({ ...failure, inherited: `base ${base} is already at this value` }),
+    ),
+  );
+  const rejected = failures.filter(
+    (failure) => !allowed.has(failure.metric) && !inherited.includes(failure),
+  );
   if (rejected.length) {
     rejected.forEach((failure) => console.error(JSON.stringify(failure)));
     process.exitCode = 1;
@@ -472,6 +514,7 @@ async function main() {
       passed: true,
       written: write,
       allowedRegressions: failures.filter((failure) => allowed.has(failure.metric)),
+      inheritedRegressions: inherited,
       metrics: report.metrics,
     }),
   );
