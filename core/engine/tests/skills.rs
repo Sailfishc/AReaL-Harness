@@ -510,6 +510,37 @@ async fn old_thread_reads_current_files_after_skill_ancestor_replacement() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn skill_reads_allow_search_only_ancestors_after_directory_replacement() {
+    use std::os::unix::fs::PermissionsExt;
+    let state = tempfile::tempdir().unwrap();
+    let resources = tempfile::tempdir().unwrap();
+    let parent = resources.path().join("skills");
+    let root = parent.join("skill");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("SKILL.md"), "original body").unwrap();
+    let engine =
+        Engine::open(state.path(), Arc::new(UnconfiguredModel), Limits::default()).unwrap();
+    let location = local_skill(&root);
+    let reference = VersionRef {
+        id: location.id.clone(),
+        revision: location.revision.clone(),
+    };
+    engine.install_default_skills(vec![location]).unwrap();
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    fs::rename(&parent, resources.path().join("old-skills")).unwrap();
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("SKILL.md"), "replacement body").unwrap();
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o111)).unwrap();
+    let page = engine
+        .read_skill(&thread.id, reference, "SKILL.md", 0, 8192)
+        .await;
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(page.unwrap()["text"], "replacement body");
+    engine.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn skill_reads_reject_replacement_root_and_ancestor_symlinks_and_recover() {
     use std::os::unix::fs::symlink;
     let state = tempfile::tempdir().unwrap();
