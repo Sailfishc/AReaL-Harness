@@ -13,9 +13,8 @@ export const operationMessages = {
   },
   "operations.browserInspect": { "zh-CN": "核对浏览器结果", en: "Check browser result" },
   "operations.browserInspectionHelp": {
-    "zh-CN":
-      "请核对浏览器当前页面。如果刚完成登录，记录当前已打开的页面；如果涉及提交，先确认是否已提交。核对后可发送保留的草稿继续任务，原操作不会重放。",
-    en: "Check the current browser page. If you just signed in, describe the page now open. If a submission was involved, check whether it went through. Then send your saved draft to continue; the original operation will not be replayed.",
+    "zh-CN": "请核对浏览器当前页面（是否已登录、是否已提交），再发送保留的草稿继续。",
+    en: "Check the current browser page (signed in? submitted?), then send your saved draft to continue.",
   },
   "operations.browserInspectionPlaceholder": {
     "zh-CN": "例如：已完成登录，当前显示任务列表；没有再次点击提交。",
@@ -26,8 +25,8 @@ export const operationMessages = {
     en: "I checked the current page and operation result",
   },
   "operations.browserRecovery": {
-    "zh-CN": "请核对当前页面；如需登录，请先完成登录。点击聊天中的“核对后继续”，再发送保留的草稿。",
-    en: "Check the current page and finish signing in if needed. Choose “Check to continue” in the chat, then send your saved draft.",
+    "zh-CN": "请核对当前页面，需要时先登录，再点“核对后继续”。",
+    en: "Check the current page, sign in if needed, then choose “Check to continue”.",
   },
   "operations.toolRecovery": {
     "zh-CN": "上次操作的结果待核对。请核查实际状态后继续发送，草稿已保留。",
@@ -107,21 +106,17 @@ export const operationMessages = {
     "zh-CN": "当前 Core 尚不支持立即运行。",
     en: "This Core does not support Run now.",
   },
-  "operations.recentWindow": {
-    "zh-CN": "最近窗口",
-    en: "Recent window",
+  "operations.runHistory": {
+    "zh-CN": "运行记录",
+    en: "Run history",
   },
-  "operations.runsOf": {
-    "zh-CN": "次 · 共",
-    en: "runs · total",
+  "operations.runHistoryCount": {
+    "zh-CN": "运行记录 · 共 {count} 次",
+    en: "Run history · {count, plural, one {# run} other {# runs}}",
   },
-  "operations.runsLoaded": {
-    "zh-CN": "次 · 已加载",
-    en: "runs · loaded",
-  },
-  "operations.runs": {
-    "zh-CN": "次",
-    en: "runs",
+  "operations.showAllRuns": {
+    "zh-CN": "查看全部 {count} 次",
+    en: "Show all {count, plural, one {# run} other {# runs}}",
   },
   "operations.recentOnly": {
     "zh-CN": "当前 Core 仅提供最近运行窗口。更新 Core 后可读取更早记录。",
@@ -459,8 +454,8 @@ export const operationMessages = {
   },
   "operations.schedules.retainCreationConfirm": {
     "zh-CN":
-      "原创建结果仍未确认，目录或会话可能已经存在。将保留原记录和资源，返回任务列表，不重发原请求或发送草稿。之后再次新建会创建另一份资源。继续吗？",
-    en: "The original creation result is still unconfirmed; its directory or conversation may already exist. Keep its records and resources and return to tasks without replaying the request or sending the draft. Creating again afterward will create a separate resource. Continue?",
+      "原创建结果尚未确认，任务可能已经存在。返回列表后不会重发请求；再次新建会创建另一份。继续吗？",
+    en: "The original creation is still unconfirmed and the task may already exist. Returning won't resend it; creating again makes a separate one. Continue?",
   },
   "operations.schedules.conversation": {
     "zh-CN": "定时任务会话",
@@ -471,9 +466,8 @@ export const operationMessages = {
     en: "Let AReaL handle ongoing tasks on a schedule.",
   },
   "operations.schedules.backendUpdateRequired": {
-    "zh-CN":
-      "当前后台不支持此版本的任务目录。已加载的任务会保留，现有任务继续运行。请在设置的“后台服务”中安全更新后台后重试。",
-    en: "This backend does not support the current task catalog. Loaded tasks are kept and existing work continues. Safely update the backend in Settings > Background service, then retry.",
+    "zh-CN": "后台版本过旧，无法读取任务目录。请在设置的“后台服务”中更新后重试。",
+    en: "The background service is too old to read the task catalog. Update it in Settings > Background service, then retry.",
   },
   "operations.schedules.partialLoad": {
     "zh-CN": "部分任务未能加载",

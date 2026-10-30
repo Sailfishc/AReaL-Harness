@@ -9,6 +9,7 @@ import {
   ScheduledWorkspace,
 } from "./ScheduledTasks.js";
 import { ScheduledTaskEditDialog } from "./ScheduledTaskEditDialog.js";
+import { SettingsDisclosure } from "./settings/SettingsDisclosure.js";
 import {
   describeMoment,
   describeSchedule,
@@ -142,6 +143,7 @@ const stopping = (task: Data) =>
         run.workers?.some((worker: Data) => !worker.settled) ||
         (!terminal(run) && (task.cancelled || run.status !== "paused")),
     ));
+const RUN_PREVIEW = 5;
 const date = (seconds: number | null, zone?: string) => {
   if (seconds == null) return "—";
   try {
@@ -188,7 +190,7 @@ const scheduledTokenLimit = (task: Data, reason: string) =>
   task.mode === "scheduled" && reason === "GOAL_TOKEN_BUDGET";
 const runReason = (reason: string, task: Data) =>
   scheduledTokenLimit(task, reason)
-    ? "周期任务剩余 Token 预算不足。单次运行不能突破任务总预算；如需更多额度，请创建新的周期任务。"
+    ? "周期任务剩余 Token 预算不足。如需更多额度，请新建任务。"
     : (goalBudgetMessage(reason) ?? runReasons[reason] ?? reason);
 type Props = {
   projects: Data[];
@@ -650,7 +652,7 @@ export function TaskCenter({
     return observeResize(layout.current, ([entry]) => setNarrow(entry.contentRect.width < 760));
   }, []);
   const [navCollapsed, setNavCollapsed] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [allRunsShown, setAllRunsShown] = useState(false);
   const [searching, setSearching] = useState(false),
     [search, setSearch] = useState("");
   const [creationError, setCreationError] = useState("");
@@ -729,7 +731,7 @@ export function TaskCenter({
     if (!target) return;
     setCreating(false);
     setSelected(`${target.projectId}:${target.taskId}`);
-    setDetailsOpen(true);
+    setAllRunsShown(true);
   }, [target]);
   const focusedTarget = useRef<string | undefined>(undefined);
   const sequence = useRef(0),
@@ -1630,6 +1632,19 @@ export function TaskCenter({
               : taskStatus(row, t);
     return cached ? `${text} · ${t("operations.schedules.cached")}` : text;
   };
+  // 常显短列表（R-CHECK-019）：需要处理的运行排在前面，默认只列最近几次。
+  const sortedRuns = [...displayedRuns].sort(
+    (a: Data, b: Data) =>
+      Number(["blocked", "waitingForInput", "paused"].includes(b.status)) -
+      Number(["blocked", "waitingForInput", "paused"].includes(a.status)),
+  );
+  const visibleRuns = allRunsShown ? sortedRuns : sortedRuns.slice(0, RUN_PREVIEW);
+  const hiddenRuns = sortedRuns.length - visibleRuns.length;
+  const runTotal = Math.max(
+    task?.runCount ?? 0,
+    history.owner === selected ? history.runCount : 0,
+    displayedRuns.length,
+  );
   const runHistory = task && project && (
     <>
       <div className="flex flex-wrap items-center gap-2">
@@ -1641,7 +1656,7 @@ export function TaskCenter({
             onClick={() =>
               activeRun.threadId
                 ? onOpenThread(project.id, activeRun.threadId)
-                : setDetailsOpen(true)
+                : setAllRunsShown(true)
             }
           >
             {t("operations.viewCurrentRun")}
@@ -1651,24 +1666,16 @@ export function TaskCenter({
           <p className="text-foreground-subtle">{t("operations.runNowUnsupported")}</p>
         )}
       </div>
-      <details
+      <section
         className="task-resource-history"
         data-task-history-owner={selected}
-        open={detailsOpen}
-        onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
+        aria-label={t("operations.runHistory")}
       >
-        <summary>运行记录</summary>
+        <h3 className="task-resources-heading">
+          {t("operations.runHistoryCount", { count: runTotal })}
+        </h3>
         <div className="grid gap-3">
           {channelError && <p role="alert">{channelError}</p>}
-          {typeof task.runCount === "number" && (
-            <p className="text-foreground-subtle">
-              {t("operations.recentWindow")}
-              {task.runs?.length ?? 0} {t("operations.runsOf")}
-              {Math.max(task.runCount, history.owner === selected ? history.runCount : 0)}{" "}
-              {t("operations.runsLoaded")}
-              {displayedRuns.length} {t("operations.runs")}
-            </p>
-          )}
           {task.runsComplete === false && history.enabled === false && (
             <p role="status">{t("operations.recentOnly")}</p>
           )}
@@ -1725,115 +1732,123 @@ export function TaskCenter({
           {!displayedRuns.length && !task.runCount && (
             <p className="text-foreground-subtle">尚未运行</p>
           )}
-          {[...displayedRuns]
-            .sort(
-              (a: Data, b: Data) =>
-                Number(["blocked", "waitingForInput", "paused"].includes(b.status)) -
-                Number(["blocked", "waitingForInput", "paused"].includes(a.status)),
-            )
-            .map((run: Data) => (
-              <article
-                key={run.id}
-                data-run-id={run.id}
-                className="grid gap-1 rounded-control border border-border p-2"
-              >
-                <div className="flex flex-wrap justify-between gap-1">
-                  <span>{statusLabels[run.status] ? t(statusLabels[run.status]) : run.status}</span>
-                  <span className="text-foreground-subtle">
-                    {run.trigger === "manual" ? t("operations.manual") : t("operations.scheduled")}
-                    ：{date(run.scheduledAt, runZone(run, task))} · 开始：
-                    {date(run.startedAt, runZone(run, task))}
-                  </span>
-                </div>
-                {run.objective && run.objective !== task.objective && (
-                  <p className="whitespace-pre-wrap">任务内容：{run.objective}</p>
-                )}
-                <p className="break-words text-foreground-subtle">
-                  运行原因：{run.reason ? <span>{runReason(run.reason, task)}</span> : "—"}
-                </p>
-                {goalBudgetMessage(run.reason) && !scheduledTokenLimit(task, run.reason) && (
-                  <p className="text-foreground-subtle">
-                    打开执行会话，在“编辑目标”中调整预算后恢复。
-                  </p>
-                )}
+          {visibleRuns.map((run: Data) => (
+            <article
+              key={run.id}
+              data-run-id={run.id}
+              className="grid gap-1 rounded-control border border-border p-2"
+            >
+              <div className="flex flex-wrap justify-between gap-1">
+                <span>{statusLabels[run.status] ? t(statusLabels[run.status]) : run.status}</span>
+                <span
+                  className="text-foreground-subtle"
+                  title={date(run.startedAt, runZone(run, task))}
+                >
+                  {run.trigger === "manual" ? t("operations.manual") : t("operations.scheduled")}：
+                  {describeMoment(run.scheduledAt ?? run.startedAt, t, runZone(run, task))}
+                </span>
+              </div>
+              {run.objective && run.objective !== task.objective && (
+                <p className="whitespace-pre-wrap">任务内容：{run.objective}</p>
+              )}
+              {run.reason && (
+                <p className="break-words text-foreground-subtle">{runReason(run.reason, task)}</p>
+              )}
+              {goalBudgetMessage(run.reason) && !scheduledTokenLimit(task, run.reason) && (
                 <p className="text-foreground-subtle">
-                  {run.usage.tokensUsed.toLocaleString()} Token · {run.usage.turnsStarted} 轮 ·{" "}
-                  {run.usage.timeUsedSeconds.toLocaleString(undefined, {
-                    maximumFractionDigits: 1,
-                  })}{" "}
-                  秒{!run.usage.accountingComplete && " · 用量尚未结算完整"}
+                  打开执行会话，在“编辑目标”中调整预算后恢复。
                 </p>
+              )}
+              <p className="text-foreground-subtle">
+                {run.usage.tokensUsed.toLocaleString()} Token · {run.usage.turnsStarted} 轮 ·{" "}
+                {run.usage.timeUsedSeconds.toLocaleString(undefined, {
+                  maximumFractionDigits: 1,
+                })}{" "}
+                秒{!run.usage.accountingComplete && " · 用量尚未结算完整"}
+              </p>
+              <SettingsDisclosure title={t("common.schedules.usageDetails")}>
                 <GoalUsageSummary usage={run.usage} label="运行用量" />
-                {messages
-                  .filter((message) => message.runId === run.id && message.kind === "report")
-                  .at(-1)?.text && (
-                  <p>
-                    {
-                      messages
-                        .filter((message) => message.runId === run.id && message.kind === "report")
-                        .at(-1)?.text
-                    }
-                  </p>
-                )}
-                {!terminal(run) && task.runs.some((live: Data) => live.id === run.id) && (
-                  <div className="flex gap-1">
-                    {["blocked", "paused"].includes(run.status) && (
-                      <Button
-                        size="sm"
-                        disabled={
-                          disabled || ["stopRequested", "resumeRequested"].includes(run.reason)
-                        }
-                        onClick={() => void control({ operation: "taskResumeRun", runId: run.id })}
-                      >
-                        继续本次运行
-                      </Button>
-                    )}
+              </SettingsDisclosure>
+              {messages
+                .filter((message) => message.runId === run.id && message.kind === "report")
+                .at(-1)?.text && (
+                <p>
+                  {
+                    messages
+                      .filter((message) => message.runId === run.id && message.kind === "report")
+                      .at(-1)?.text
+                  }
+                </p>
+              )}
+              {!terminal(run) && task.runs.some((live: Data) => live.id === run.id) && (
+                <div className="flex gap-1">
+                  {["blocked", "paused"].includes(run.status) && (
                     <Button
                       size="sm"
-                      variant="outline"
-                      disabled={disabled || run.reason === "stopRequested"}
-                      onClick={() => void control({ operation: "taskStopRun", runId: run.id })}
+                      disabled={
+                        disabled || ["stopRequested", "resumeRequested"].includes(run.reason)
+                      }
+                      onClick={() => void control({ operation: "taskResumeRun", runId: run.id })}
                     >
-                      停止本次运行
+                      继续本次运行
                     </Button>
-                  </div>
-                )}
-                {run.threadId && (
+                  )}
                   <Button
-                    className="justify-self-start"
                     size="sm"
-                    variant="ghost"
-                    onClick={() => onOpenThread(project.id, run.threadId)}
+                    variant="outline"
+                    disabled={disabled || run.reason === "stopRequested"}
+                    onClick={() => void control({ operation: "taskStopRun", runId: run.id })}
                   >
-                    打开执行会话
+                    停止本次运行
                   </Button>
-                )}
-                {messages
-                  .filter((message) => message.runId === run.id)
-                  .map((message) => (
-                    <ChannelRecord
-                      key={message.id}
-                      message={message}
-                      task={task}
-                      projectId={project.id}
-                      action={action}
-                      disabled={disabled || !!channelError}
-                      onReplied={() => void refresh()}
-                    />
-                  ))}
-                {run.workers?.map((worker: Data) => (
-                  <WorkerParticipant
-                    key={`${worker.threadId}:${worker.turnId}`}
+                </div>
+              )}
+              {run.threadId && (
+                <Button
+                  className="justify-self-start"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => onOpenThread(project.id, run.threadId)}
+                >
+                  打开执行会话
+                </Button>
+              )}
+              {messages
+                .filter((message) => message.runId === run.id)
+                .map((message) => (
+                  <ChannelRecord
+                    key={message.id}
+                    message={message}
                     task={task}
-                    run={run}
-                    worker={worker}
-                    messages={messages}
-                    project={project}
-                    onOpenThread={onOpenThread}
+                    projectId={project.id}
+                    action={action}
+                    disabled={disabled || !!channelError}
+                    onReplied={() => void refresh()}
                   />
                 ))}
-              </article>
-            ))}
+              {run.workers?.map((worker: Data) => (
+                <WorkerParticipant
+                  key={`${worker.threadId}:${worker.turnId}`}
+                  task={task}
+                  run={run}
+                  worker={worker}
+                  messages={messages}
+                  project={project}
+                  onOpenThread={onOpenThread}
+                />
+              ))}
+            </article>
+          ))}
+          {hiddenRuns > 0 && (
+            <Button
+              className="justify-self-start"
+              size="sm"
+              variant="ghost"
+              onClick={() => setAllRunsShown(true)}
+            >
+              {t("operations.showAllRuns", { count: sortedRuns.length })}
+            </Button>
+          )}
           {history.owner === selected && history.pending && (
             <p role="status">{t("operations.loadingHistory")}</p>
           )}
@@ -1842,7 +1857,10 @@ export function TaskCenter({
               size="sm"
               variant="ghost"
               disabled={history.pending || !connected || !project.state?.connected}
-              onClick={() => void readRuns.current("more")}
+              onClick={() => {
+                setAllRunsShown(true);
+                void readRuns.current("more");
+              }}
             >
               {t("operations.loadEarlier")}
             </Button>
@@ -1861,7 +1879,7 @@ export function TaskCenter({
               />
             ))}
         </div>
-      </details>
+      </section>
     </>
   );
   return (
@@ -2026,6 +2044,7 @@ export function TaskCenter({
                         onClick={() => {
                           setCreating(false);
                           setSelected(taskKey(row));
+                          setAllRunsShown(false);
                           setError("");
                         }}
                       />
@@ -2138,7 +2157,7 @@ export function TaskCenter({
             data-task-id={task.id}
           >
             <header>
-              <h2>{task.objectivePreview ?? task.objective}</h2>
+              <h2 title={task.objective}>{scheduledTaskName(task)}</h2>
               <Button size="sm" variant="ghost" onClick={closeDetails}>
                 {t("operations.schedules.closeDetails")}
               </Button>

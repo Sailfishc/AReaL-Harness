@@ -2832,10 +2832,10 @@
     },
     {
       "id": "R-SETTINGSDISCLOSURE-001",
-      "title": "明确展开和收起的详情",
+      "title": "高级功能、诊断与原始数据的原地展开（依据 P6），默认收起",
       "owner": "clients/gui/packages/ui/src/components/settings-disclosure/settings-disclosure.md#何时使用",
       "strength": "default",
-      "textSha256": "ee186ba63bac1c52be0c941f8c0dea486a08675fbf1fe99110663e925ee17b9c"
+      "textSha256": "73a99f2208068063da47a09105851310939107da2b9e38d5072f7ca3b1a5d8ff"
     },
     {
       "id": "R-SPINNER-001",
@@ -6421,6 +6421,13 @@
       "textSha256": "f17a8fc7ca522cdd03b8adcf55de2f98a929dc2a812b4c95fbd3ad322f4fc569"
     },
     {
+      "id": "R-PRINCIPLE-008",
+      "title": "AReaL 面向普通用户",
+      "owner": "design/principles/README.md#p6-为普通用户减少心智负担",
+      "strength": "default",
+      "textSha256": "cf37fa3a19b907c4715e3bdeeb0c585169bad8c57a1f5769d2c39f23bb07b46a"
+    },
+    {
       "id": "R-ENTRY-044",
       "title": "先完成桌面 GUI 的设计与生产迁移",
       "owner": "design/products/README.md#产品与工作台",
@@ -6602,6 +6609,22 @@
       "strength": "must",
       "textSha256": "394c716975c0b2fa5296b3eea3021b906857c711494cdaf3888a3faa72f434e6",
       "check": "clients/gui/oxlint-plugin-areal/rules/require-suppression-reason.ts"
+    },
+    {
+      "id": "R-CHECK-019",
+      "title": "折叠只由共享组件拥有（依据 P6）：高级与详情分组用 SettingsDisclosure，默认收起",
+      "owner": "clients/gui/design-system/automation.md#仓库内-lint-规则",
+      "strength": "must",
+      "textSha256": "6bfb3a376ae33f21be7d5195e31277281dd98cb9b4cfad93ccfc39a470360c4e",
+      "check": "clients/gui/oxlint-plugin-areal/rules/no-raw-disclosure.ts"
+    },
+    {
+      "id": "R-CHECK-020",
+      "title": "界面文案每条至多 30 个汉字，确认类（键名含 confirm）至多 50 个",
+      "owner": "clients/gui/design-system/automation.md#仓库内-lint-规则",
+      "strength": "must",
+      "textSha256": "023d5bdeaed557def6c4ce821d252589380e594cd8652338318f44efd9965066",
+      "check": "clients/gui/scripts/copy-budget.mjs"
     },
     {
       "id": "R-COMPOSERSURFACE-007",

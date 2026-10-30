@@ -837,8 +837,8 @@ try {
   assert.ok(definitions.some((p) => p.name === "内置 · run_command"));
   const collapsedFrame = await page.getByTestId("context-popover").boundingBox();
   await page.screenshot({ path: join(scratch, "08-context-collapsed.png") });
-  for (const category of await page.locator(".context-category").all())
-    await category.locator("summary").click();
+  // 分类直接列出占用最多的几项（R-CHECK-019），不再逐个展开。
+  assert.equal(await page.locator(".context-category summary").count(), 0);
   const expandedFrame = await page.getByTestId("context-popover").boundingBox();
   await page.screenshot({ path: join(scratch, "03-context-categories.png") });
   await writeFile(
@@ -855,19 +855,18 @@ try {
     content: element.scrollHeight,
     overflow: getComputedStyle(element).overflowY,
   }));
-  assert.ok(
-    scroller.content > scroller.height && scroller.overflow === "auto",
-    "expanded categories scroll inside the fixed frame",
-  );
-  await page.locator(".context-categories").hover();
-  await page.mouse.wheel(0, 500);
-  await page.waitForFunction(() => document.querySelector(".context-categories")?.scrollTop > 0);
-  const scrolledFrame = await page.getByTestId("context-popover").boundingBox();
-  for (const axis of ["x", "y", "width", "height"])
-    assert.ok(
-      Math.abs(expandedFrame[axis] - scrolledFrame[axis]) <= 1,
-      `context frame ${axis} stays fixed while scrolling`,
-    );
+  assert.equal(scroller.overflow, "auto", "categories scroll inside the fixed frame");
+  if (scroller.content > scroller.height) {
+    await page.locator(".context-categories").hover();
+    await page.mouse.wheel(0, 500);
+    await page.waitForFunction(() => document.querySelector(".context-categories")?.scrollTop > 0);
+    const scrolledFrame = await page.getByTestId("context-popover").boundingBox();
+    for (const axis of ["x", "y", "width", "height"])
+      assert.ok(
+        Math.abs(expandedFrame[axis] - scrolledFrame[axis]) <= 1,
+        `context frame ${axis} stays fixed while scrolling`,
+      );
+  }
   await page.screenshot({ path: join(scratch, "09-context-scrolled.png") });
   await dismissPopovers();
   for (const mode of ["SINGLE", "UNKNOWN", "ZERO", "ERROR"]) {
