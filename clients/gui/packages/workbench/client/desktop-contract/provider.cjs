@@ -5,7 +5,7 @@
 /** @typedef {{temperature?:number|null,maxOutputTokens?:number|null,contextWindowTokens?:number|null,reasoningEffort?:string|null,reasoningSummary?:string|null,serviceTier?:'fast'|'default'|null}} ModelParameters */
 /** @typedef {{tools:boolean,vision:boolean,reasoning:boolean,reasoningEffortOptions?:string[]}} ModelCapabilities */
 /** @typedef {{providerId:string,modelId:string}} ModelRef */
-/** @typedef {{id:string,enabled:boolean,displayName?:string,parameters:ModelParameters,capabilities?:ModelCapabilities}} ModelConfig */
+/** @typedef {{id:string,enabled:boolean,displayName?:string,parameters:ModelParameters,capabilities?:ModelCapabilities,reportedContextWindowTokens?:number}} ModelConfig */
 /** @typedef {{id:string,name:string,endpoint:string,protocol:string,enabled:boolean,apiKeyEnv?:string,models:ModelConfig[],parameters:ModelParameters}} ProviderConfig */
 /** @typedef {Fields & {path:string,revision:string,data:ProviderConfig[],defaultModel:ModelRef|null,credentialStates:Record<string,string>,credentialSources:Record<string,string>,effective:Fields}} ModelSnapshot */
 /** @typedef {{expectedRevision:string,data:ProviderConfig[],defaultModel:ModelRef|null}} ModelUpdate */
@@ -68,6 +68,8 @@ function modelConfig(value) {
     typeof value.enabled === "boolean" &&
     (value.displayName === undefined || typeof value.displayName === "string") &&
     parameters(value.parameters) &&
+    (value.reportedContextWindowTokens === undefined ||
+      validContextWindow(value.reportedContextWindowTokens)) &&
     (value.capabilities === undefined || capabilities(value.capabilities))
   );
 }

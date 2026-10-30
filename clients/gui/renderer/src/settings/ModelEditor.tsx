@@ -129,6 +129,7 @@ export function ModelEditor({
           onSave({
             ...model,
             id: id.trim(),
+            ...(id.trim() === model.id ? {} : { reportedContextWindowTokens: undefined }),
             displayName: name.trim(),
             ...(!editing || capabilitiesChanged
               ? {

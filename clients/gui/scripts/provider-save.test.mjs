@@ -497,7 +497,8 @@ test("new connection discovers models before persistence and leaves default choi
     result.data.at(-1).models.map((m) => m.id),
     ["remote-first", "remote-second"],
   );
-  assert.deepEqual(result.data.at(-1).models[0].parameters, { contextWindowTokens: 500000 });
+  assert.deepEqual(result.data.at(-1).models[0].parameters, {});
+  assert.equal(result.data.at(-1).models[0].reportedContextWindowTokens, 500000);
   assert.deepEqual(result.data.at(-1).models[1].parameters, {});
   for (const model of result.data.at(-1).models)
     assert.deepEqual(model.capabilities, {
@@ -517,6 +518,7 @@ test("new connection discovers models before persistence and leaves default choi
   const configured = await explicit.service.command(explicit.request);
   assert.equal(configured.data.at(-1).parameters.contextWindowTokens, 64000);
   assert.deepEqual(configured.data.at(-1).models[0].parameters, {});
+  assert.equal(configured.data.at(-1).models[0].reportedContextWindowTokens, 500000);
 });
 
 test("discovery failure does not persist a new provider", async () => {
@@ -1033,3 +1035,28 @@ for (const restartSafe of [true, false]) {
     await f.service.close();
   });
 }
+
+test("reported context stays separate when users override or clear the model budget", async () => {
+  for (const contextWindowTokens of [900000, 64000, undefined]) {
+    const f = fixture();
+    f.request.provider.models[0].reportedContextWindowTokens = 500000;
+    f.request.provider.models[0].parameters =
+      contextWindowTokens === undefined ? {} : { contextWindowTokens };
+    const saved = await f.service.command(f.request);
+    const model = saved.data.find((p) => p.id === f.request.provider.id).models[0];
+    assert.equal(model.reportedContextWindowTokens, 500000);
+    assert.equal(model.parameters.contextWindowTokens, contextWindowTokens);
+  }
+});
+
+test("invalid reported context is rejected before saving", async () => {
+  for (const reportedContextWindowTokens of [0, -1, 2000001, "500000"]) {
+    const f = fixture();
+    f.request.provider.models[0].reportedContextWindowTokens = reportedContextWindowTokens;
+    await assert.rejects(f.service.command(f.request), /模型配置无效/);
+    assert.equal(
+      f.calls.some(([method]) => method === "write"),
+      false,
+    );
+  }
+});

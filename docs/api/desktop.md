@@ -324,7 +324,7 @@ GUI 的 `tasks` 只读命令支持 `operation: list | inbox`、可选 `projectId
 
 `task/create/list/read/pause/resume/cancel/subscribe/unsubscribe`、`channel/read/reply`、`inbox/list` 构成独立于 Thread 的任务控制与通信 API，详见 [Task 契约](tasks.md)。task/updated 通知携带 Task 投影和 channelSequence；客户端通过分页频道读取维护消息。server/status 与 drain 的 activeTasks 统计需要结算的任务工作：定时任务只在 Run 排队、执行、等待输入或子任务时计入，不计仅等待下一次触发的安排；暂停后仍在运行的定时 Run 继续计入。空闲定时安排可安全重启，保留时间、启用状态和历史。GUI/TUI/WebUI 可共享同一 Inbox；现有会话交互面板仍处理同步问题和审批。
 
-可选 `parameters.contextWindowTokens`（1–2000000）设置用户工作预算。Provider 模型元数据保留服务报告窗口，实际工作窗口取两者较小值。上下文 budget 返回 `windowTokens`、`outputReserveTokens`、`inputLimitTokens`、`windowSource`，以及可选的 `reportedWindowTokens`、`reportedWindowSource`、`userBudgetTokens`。实际来源为 `account/provider/user/modelDefault/fallback`；报告来源仅为 `account/provider`。用户预算较小时仍保留原报告来源。订阅缺少报告时使用系统兜底，不采用公开 API 型号默认值。旧记录缺少新增字段时仍可读取。模型配置或凭据不可用时仍可查看上下文，budget 返回 null。这些值控制本地预检，不扩大供应商能力。
+可选 `parameters.contextWindowTokens`（1–2000000）设置用户工作预算。实际工作窗口按用户显式值、Provider/账号报告默认值、渠道与完整型号内置默认值、系统兜底依次解析；用户值大于报告时也优先，不再取较小值。省略或清空用户参数恢复默认。持久模型目录的可选 `reportedContextWindowTokens`（TOML：`reported_context_window_tokens`，1–2000000）保存自动发现的默认值，与用户参数分离；旧记录中的参数仍按显式值保留，新版本读取旧配置兼容，旧 Core 不支持带新增字段的配置。上下文 budget 返回 `windowTokens`、`outputReserveTokens`、`inputLimitTokens`、`windowSource`，以及可选的 `reportedWindowTokens`、`reportedWindowSource`、`userBudgetTokens`。实际来源为 `account/provider/user/modelDefault/fallback`；报告来源仅为 `account/provider`。用户覆盖时仍保留报告及来源。订阅缺少报告时查订阅专用表，API 查 API 表，未知型号使用系统兜底；具体值见[模型窗口配置](../guides/configuration.md)。旧记录缺少新增诊断字段时仍可读取。模型配置或凭据不可用时仍可查看上下文，budget 返回 null。这些值控制本地预检，不扩大供应商能力。
 
 <a id="turn-fork-开发预览"></a>
 

@@ -51,7 +51,7 @@ pub fn model(
         .with_audit_directory(data.join("model-requests"))
         .with_options(ModelOptions {
             capabilities: config.capabilities.as_ref().map(super::model_capabilities),
-            context_window: None,
+            context_window: super::model_context_window(config),
             context_window_tokens: config.context_window_tokens,
             responses_websocket: config.responses_websocket,
             responses_prompt_cache: config.responses_prompt_cache,

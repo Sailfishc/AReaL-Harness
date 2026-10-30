@@ -184,7 +184,26 @@ endpoint 是完整 HTTP(S) 请求 URL；Core 只支持 `chat-completions` / `res
 
 可选采样参数不配置时省略，显式 0 保留。`temperature` 为有限数 [0,2]，`top_p` / `min_p` 为 [0,1]，`top_k` 为正整数或 -1，`presence_penalty` 为 [-2,2]，`repetition_penalty` 大于 0。Chat 与 Responses 均接受 temperature/top_p；其余四项只支持 Chat，Responses 配置时拒绝。参数发送不证明供应商实际采纳。摘要默认继承求解采样/推理配置并禁用工具。可单独设置 `model.summary_reasoning_effort` 和 `model.summary_max_output_tokens`（环境变量 `AREAL_HARNESS_SUMMARY_REASONING_EFFORT` / `AREAL_HARNESS_SUMMARY_MAX_OUTPUT_TOKENS`），不会修改后续求解参数。摘要输出上限为全局输出上限、摘要专用上限、Goal 剩余额度与 16384 中的最小值；专用上限需大于零。未配置时兼容原行为；例如可在求解 high 时显式选择摘要 low/4096，需验证供应商支持和任务保留效果。
 
-`model.context_window_tokens` 设置当前模型的用户工作预算（1–2000000），Provider/模型默认参数及 `parameters.contextWindowTokens` 同样支持。服务报告窗口与用户预算分开解析，工作窗口取两者较小值。订阅账号缺少报告时使用全局 131072-token 兜底；其他端点缺少报告与预算时查完整型号默认表，再使用全局兜底。诊断分别显示报告来源、用户预算与实际窗口。输出预留取 `context.output_reserve_tokens`（默认 8192）与当前模型输出上限的较大值；默认 HTTP 模型因此预留 16384 token，完整输入最多为 114688 token（其中还需容纳动态指令与工具 schema）。显式输出配置优先，用户工作预算受服务报告窗口约束；省略字段采用默认值；不会按供应商名称推测实际能力，小窗口模型应同时调低输出上限和必要的预留。每次求解请求在发送前检查完整消息、动态指令和工具 schema 是否落在窗口减预留以内。估算按 ASCII 约 3 字节/token、非 ASCII 约 2 token/字符及媒体代理成本计算；已结算完整输入用量（含缓存）加 10% 余量校准追加历史，压缩后重置。估计不等于供应商 tokenizer 精确计数。
+`model.context_window_tokens` 设置当前模型的用户工作预算（1–2000000），Provider/模型参数及 `parameters.contextWindowTokens` 同样支持。工作窗口依次取用户显式配置、当前账号/渠道报告的默认值、渠道与完整型号对应的内置默认值、全局 `limits.context_window_tokens`（默认 131072）。用户值无论大于或小于报告值都优先；清空用户参数后恢复默认解析。报告值和用户值分别保留，目录更新不改写用户参数。它们控制本地预检，不能改变供应商服务端上限。
+
+模型目录中的可选 `reportedContextWindowTokens`（TOML 为每个模型上的 `reported_context_window_tokens`，1–2000000）保存自动发现的上游默认值，独立于 `parameters.contextWindowTokens`。旧配置中的参数继续视为用户显式设置；自动发现的新模型把报告值写入独立字段。新版本可读取省略该字段的旧配置；旧 Core 不支持包含该字段的新配置。诊断分别显示报告来源、用户预算与实际窗口。GPT 订阅使用账号报告与订阅专用默认表，API 使用 API 表；不会把 `max_context_window` 等可选最大容量当作默认值，也不按供应商显示名或模糊型号前缀匹配。
+
+| 具体型号 | API 内置窗口（token） | GPT 订阅缺少报告时 |
+| --- | ---: | ---: |
+| `gpt-6.1-sol`、`gpt-6.1-terra` | 1050000 | 500000 |
+| `gpt-5.4-mini` / `gpt-5.4-nano` / `gpt-5.3-codex` | 400000 | — |
+| `gpt-6-sol`、`gpt-6-astra`、`gpt-6-luna` | 1050000 | 272000 |
+| `claude-fable-5-1`、`claude-opus-5-5`、`claude-sonnet-5-5`、`claude-haiku-5-5` | 1000000 | — |
+| `deepseek-flash`、`deepseek-v4-pro` | 1000000 | — |
+| `qwen3.8-max` / `qwen3.8-flash` / `qwen3.7-max` / `qwen3.7-plus` / `qwen3.7-flash` / `qwen-plus` | 1000000 | — |
+| `qwen3.6-plus`、`qwen3.6-plus-2026-04-02` | 1000000 | — |
+| `kimi-k3`、`kimi-k3.1-pro`、`kimi-k3.1-pro-highspeed` | 1048576 | — |
+| `kimi-k2.5`、`kimi-k2.6`、`kimi-k2-0905-preview`、`kimi-k2-turbo-preview` | 262144 | — |
+| `glm-5`、`glm-5.1` | 200000 | — |
+
+内置值依据 [OpenAI API](https://developers.openai.com/api/docs/models/gpt-6.1-terra)、[Codex 产品默认](https://learn.chatgpt.com/docs/models)、[Codex 目录](https://github.com/openai/codex/blob/main/codex-rs/models-manager/models.json)、[Claude](https://platform.claude.com/docs/en/models/overview)、[DeepSeek](https://api-docs.deepseek.com/quick_start/pricing/)、[Qwen 3.6](https://help.aliyun.com/en/model-studio/qwen3-6-plus)、[Qwen 3.8 Max](https://help.aliyun.com/en/model-studio/qwen3-8-max)、[Flash](https://help.aliyun.com/en/model-studio/qwen3-8-flash)、[3.7 Max](https://help.aliyun.com/en/model-studio/qwen3-7-max)、[Plus](https://help.aliyun.com/en/model-studio/qwen3-7-plus)、[Flash](https://help.aliyun.com/en/model-studio/qwen3-7-flash)、[Qwen Plus](https://help.aliyun.com/en/model-studio/qwen-plus)、[Kimi](https://platform.kimi.ai/docs/pricing/chat) 与 [GLM](https://docs.z.ai/guides/llm/glm-5)。GLM 文档仅写 200K，内置值沿用保守的 200000；渠道报告或用户设置可覆盖。Sol 订阅产品文档与客户端内置目录数值不同，缺少账号报告时采用产品默认 500000。完整匹配表由 `core/engine/src/model/context_windows.rs` 维护，第三方目录不参与运行时拉取。
+
+输出预留取 `context.output_reserve_tokens`（默认 8192）与当前模型输出上限的较大值；默认 HTTP 模型因此预留 16384 token，使用 131072 兜底窗口时完整输入最多为 114688 token（其中还需容纳动态指令与工具 schema）。小窗口模型应同时调低输出上限和必要的预留。每次求解请求在发送前检查完整消息、动态指令和工具 schema 是否落在窗口减预留以内。估算按 ASCII 约 3 字节/token、非 ASCII 约 2 token/字符及媒体代理成本计算；已结算完整输入用量（含缓存）加 10% 余量校准追加历史，压缩后重置。估计不等于供应商 tokenizer 精确计数。
 
 常规使用只需设置模型窗口、输出上限和 `context.mode`。`context.target_tokens=0` 自动选择可用输入窗口的 60%；正数必须小于输入上限。`context.recent_tokens` 默认改为 0（自动），正数和旧 `context_recent_bytes` 仍作为兼容边界偏好，诊断保留配置来源；常用示例不再固定近期额度。Core 使用同一完整请求预算分配近期完整轮次、用户原文、摘要和历史证据，删除用户原文/证据各自的固定 8192 软配额，也不再永久优先首问。最新真实用户请求及附件必须完整保留；其他原文从近到远分配，旧附件超额时可保留其文字并明确标记附件省略。未完成或 UNKNOWN 工具操作不得纳入压缩前缀。旧原文与完整附件仍在磁盘，可通过 `read_history` 查回。
 

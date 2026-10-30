@@ -1144,7 +1144,9 @@ class AppProviders {
           if (
             !providerContract.record(m) ||
             typeof m.id !== "string" ||
-            (m.displayName !== undefined && typeof m.displayName !== "string")
+            (m.displayName !== undefined && typeof m.displayName !== "string") ||
+            (m.reportedContextWindowTokens !== undefined &&
+              !providerContract.validContextWindow(m.reportedContextWindowTokens))
           )
             throw new Error("模型配置无效");
           return {
@@ -1152,6 +1154,9 @@ class AppProviders {
             enabled: m.enabled !== false,
             ...(m.displayName?.trim() ? { displayName: m.displayName.trim() } : {}),
             parameters: modelParameters(m.parameters),
+            ...(m.reportedContextWindowTokens === undefined
+              ? {}
+              : { reportedContextWindowTokens: m.reportedContextWindowTokens }),
             ...(m.capabilities === undefined
               ? {}
               : { capabilities: modelCapabilities(m.capabilities) }),
@@ -1184,11 +1189,12 @@ class AppProviders {
               {
                 id,
                 enabled: true,
-                parameters:
-                  !item.parameters.contextWindowTokens &&
-                  Object.hasOwn(catalog.modelParameters ?? {}, id)
-                    ? (catalog.modelParameters ?? {})[id]
-                    : {},
+                parameters: {},
+                ...(catalog.modelParameters?.[id]?.contextWindowTokens === undefined
+                  ? {}
+                  : {
+                      reportedContextWindowTokens: catalog.modelParameters[id].contextWindowTokens,
+                    }),
               },
               item.parameters,
             ),

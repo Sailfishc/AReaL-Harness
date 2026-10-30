@@ -862,7 +862,7 @@ pub(crate) fn load_mode(
         }
     }
     let provider = values["model.provider"].value.clone();
-    let selected_capabilities = catalog
+    let selected_model = catalog
         .iter()
         .find(|entry| entry.id == provider)
         .and_then(|entry| {
@@ -870,8 +870,10 @@ pub(crate) fn load_mode(
                 .models
                 .iter()
                 .find(|model| model.id == values["model.name"].value)
-        })
-        .and_then(|model| model.capabilities.clone());
+        });
+    let selected_capabilities = selected_model.and_then(|model| model.capabilities.clone());
+    let reported_context_window_tokens =
+        selected_model.and_then(|model| model.reported_context_window_tokens);
     // 参数按全局显式值、模型默认值、供应商默认值逐层补齐；环境和 CLI 已在上方覆盖。
     if let Some(entry) = catalog.iter().find(|p| p.id == provider) {
         let model = values
@@ -1021,6 +1023,7 @@ pub(crate) fn load_mode(
             .map(|v| PathBuf::from(&v.value)),
         model: SelectedModelConfig {
             capabilities: selected_capabilities,
+            reported_context_window_tokens,
             context_window_tokens: values
                 .get("model.context_window_tokens")
                 .map(|v| v.value.parse().unwrap()),
@@ -1260,6 +1263,7 @@ pub(crate) fn load_mode(
     let window = result
         .model
         .context_window_tokens
+        .or(result.model.reported_context_window_tokens)
         .unwrap_or(result.context_window_tokens);
     let reserve = result
         .context_output_reserve_tokens

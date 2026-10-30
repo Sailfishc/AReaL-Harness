@@ -721,13 +721,15 @@ impl Engine {
             .and_then(|parameters| parameters.context_window_tokens);
         let reported_source = provider.context_source.unwrap_or(Source::Provider);
         let (window_tokens, source) = match (reported_window_tokens, user_budget_tokens) {
-            (Some(reported), Some(user)) if user < reported => (user, Source::User),
-            (Some(reported), _) => (reported, reported_source),
-            (None, Some(user)) => (user, Source::User),
+            (_, Some(user)) => (user, Source::User),
+            (Some(reported), None) => (reported, reported_source),
             (None, None) => {
-                if reported_source != Source::Account
-                    && let Some(window) = model::known_context_window(name)
-                {
+                let default = if reported_source == Source::Account {
+                    model::subscription_context_window(name)
+                } else {
+                    model::known_context_window(name)
+                };
+                if let Some(window) = default {
                     (window, Source::ModelDefault)
                 } else {
                     (self.limits.context_window_tokens, Source::Fallback)

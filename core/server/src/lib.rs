@@ -796,7 +796,22 @@ fn configured_models(
             .into(),
             credential_ref: reference,
             models,
-            model_parameters: std::collections::BTreeMap::new(),
+            model_parameters: item
+                .models
+                .iter()
+                .filter(|model| model.enabled)
+                .filter_map(|model| {
+                    model.reported_context_window_tokens.map(|window| {
+                        (
+                            model.id.clone(),
+                            ModelParameters {
+                                context_window_tokens: Some(window),
+                                ..ModelParameters::default()
+                            },
+                        )
+                    })
+                })
+                .collect(),
             model_capabilities: item
                 .models
                 .iter()
@@ -906,4 +921,22 @@ mod experiment_tests {
             assert!(limits.command_stdin_closed);
         }
     }
+}
+
+fn model_context_window(
+    config: &areal_config::SelectedModelConfig,
+) -> Option<areal_protocol::context::ContextWindow> {
+    use areal_protocol::context::{ContextWindow, ContextWindowSource as Source};
+    let reported = config.reported_context_window_tokens?;
+    Some(ContextWindow {
+        window_tokens: config.context_window_tokens.unwrap_or(reported),
+        source: if config.context_window_tokens.is_some() {
+            Source::User
+        } else {
+            Source::Provider
+        },
+        reported_window_tokens: Some(reported),
+        reported_window_source: Some(Source::Provider),
+        user_budget_tokens: config.context_window_tokens,
+    })
 }

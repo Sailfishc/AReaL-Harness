@@ -6,7 +6,7 @@ mod audit;
 mod capacity;
 pub(crate) use capacity::{RequestCapacity, RequestPhase};
 mod context_windows;
-pub(crate) use context_windows::known_context_window;
+pub(crate) use context_windows::{known_context_window, subscription_context_window};
 #[cfg(test)]
 mod prompt_cache_tests;
 mod request_budget;

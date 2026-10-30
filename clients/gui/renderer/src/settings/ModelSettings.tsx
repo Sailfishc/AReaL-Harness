@@ -790,9 +790,14 @@ export function ModelSettings({
                                       {
                                         id,
                                         enabled: true,
-                                        parameters: !provider.parameters?.contextWindowTokens
-                                          ? (result.modelParameters?.[id] ?? {})
-                                          : {},
+                                        parameters: {},
+                                        ...(result.modelParameters?.[id]?.contextWindowTokens ===
+                                        undefined
+                                          ? {}
+                                          : {
+                                              reportedContextWindowTokens:
+                                                result.modelParameters[id].contextWindowTokens,
+                                            }),
                                       },
                                       provider.parameters,
                                     ),

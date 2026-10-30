@@ -1563,3 +1563,40 @@ fn goal_unknown_model_usage_recovery_is_an_explicit_boolean() {
     );
     assert!(load_config(&input).is_err());
 }
+
+#[test]
+fn reported_context_defaults_round_trip_separately_from_user_overrides() {
+    let root = tempfile::tempdir().unwrap();
+    let mut i = inputs(root.path());
+    i.overrides = ConfigOverrides::default();
+    let text = "schema_version=2\n[model]\nprovider='custom'\nname='opaque'\n[model.providers.custom]\nendpoint='http://127.0.0.1:9/v1/responses'\nprotocol='responses'\nmodels=[{id='opaque',reported_context_window_tokens=500000,parameters={}}]\n";
+    write(&mut i, text);
+    let initial = load_config(&i).unwrap();
+    assert_eq!(initial.model.context_window_tokens, None);
+    assert_eq!(initial.model.reported_context_window_tokens, Some(500000));
+    for user in [Some(900000), Some(64000), None] {
+        let mut document = models::read(&i, &[]).unwrap();
+        document.data[0].models[0].parameters.context_window_tokens = user;
+        let saved = models::write(
+            &i,
+            models::ModelConfigurationUpdate {
+                expected_revision: document.revision,
+                data: document.data,
+                default_model: document.default_model,
+            },
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            saved.data[0].models[0].reported_context_window_tokens,
+            Some(500000)
+        );
+        let restored = load_config(&i).unwrap();
+        assert_eq!(restored.model.context_window_tokens, user);
+        assert_eq!(restored.model.reported_context_window_tokens, Some(500000));
+    }
+    for window in [0, 2000001] {
+        write(&mut i, &text.replace("500000", &window.to_string()));
+        assert_eq!(failure(&i).kind, ConfigErrorKind::InvalidValue);
+    }
+}
