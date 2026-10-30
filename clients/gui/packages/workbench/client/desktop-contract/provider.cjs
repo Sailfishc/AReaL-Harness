@@ -9,7 +9,7 @@
 /** @typedef {{id:string,name:string,endpoint:string,protocol:string,enabled:boolean,apiKeyEnv?:string,models:ModelConfig[],parameters:ModelParameters}} ProviderConfig */
 /** @typedef {Fields & {path:string,revision:string,data:ProviderConfig[],defaultModel:ModelRef|null,credentialStates:Record<string,string>,credentialSources:Record<string,string>,effective:Fields}} ModelSnapshot */
 /** @typedef {{expectedRevision:string,data:ProviderConfig[],defaultModel:ModelRef|null}} ModelUpdate */
-/** @typedef {Fields & {providerId:string|null,modelId:string,providerRevision:number|null,displayName?:string,available?:boolean,availability?:'checking'|'available'|'unavailable'}} ModelCatalogEntry */
+/** @typedef {Fields & {providerId:string|null,providerName?:string,modelId:string,providerRevision:number|null,displayName?:string,available?:boolean,availability?:'checking'|'available'|'unavailable'}} ModelCatalogEntry */
 /** @typedef {Fields & {id:string,revision:number,endpoint:string,protocol:string,models:string[],modelParameters?:Record<string,ModelParameters>,parameters:ModelParameters}} CoreProvider */
 /** @typedef {{revision:string,sequence:number}} AppliedConfiguration */
 /** @typedef {{code:number,message:string,data?:Fields|null}} ConfigurationError */
@@ -143,6 +143,7 @@ function modelEntry(value) {
     (value.providerId === null || typeof value.providerId === "string") &&
     typeof value.modelId === "string" &&
     (value.providerRevision === null || integer(value.providerRevision)) &&
+    (value.providerName === undefined || typeof value.providerName === "string") &&
     (value.displayName === undefined || typeof value.displayName === "string") &&
     (value.available === undefined || typeof value.available === "boolean") &&
     (value.availability === undefined ||

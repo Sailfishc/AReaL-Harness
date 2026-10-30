@@ -44,7 +44,7 @@ class ProjectlessWorkspaces {
       const providers = this.backend.providers;
       const config = await providers.config.current();
       const selected = readEffectiveModel(config.effective);
-      /** @type {Array<{providerId:string|null,modelId:string,displayName:string,available:boolean,credentialState?:string,isDefault:boolean,parameters:import("./provider-contract.cjs").ModelParameters,capabilities?:import("./provider-contract.cjs").ModelCapabilities,reasoningEffortOptions:string[]}>} */
+      /** @type {Array<{providerId:string|null,providerName?:string,modelId:string,displayName:string,available:boolean,credentialState?:string,isDefault:boolean,parameters:import("./provider-contract.cjs").ModelParameters,capabilities?:import("./provider-contract.cjs").ModelCapabilities,reasoningEffortOptions:string[]}>} */
       const data = config.data
         .filter((provider) => provider.enabled)
         .flatMap((provider) => {
@@ -59,6 +59,7 @@ class ProjectlessWorkspaces {
             const capabilities = resolvedModelCapabilities(provider, model);
             return {
               providerId: provider.id,
+              providerName: provider.name,
               modelId: model.id,
               displayName: model.displayName ?? model.id,
               available: config.credentialStates[provider.id] !== "unavailable",
@@ -121,6 +122,7 @@ class ProjectlessWorkspaces {
         data.push(
           ...service.models.map((model) => ({
             providerId: "areal_openai",
+            providerName: "ChatGPT",
             modelId: model.id,
             displayName: model.id,
             available: true,

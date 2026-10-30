@@ -119,7 +119,7 @@ if (composerPicker || composerFast) {
       ["alpha", "beta"]
         .map(
           (id) =>
-            `\n[model.providers.${id}]\nname="${id}"\nendpoint="http://127.0.0.1:${server.address().port}/v1/chat/completions"\nprotocol="chat-completions"\nmodels=[{id="${id}-model",enabled=true${composerFast && id === "alpha" ? ',parameters={service_tier="fast"}' : ""},capabilities={tools=true,vision=true,reasoning=true,reasoning_effort_options=["low","high"]}}]\n`,
+            `\n[model.providers.${id}]\nname="${composerPicker ? `Configured ${id}` : id}"\nendpoint="http://127.0.0.1:${server.address().port}/v1/chat/completions"\nprotocol="chat-completions"\nmodels=[{id="${id}-model",enabled=true${composerFast && id === "alpha" ? ',parameters={service_tier="fast"}' : ""},capabilities={tools=true,vision=true,reasoning=true,reasoning_effort_options=["low","high"]}}]\n`,
         )
         .join(""),
   );
@@ -1500,8 +1500,8 @@ async function verifyComposerPicker() {
   await menu.waitFor();
   assert.equal(await menu.getByRole("textbox").count(), 0);
   assert.equal(await menu.getByRole("tab", { name: /agent/i }).count(), 0);
-  const alpha = menu.getByRole("tab", { name: "alpha", exact: true });
-  const beta = menu.getByRole("tab", { name: "beta", exact: true });
+  const alpha = menu.getByRole("tab", { name: "Configured alpha", exact: true });
+  const beta = menu.getByRole("tab", { name: "Configured beta", exact: true });
   await alpha.waitFor();
   await beta.click();
   const betaModel = menu.getByRole("radio", { name: "beta-model", exact: true });

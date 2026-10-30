@@ -119,7 +119,10 @@ Core 返回可选 `EffectiveConfig.permissions: {resources:"workspace"|"deployme
 
 受管命令权限不等于 Core、插件、MCP 或浏览器宿主的整体隔离。浏览器继续使用独立的页面取控与精确计划校验。详见[权限架构](../design/permissions.md)。
 
+桌面模型目录投影与项目外 `projectless` 目录可附带 `providerName`，取自生效配置的供应商名称；ChatGPT 订阅为 `ChatGPT`。Composer 使用该字段显示分组与提示，缺失时回退到 `providerId`；分组和提交身份仍使用 `providerId`，Core `areal/model/list` 协议不变。
+
 <a id="submissions"></a>
+
 ## 提交、配置与恢复
 
 Desktop 的 `reconcile` 接受 `{projectId, requestId?}`。携带原 `requestId` 时，现有请求归属路由选择实际执行宿主，再核对该宿主的收据；省略时保留项目级核对。核查不会重新提交创建或发送草稿。旧 Worktree 的独立创建保留在“设置 → 后台服务”的待核对记录中，不作为新草稿的操作提示；当前草稿独占本次创建的未知结果提示。缺少收据时保留原请求及资源，不推断成功或失败。

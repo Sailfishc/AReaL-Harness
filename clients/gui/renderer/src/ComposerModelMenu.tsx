@@ -22,6 +22,7 @@ export interface ComposerModelOption {
   value: string;
   label: string;
   providerId?: string;
+  providerName?: string;
   efforts?: readonly string[];
   reasoning?: boolean;
   effortsKnown?: boolean;
@@ -31,6 +32,7 @@ export interface ComposerModelOption {
 /** 可用性直接投影 Core 目录，不在 Renderer 重新判断凭据。 */
 export function composerModelOption(model: {
   providerId?: string | null;
+  providerName?: string;
   modelId: string;
   displayName?: string;
   reasoningEffortOptions?: readonly string[];
@@ -43,6 +45,7 @@ export function composerModelOption(model: {
     value: model.providerId ? `${model.providerId}/${model.modelId}` : "",
     label: model.displayName ?? model.modelId,
     providerId: model.providerId ?? undefined,
+    providerName: model.providerName,
     efforts: model.reasoningEffortOptions,
     reasoning: model.capabilities?.reasoning,
     effortsKnown:
@@ -102,7 +105,9 @@ export function ComposerModelMenu({
   }
   const model = options.find((option) => option.value === value);
   const label = model?.label ?? t("chat.composer.chooseModel");
-  const identityLabel = model?.providerId ? `${label} · ${model.providerId}` : label;
+  const identityLabel = model?.providerId
+    ? `${label} · ${model.providerName || model.providerId}`
+    : label;
   const fast = serviceTier === "fast";
   const fastAction = t(fast ? "chat.composer.disableFast" : "chat.composer.enableFast");
   const selectedEffort = effort && effort !== "default" ? effort : undefined;
@@ -213,14 +218,14 @@ export function ComposerModelMenu({
                 aria-label={t("chat.composer.providers")}
                 className="composer-provider-list"
               >
-                {[...providers.keys()].map((providerId) => (
+                {[...providers].map(([providerId, models]) => (
                   <TabsTrigger
                     key={providerId}
                     value={providerId}
                     disabled={disabled || pending}
                     className="composer-provider-option"
                   >
-                    {providerId || t("chat.composer.serviceDefault")}
+                    {models[0]?.providerName || providerId || t("chat.composer.serviceDefault")}
                   </TabsTrigger>
                 ))}
               </TabsList>

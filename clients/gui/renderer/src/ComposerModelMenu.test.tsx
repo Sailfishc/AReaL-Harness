@@ -9,6 +9,7 @@ vi.mock("./i18n/IntlProvider.js", () => ({
 
 const catalog = ["direct", "relay"].map((providerId) => ({
   providerId,
+  providerName: `Configured ${providerId}`,
   modelId: "family/shared-model",
   displayName: "Shared model",
   capabilities: { reasoning: false },
@@ -38,10 +39,10 @@ describe("composer model provider identity", () => {
   });
 
   it.each(["direct", "relay"])(
-    "shows only the model name for %s while keeping its provider in the title",
+    "shows only the model name for %s while keeping its configured provider name in the title",
     (provider) => {
       const markup = render(`${provider}/family/shared-model`);
-      expect(markup).toContain(`title="Shared model · ${provider}"`);
+      expect(markup).toContain(`title="Shared model · Configured ${provider}"`);
       expect(markup.replace(/<[^>]*>/g, "")).toBe("Shared model");
     },
   );

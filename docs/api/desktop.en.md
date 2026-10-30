@@ -119,7 +119,10 @@ Core returns optional `EffectiveConfig.permissions: {resources:"workspace"|"depl
 
 Managed-command permissions do not imply whole-host isolation for Core, plugins, MCP or the browser. Browser access retains separate page control and exact plan validation. See [permission architecture](../design/permissions.en.md).
 
+Desktop model catalog projections and the projectless catalog may include optional `providerName`, taken from the effective provider configuration; ChatGPT subscriptions use `ChatGPT`. Composer uses it for groups and tooltips, falling back to `providerId` when absent. Grouping and submission still use `providerId`; the Core `areal/model/list` protocol is unchanged.
+
 <a id="submissions"></a>
+
 ## Submissions, configuration and recovery
 
 Desktop `reconcile` accepts `{projectId, requestId?}`. When the original `requestId` is provided, existing request ownership routing selects the execution host before checking its receipts. Omitting it retains project-level reconciliation. Checking never resubmits creation or sends a draft. Independent creation requests from old Worktrees remain in the unconfirmed creation records under Settings → Background service instead of appearing as operations of a new draft. The current draft owns its creation warning. Missing receipts preserve the original request and resources without assuming success or failure.
