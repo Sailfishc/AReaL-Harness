@@ -1191,10 +1191,12 @@ export function Messages({
               (item: Data) => item.type === "dynamicToolCall" && item.tool === "run_command",
             );
             const resourceLabel =
-              command && queue?.pauseReason === "stopped" ? commandResourceLabel(command) : null;
+              command && queue?.pauseReason === "stopped" && turn.interruption !== "userPause"
+                ? commandResourceLabel(command)
+                : null;
             const hasInterruption =
               turn.status === "interrupted" || (turn.status === "failed" && !!turn.interruption);
-            const stopHeading = (
+            const stopHeading = turn.interruption !== "userPause" && (
               <div className="turn-stop-heading turn-progress-heading">
                 <div className="turn-progress-label">
                   <span className="turn-status turn-progress-summary" role="status">
