@@ -118,6 +118,10 @@ _Avoid_: Assistant replies alone; treating Side Chat or Fork as delegated agent 
 The time that passes from the actual start of turn execution to its terminal outcome, or from execution start to the present while it is still running. Queue waiting before execution starts is measured separately.
 _Avoid_: The sum of parallel tool or subagent durations; model generation time alone
 
+**Subagent Lifetime Duration**:
+The time that actually passes from the start of a delegated agent task's execution to its terminal outcome, which may span multiple parent turns.
+_Avoid_: Parent turn elapsed time; the duration of one operation waiting for the subagent
+
 **Pause Execution**:
 A temporary stop in advancing unfinished work in a main conversation, retaining its objective, existing progress and intent to continue later.
 _Avoid_: Abandoning the objective, undoing completed work, freezing an exact execution position
