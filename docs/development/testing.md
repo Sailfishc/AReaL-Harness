@@ -235,6 +235,14 @@ python3 scripts/native-python-smoke.py --bin-dir target/debug
 
 `make workgroup-smoke` 同时验证 Worker 命令的 `TMPDIR` 位于私有工作区下的 `.scratch/agent-<threadId>`，该目录可写且 Python 字节码写入被禁用。
 
+Rust 工具链回归通过真实 Runtime 在最小桌面 PATH 下离线构建并运行无依赖 Cargo 程序，再通过工作区内的本地 Git 仓库依赖验证 Cargo 获取与离线缓存复用。它覆盖普通作用域及仅 scratch 可写的只读仓库子作用域，同时验证仓库外文件读取被拒绝。此测试需要已安装且可确定默认版本的 Rust 和系统链接工具，不下载工具链或依赖。`--version` 检查不能替代编译和链接验收。
+
+```sh
+python3 scripts/native-rust-smoke.py --bin-dir target/debug
+```
+
+`make harness-smoke` 包含此回归。它使用隔离 Cargo home 和本地 Git fixture，不证明宿主 Cargo 缓存、私有依赖、真实模型或安装包中的工具调用可用。
+
 ## 恢复与研究 Agent
 
 ```sh

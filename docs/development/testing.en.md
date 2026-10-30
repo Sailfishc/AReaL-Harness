@@ -235,6 +235,14 @@ python3 scripts/native-python-smoke.py --bin-dir target/debug
 
 `make workgroup-smoke` also verifies that Worker commands receive a writable `TMPDIR` at `.scratch/agent-<threadId>` inside their private workspace, with Python bytecode writes disabled.
 
+The Rust toolchain regression builds and runs a dependency-free Cargo program offline through the real Runtime with a minimal desktop PATH. It then checks Cargo fetching and offline cache reuse with a Git dependency from a local workspace repository. It covers ordinary scopes and a child scope with a read-only repository and writable scratch, and checks that reads outside the workspace are denied. It requires an installed Rust toolchain with a resolvable default and system linking tools. It downloads no toolchain or dependencies. Version probes do not establish compilation or linking support.
+
+```sh
+python3 scripts/native-rust-smoke.py --bin-dir target/debug
+```
+
+`make harness-smoke` includes this regression. Its Cargo home and local Git fixture are isolated, so it does not establish access to host Cargo caches, private dependencies, real models, or tools in an installed package.
+
 ## Recovery and research agents
 
 ```sh
