@@ -1201,7 +1201,7 @@ try {
       checks.push("production editor submit=false retains draft without desktop bridge");
       const composer = page.getByRole("region", { name: "Composer 预览", exact: true });
       await composer.getByTestId("composer-model-trigger").click();
-      const modelDialog = page.getByRole("dialog", { name: "模型与思考强度" });
+      const modelDialog = page.getByRole("dialog", { name: "选择模型", exact: true });
       await modelDialog.waitFor();
       await page.keyboard.press("Escape");
       await modelDialog.waitFor({ state: "detached" });

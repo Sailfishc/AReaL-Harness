@@ -86,7 +86,6 @@ export async function runSharedWorkspace(page, scratch, report, baseline) {
       "new Side uses the same model name and effort as main",
     );
     await sideModel.click();
-    await page.getByRole("button", { name: "选择模型", exact: true }).click();
     const models = page.getByRole("radiogroup", { name: "模型列表", exact: true });
     await models.waitFor();
     assert.equal(
@@ -114,7 +113,6 @@ export async function runSharedWorkspace(page, scratch, report, baseline) {
     );
     await page.keyboard.press("Escape");
     await mainModel.click();
-    await page.getByRole("button", { name: "选择模型", exact: true }).click();
     await page.locator('[data-model-value="preview-alternate/shared"]').click();
     assert.match(await mainModel.innerText(), /preview-alternate/);
     assert.equal(await page.locator(".composer-model-source").innerText(), "preview-alternate");
@@ -263,7 +261,6 @@ export async function runSharedWorkspace(page, scratch, report, baseline) {
     await page.getByLabel("主题", { exact: true }).selectOption(sample.theme);
     await page.getByLabel("字号", { exact: true }).selectOption(sample.font);
     await model.click();
-    await page.getByRole("button", { name: "选择模型", exact: true }).click();
     await settle();
     await page.screenshot({
       path: join(scratch, "models-" + sample.theme + ".png"),

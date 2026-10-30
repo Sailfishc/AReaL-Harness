@@ -133,7 +133,7 @@ function TaskRow({
         <button
           type="button"
           className="scheduled-row-main"
-          aria-label={openLabel}
+          aria-description={openLabel}
           title={`${title} · ${summary}`}
           onClick={onOpen}
         >

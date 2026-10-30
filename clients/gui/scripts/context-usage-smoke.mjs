@@ -325,8 +325,6 @@ const context = (id) =>
   call("manage", { projectId, threadId: id, operation: "context", offset: 0, limit: 1 });
 async function choose(label) {
   await page.getByTestId("composer-model-trigger").click();
-  const picker = page.getByRole("button", { name: "选择模型", exact: true });
-  if (await picker.isVisible()) await picker.click();
   await page.getByRole("radio", { name: label, exact: true }).click();
   await dismissPopovers();
   await page.waitForFunction((label) => {
