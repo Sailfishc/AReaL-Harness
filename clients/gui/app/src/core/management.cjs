@@ -225,6 +225,14 @@ const reads = {
   permissions: ["areal/permissions/read", ["threadId"]],
   interactions: ["areal/interaction/list", ["threadId"]],
   processOutput: ["areal/process/read", ["threadId", "id", "after", "maxBytes", "waitMs"]],
+  executionTraceResult: [
+    "areal/execution/traceResult",
+    ["threadId", "executionId", "workerThreadId", "uri"],
+  ],
+  executionTrace: [
+    "areal/execution/trace",
+    ["threadId", "executionId", "workerThreadId", "cursor"],
+  ],
   executions: ["areal/execution/list", ["parentThreadId", "offset", "limit"]],
   execution: ["areal/execution/read", ["parentThreadId", "executionId", "offset"]],
   executionArtifact: [

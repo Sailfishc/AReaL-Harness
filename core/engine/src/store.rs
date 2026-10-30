@@ -46,7 +46,7 @@ pub(crate) fn fit_history_fragment(
 }
 
 // 持久化版本与服务状态必须一致，避免客户端误判可恢复的数据格式。
-pub(crate) const STATE_VERSION: u32 = 15;
+pub(crate) const STATE_VERSION: u32 = 16;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Record {
@@ -393,6 +393,11 @@ impl Store {
         for turn in &mut record.thread.turns {
             if turn.status == TurnStatus::InProgress {
                 turn.status = TurnStatus::Interrupted;
+                for activity in &mut turn.trace.activities {
+                    if activity.status == "running" {
+                        activity.status = "unknown".into();
+                    }
+                }
                 if turn.interruption.is_none() {
                     turn.interruption = Some(areal_protocol::TurnInterruption::CoreRecovery);
                 }
@@ -510,8 +515,17 @@ impl Store {
         maximum_bytes: usize,
         include_history: bool,
     ) -> Result<Thread> {
+        Self::read_snapshot_at(&self.root, id, maximum_bytes, include_history)
+    }
+
+    pub(crate) fn read_snapshot_at(
+        root: &Path,
+        id: &str,
+        maximum_bytes: usize,
+        include_history: bool,
+    ) -> Result<Thread> {
         anyhow::ensure!(uuid::Uuid::parse_str(id).is_ok(), "invalid thread ID");
-        let path = self.root.join(format!("{id}.json"));
+        let path = root.join(format!("{id}.json"));
         anyhow::ensure!(
             std::fs::metadata(&path)?.len() <= maximum_bytes as u64,
             "Thread exceeds snapshot read bound"
@@ -523,7 +537,7 @@ impl Store {
             "Thread requires archived history inspection"
         );
         if include_history {
-            archive::hydrate(&self.root, &mut thread)?;
+            archive::hydrate(root, &mut thread)?;
         }
         Ok(thread)
     }

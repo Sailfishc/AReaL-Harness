@@ -103,7 +103,7 @@ impl Engine {
                     let configuration = engine.freeze_configuration(configuration);
                     engine.validate_thread_input(&state.thread, &input, &engine.configured_model(&configuration)?.capabilities())?;
                     accepted_configuration = Some(configuration.clone());
-                    let item = QueueItem { id: id(), input, configuration, submitted_by: identity.clone(), status: "pending".into(), turn_id: None };
+                    let item = QueueItem {queued_at_ms:Some(crate::execution_trace::now_ms()), id: id(), input, configuration, submitted_by: identity.clone(), status: "pending".into(), turn_id: None };
                     let item_id = item.id.clone();
                     data.queue.items.push(item);
                     Some(item_id)
@@ -231,7 +231,7 @@ impl Engine {
             let accepted_configuration = configuration.clone();
             if enqueue {
                 if data.queue.items.len()>=128 { return Err(Error::Exhausted("queue history capacity reached".into())); }
-                let item = QueueItem {id:id(),input:request.input,configuration,submitted_by:identity.clone(),status:"pending".into(),turn_id:None};
+                let item = QueueItem {queued_at_ms:Some(crate::execution_trace::now_ms()),id:id(),input:request.input,configuration,submitted_by:identity.clone(),status:"pending".into(),turn_id:None};
                 data.queue.revision+=1;
                 let mut result = json!({"queueItemId":item.id,"queueRevision":data.queue.revision,"configRevision":item.configuration.revision});
                 data.queue.items.push(item);
@@ -508,6 +508,8 @@ impl Engine {
             } else { self.prepare_turn(&source, input)? };
             if automatic { if let Some(goal) = &mut turn.goal { goal.origin = "continuation".into(); } *candidate.turns.last_mut().unwrap() = turn.clone(); }
             if let Some(index) = index {
+                turn.trace.queued_at_ms = data.queue.items[index].queued_at_ms;
+                turn.trace.queue_duration_ms = turn.trace.queued_at_ms.map(|start| crate::execution_trace::now_ms().saturating_sub(start).max(0) as u64);
                 turn.configuration.get_or_insert_with(Default::default).options.interaction_mode = data.queue.items[index].configuration.options.interaction_mode;
                 *candidate.turns.last_mut().unwrap() = turn.clone();
                 let next = candidate.desktop.as_mut().unwrap(); next.configuration = data.configuration.clone(); next.queue.items[index].status = "running".into(); next.queue.items[index].turn_id = Some(turn.id.clone()); next.queue.revision += 1;

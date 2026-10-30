@@ -1471,13 +1471,55 @@ impl Model for HttpModel {
                     delay_ms = delay.as_millis() as u64,
                     "retrying model request before stream acceptance"
                 );
+                let trace = crate::execution_trace::REQUEST_TRACE
+                    .try_with(Clone::clone)
+                    .ok();
+                let mut wait = if let Some(context) = &trace {
+                    context
+                        .engine
+                        .trace_finish(
+                            &context.cell,
+                            &mut context.timer.clone(),
+                            Some(&format!(
+                                "HTTP attempt failed: {}",
+                                audit.value["httpStatus"]
+                            )),
+                        )
+                        .await?;
+                    context
+                        .engine
+                        .trace_begin(
+                            &context.cell,
+                            "retryWait",
+                            "HTTP retry waiting",
+                            None,
+                            Some(&context.logical_id),
+                        )
+                        .await?
+                } else {
+                    None
+                };
                 drop(result);
-                capacity::retry_after(delay).await.with_context(|| {
+                let retried = capacity::retry_after(delay).await.with_context(|| {
                     format!(
                         "HTTP retry after status {} was not admitted",
                         audit.value["httpStatus"]
                     )
-                })?;
+                });
+                if let Some(context) = &trace {
+                    context
+                        .engine
+                        .trace_finish(
+                            &context.cell,
+                            &mut wait,
+                            retried.as_ref().err().map(|e| e.to_string()).as_deref(),
+                        )
+                        .await?;
+                    if retried.is_ok() {
+                        context.restart(self.name()).await?;
+                    }
+                }
+                retried?;
                 continue;
             }
             break result.map_err(|error| {
