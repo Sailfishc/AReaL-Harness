@@ -110,6 +110,14 @@ _Avoid_: Every chat panel, an active task only
 An accepted user input and the resulting processing episode, including replies, tool interactions and its terminal outcome. A turn may contain multiple messages.
 _Avoid_: Message, single model request, display index
 
+**Execution Trace**:
+A retained record of processing across turns, including model calls, tool operations and associated delegated agent tasks, used to inspect the work performed and its execution state.
+_Avoid_: Assistant replies alone; treating Side Chat or Fork as delegated agent tasks
+
+**Turn Elapsed Time**:
+The time that actually passes from the start of a turn to its terminal outcome, or from its start to the present while it is still running.
+_Avoid_: The sum of parallel tool or subagent durations; model generation time alone
+
 **Pause Execution**:
 A temporary stop in advancing unfinished work in a main conversation, retaining its objective, existing progress and intent to continue later.
 _Avoid_: Abandoning the objective, undoing completed work, freezing an exact execution position
