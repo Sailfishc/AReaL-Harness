@@ -69,6 +69,7 @@ import { SentReviewComments } from "./ReviewCommentViews.js";
 import { latestScheduleItems, ScheduledTaskCards } from "./ScheduledTasks.js";
 import { TurnChangesPill, TurnFileSummary } from "./TurnFileSummary.js";
 import type { Data, Action } from "./services.js";
+import { SettingsDisclosure } from "./settings/SettingsDisclosure.js";
 type TranscriptSelectionSnapshot = {
   owner: string;
   text: string;
@@ -1435,14 +1436,14 @@ export function Messages({
                             );
                           if (entry.type === "modelContext") return null;
                           return (
-                            <details
+                            <SettingsDisclosure
                               className="tool-call"
                               data-side-item-id={entry.id}
                               key={entry.id}
+                              title={entry.type}
                             >
-                              <summary>{entry.type}</summary>
                               <pre>{JSON.stringify(entry, null, 2)}</pre>
-                            </details>
+                            </SettingsDisclosure>
                           );
                         }}
                       />

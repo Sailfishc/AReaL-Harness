@@ -205,14 +205,8 @@
 .task-draft-error {
   color: var(--color-destructive);
 }
-.task-resource-history summary {
-  cursor: pointer;
-  color: var(--color-foreground-subtle);
-  padding: 0 8px;
-  font-size: var(--text-ui-caption);
-}
 .task-resource-history > div {
-  padding: 12px 8px 0;
+  padding: 8px 8px 0;
 }
 .task-resource-history article {
   font-size: var(--text-ui-sm);
