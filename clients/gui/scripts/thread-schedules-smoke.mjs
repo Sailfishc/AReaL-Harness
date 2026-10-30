@@ -791,12 +791,22 @@ async function verifyGlobalDraftAndRun(existingTasks = []) {
   await shot("03-global-project-and-independent");
   await page.getByRole("button", { name: `打开自动化 ${C.objective}`, exact: true }).click();
   const count = requests.length;
-  await page.getByRole("button", { name: "暂停", exact: true }).click();
+  const detail = page.locator(".scheduled-task-header");
+  assert.equal(await detail.getByRole("button", { name: "暂停", exact: true }).count(), 0);
+  assert.equal(await detail.locator("[data-scheduled-task-menu]").count(), 0);
+  await page.getByRole("button", { name: "任务资源", exact: true }).click();
+  const panel = page.getByLabel("任务资源面板", { exact: true });
+  await panel.getByLabel("定时任务安排", { exact: true }).waitFor();
+  assert.equal(await panel.getByLabel("运行记录", { exact: true }).count(), 0);
+  const menu = panel.locator(`[data-scheduled-task-menu="${C.id}"]`);
+  await menu.click();
+  await page.getByRole("menuitem", { name: "暂停", exact: true }).click();
   await until(
     async () => (await task(C.id, C.projectId)).paused,
     "global control pauses independent task",
   );
-  await page.getByRole("button", { name: "开启", exact: true }).click();
+  await menu.click();
+  await page.getByRole("menuitem", { name: "开启", exact: true }).click();
   await until(
     async () => !(await task(C.id, C.projectId)).paused,
     "global control enables independent task",
@@ -805,7 +815,8 @@ async function verifyGlobalDraftAndRun(existingTasks = []) {
   checks.push(
     "global center aggregates project and independent owner schedules and direct controls share Core state",
   );
-  await page.getByRole("button", { name: "立即运行", exact: true }).click();
+  await menu.click();
+  await page.getByRole("menuitem", { name: "立即运行", exact: true }).click();
   facts.ui.completedC = await until(async () => {
     const value = await task(C.id, C.projectId);
     return value.runs.some((run) => run.status === "completed") && value;

@@ -2,7 +2,7 @@ import { useI18n } from "./i18n/IntlProvider.js";
 import { Disclosure, TaskContext } from "@areal/ui/experimental";
 import "@areal/ui/conversation.css";
 import { Button } from "./components/ui/button.js";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ScheduledTaskRow, ThreadScheduledTasks } from "./ScheduledTasks.js";
 import { processItems, toolPresentation } from "./conversationPresentation.js";
 import { ReviewPanelIcon, TerminalPanelIcon, DocumentPanelIcon } from "./app-shell/panelIcons.js";
@@ -23,7 +23,6 @@ export function ConversationStatusCard({
   onAgent,
   onFile,
   scheduledTask,
-  runHistory,
   onAddSchedule,
   onOpenSchedule,
   onAgents,
@@ -40,7 +39,6 @@ export function ConversationStatusCard({
   onLink?: (url: string) => void;
   onAgents?: () => void;
   scheduledTask?: Data;
-  runHistory?: ReactNode;
   onAddSchedule?: () => void;
   onOpenSchedule?: (task: Data) => void;
 }) {
@@ -295,7 +293,6 @@ export function ConversationStatusCard({
             onOpen={onOpenSchedule}
           />
         )}
-        {runHistory && <section className="task-resources-section">{runHistory}</section>}
         {processError && (
           <p role="alert" className="task-resource-note">
             后台进程读取失败：{processError}

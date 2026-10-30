@@ -225,63 +225,6 @@ export function ScheduledTaskMenu({
     </>
   );
 }
-/** 兼容入口：定时任务页顶部的主要操作按钮加“⋯”菜单。 */
-export function ScheduledTaskControls({
-  task,
-  project,
-  action,
-  disabled = false,
-  onChanged,
-  onEdit,
-}: {
-  task: Data;
-  project: Data;
-  action: Action;
-  disabled?: boolean;
-  onChanged?: (task: Data) => void;
-  onEdit?: () => void;
-}) {
-  const { t } = useI18n();
-  const { control, blocked, run } = useScheduledTaskControl(
-    task,
-    project,
-    action,
-    onChanged,
-    disabled,
-  );
-  return (
-    <div className="scheduled-task-actions">
-      {task.deletedAt == null && (
-        <>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={blocked || task.cancelled || !!run}
-            onClick={() => void control("taskRunNow")}
-          >
-            {t("operations.runNow")}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={blocked || task.cancelled}
-            onClick={() => void control(task.paused ? "taskResume" : "taskPause")}
-          >
-            {task.paused ? t("operations.schedules.enable") : t("operations.schedules.pause")}
-          </Button>
-        </>
-      )}
-      <ScheduledTaskMenu
-        task={task}
-        project={project}
-        action={action}
-        disabled={disabled}
-        onChanged={onChanged}
-        onEdit={onEdit}
-      />
-    </div>
-  );
-}
 /** 一行任务：会话卡片（card）或右侧面板（compact）。 */
 export function ScheduledTaskRow({
   task,

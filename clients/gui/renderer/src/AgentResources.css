@@ -285,12 +285,6 @@
   flex-shrink: 0;
 }
 
-.scheduled-task-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: calc(var(--spacing-inline) / 2);
-}
 .scheduled-task-error {
   flex-basis: 100%;
   padding-inline: calc(var(--spacing-inline) / 2);

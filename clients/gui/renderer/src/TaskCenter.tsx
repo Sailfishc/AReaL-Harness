@@ -2,13 +2,7 @@ import { observeResize } from "@areal/ui/observe-resize";
 import { Input } from "@areal/ui";
 import { recoveredOutcome, recoveryMessage, type RecoveryFailure } from "./recoveryPresentation.js";
 import { FeedbackNotice } from "./FeedbackNotice.js";
-import {
-  activeScheduledTask,
-  scheduledTaskStatus,
-  ScheduledTaskControls,
-  ScheduledWorkspace,
-} from "./ScheduledTasks.js";
-import { ScheduledTaskEditDialog } from "./ScheduledTaskEditDialog.js";
+import { activeScheduledTask, scheduledTaskStatus, ScheduledWorkspace } from "./ScheduledTasks.js";
 import { SettingsDisclosure } from "./settings/SettingsDisclosure.js";
 import {
   describeMoment,
@@ -628,13 +622,7 @@ export function TaskCenter({
 }: Props & {
   navigation: ReactNode;
   renderConversation: TaskConversationRenderer;
-  renderResources: (
-    project: Data,
-    thread: Data,
-    task: Data,
-    history: ReactNode,
-    revealKey?: string,
-  ) => ReactNode;
+  renderResources: (project: Data, thread: Data, task: Data, revealKey?: string) => ReactNode;
   target?: {
     projectId: string;
     taskId: string;
@@ -2181,19 +2169,12 @@ export function TaskCenter({
             task={task}
             project={project}
             action={action}
-            disabled={disabled}
             history={runHistory}
             onClose={closeDetails}
             onOpenThread={onOpenThread}
             renderConversation={renderConversation}
             renderResources={(owner, thread) =>
-              renderResources(
-                owner,
-                thread,
-                { ...task, controlDisabled: disabled },
-                runHistory,
-                revealKey,
-              )
+              renderResources(owner, thread, { ...task, controlDisabled: disabled }, revealKey)
             }
           />
         )}
@@ -2221,7 +2202,6 @@ export function TaskCenter({
                       ? taskStatus(task, t)
                       : t("operations.schedules.enabledGroup"),
                 },
-                runHistory,
                 revealKey,
               )
             }
@@ -2236,7 +2216,6 @@ function ScheduledTaskConversation({
   task,
   project,
   action,
-  disabled,
   history,
   onClose,
   onOpenThread,
@@ -2246,7 +2225,6 @@ function ScheduledTaskConversation({
   task: Data;
   project: Data;
   action: Action;
-  disabled: boolean;
   history: ReactNode;
   onClose: () => void;
   onOpenThread: (projectId: string, threadId: string) => void;
@@ -2258,7 +2236,6 @@ function ScheduledTaskConversation({
     status: "pending",
   });
   const [retry, setRetry] = useState(0);
-  const [editing, setEditing] = useState(false);
   const state = scheduledTaskState(task, project, t);
   useEffect(() => {
     if (!project.state?.connected) return;
@@ -2295,13 +2272,6 @@ function ScheduledTaskConversation({
         <span className="scheduled-task-header-summary" title={project.root}>
           {state.kind === "attention" ? state.reason : scheduledTaskSummary(task, t)}
         </span>
-        <ScheduledTaskControls
-          task={task}
-          project={project}
-          action={action}
-          disabled={disabled}
-          onEdit={() => setEditing(true)}
-        />
         <Button
           size="sm"
           variant="ghost"
@@ -2315,14 +2285,6 @@ function ScheduledTaskConversation({
           {t("operations.schedules.closeDetails")}
         </Button>
       </header>
-      {editing && (
-        <ScheduledTaskEditDialog
-          task={task}
-          project={project}
-          action={action}
-          onClose={() => setEditing(false)}
-        />
-      )}
       {read.status === "error" && (
         <p role="alert" className="task-plan-note">
           {t("operations.schedules.sourceUnavailable")}
