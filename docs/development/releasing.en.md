@@ -4,6 +4,8 @@
 
 Validated standalone channels are complete macOS arm64 and Linux x86_64 glibc bundles with the Python installer; both platforms share a Homebrew formula. Unlike the [official Codex CLI installation matrix](https://learn.chatgpt.com/docs/codex/cli#getting-started), this project has no complete npm or native Windows distribution yet. `cargo install areal-cli` also lacks the Runtime and bundled tools. See [installation](../guides/installation.en.md) for platform scope.
 
+Package staging loads the Cloud backend modules in a separate process and exercises the local read-state route to verify that public package entrypoints resolve inside the distribution. This check runs before signing and notarization.
+
 ## Channels and source gate
 
 Formal and preview CLI releases both ship complete bundles. macOS retains and strictly verifies input ad-hoc signatures without Developer ID distribution signing or Apple notarization. Formal GUI releases retain Developer ID signing, notarization, DMG installation and ZIP updates. GUI previews retain default ad-hoc signing, are installed manually, contain no formal update configuration, and do not advance the formal feed or promise automatic migration to formal releases. Previews are prereleases and never Latest; only a formal CLI release may become Latest.

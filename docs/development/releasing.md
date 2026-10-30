@@ -4,6 +4,8 @@
 
 当前可验收的独立渠道为 macOS arm64 与 Linux x86_64 glibc 完整包 + Python 安装器；两平台共用 Homebrew formula。与 [Codex CLI 官方安装矩阵](https://learn.chatgpt.com/docs/codex/cli#getting-started)相比，npm、Windows 在本项目尚无完整 Runtime 包或原生支持，不能列为可用渠道。`cargo install areal-cli` 同样不提供完整布局。安装范围见[安装指南](../guides/installation.md)。
 
+打包暂存阶段会独立加载 Cloud 后台模块，并执行本地阅读标记路由，校验公开包入口在安装包目录内可解析；此检查在签名与公证前运行。
+
 ## 渠道与来源门禁
 
 CLI 正式与预览均交付完整 bundle；macOS 保留并严格验证输入 ad-hoc 签名，不做 Developer ID 分发签名或 Apple 公证。GUI 正式版继续使用 Developer ID + 公证、DMG 与更新 ZIP；GUI 预览保留默认 ad-hoc，仅手动安装，不带正式更新配置、不推进正式 feed，也不承诺自动转正式。预览标记 prerelease、非 Latest；仅 CLI 正式版可成为 Latest。
