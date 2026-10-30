@@ -67,7 +67,7 @@ import { ImageAnnotationList } from "./ImageAnnotationViews.js";
 import { sentBrowserAnnotations } from "./browserAnnotations.js";
 import { SentReviewComments } from "./ReviewCommentViews.js";
 import { latestScheduleItems, ScheduledTaskCards } from "./ScheduledTasks.js";
-import { TurnChangesPill, TurnFileSummary } from "./TurnFileSummary.js";
+import { TurnFileSummary } from "./TurnFileSummary.js";
 import type { Data, Action } from "./services.js";
 type TranscriptSelectionSnapshot = {
   owner: string;
@@ -1652,9 +1652,8 @@ export function Messages({
             aria-hidden="true"
             className="pointer-events-none absolute inset-x-0 bottom-0 z-1 h-(--conversation-fade) bg-linear-to-b from-transparent to-background"
           />
-          {/* 运行中的改动小条与“滚动到底部”并排居中；空时不占位也不拦截指针。 */}
+          {/* 回看历史时显示“滚动到底部”入口。 */}
           <div className="timeline-float pointer-events-none absolute bottom-3 left-1/2 z-3 flex -translate-x-1/2 items-center gap-(--spacing-inline) *:pointer-events-auto">
-            <TurnChangesPill turn={thread.turns?.at(-1)} onReview={onReview} />
             {readingHistory && <TimelineBottomButton onClick={returnToBottom} />}
           </div>
         </>
