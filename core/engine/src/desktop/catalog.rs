@@ -751,20 +751,17 @@ impl Engine {
             .profile
             .as_ref()
             .is_some_and(|profile| profile.id == "areal-discovered-skills")
+            && let Some(reference) = self.desktop.default_profile.read().unwrap().clone()
+            && let Some(profile) = self
+                .desktop
+                .catalog
+                .read()
+                .unwrap()
+                .profiles
+                .get(&key(&reference.id, &reference.revision))
+                .cloned()
         {
-            if let Some(reference) = self.desktop.default_profile.read().unwrap().clone() {
-                if let Some(profile) = self
-                    .desktop
-                    .catalog
-                    .read()
-                    .unwrap()
-                    .profiles
-                    .get(&key(&reference.id, &reference.revision))
-                    .cloned()
-                {
-                    configuration.profile = Some(profile);
-                }
-            }
+            configuration.profile = Some(profile);
         }
         let (Some(model), Some(provider)) = (&configuration.model, &mut configuration.provider)
         else {
