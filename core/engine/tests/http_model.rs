@@ -1697,6 +1697,53 @@ async fn service_tier_reaches_both_http_protocols_and_configure_overrides_inheri
 }
 
 #[tokio::test]
+async fn service_tier_audit_keeps_fast_request_separate_from_actual_default() {
+    use areal_engine::model::{Message, Model, ModelOptions};
+    use futures_util::StreamExt;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let app = Router::new().route("/", post(move |Json(request): Json<Value>| {
+        let tx = tx.clone();
+        async move {
+            tx.send(request).unwrap();
+            ([("content-type", "text/event-stream")], "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"service_tier\":\"default\",\"usage\":{\"input_tokens\":3,\"output_tokens\":1}}}\n\n")
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}/", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let audit_dir = tempfile::tempdir().unwrap();
+    let model = HttpModel::with_protocol(
+        endpoint,
+        "gpt-6.1-terra".into(),
+        None,
+        ModelProtocol::Responses,
+    )
+    .unwrap()
+    .with_options(ModelOptions {
+        service_tier: Some("fast".into()),
+        ..Default::default()
+    })
+    .unwrap()
+    .with_audit_directory(audit_dir.path().into());
+    let events = model
+        .stream(vec![Message::text("user", "hello")])
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+    assert!(events.iter().all(Result::is_ok));
+    let request = rx.recv().await.unwrap();
+    server.abort();
+    let _ = server.await;
+    let audit_text = std::fs::read_to_string(audit_dir.path().join("requests.jsonl")).unwrap();
+    let audit: Value = serde_json::from_str(audit_text.trim()).unwrap();
+    assert_eq!(audit["usageDetails"]["serviceTier"], "default");
+    assert_eq!(request["service_tier"], "fast");
+    assert_eq!(audit["parameters"]["service_tier"], request["service_tier"]);
+    assert_eq!(audit["outcome"], "completed");
+}
+
+#[tokio::test]
 async fn service_tier_thread_configuration_merges_and_survives_reopen() {
     use areal_protocol::desktop::ModelParameters;
     let legacy: ModelParameters =

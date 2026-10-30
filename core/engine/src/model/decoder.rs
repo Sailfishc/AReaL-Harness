@@ -1759,6 +1759,66 @@ mod tool_call_tests {
 #[cfg(test)]
 mod cache_diagnostic_tests {
     use super::*;
+
+    #[test]
+    fn service_tier_records_only_exact_terminal_response_labels() {
+        for tier in [
+            "auto",
+            "default",
+            "flex",
+            "priority",
+            "fast",
+            "scale",
+            "ultrafast",
+        ] {
+            for terminal in [
+                "response.completed",
+                "response.failed",
+                "response.incomplete",
+            ] {
+                let mut decoder = Decoder::Responses(ResponsesDecoder::default());
+                let response = json!({"type":terminal,"response":{
+                    "status":terminal.strip_prefix("response.").unwrap(),
+                    "service_tier":tier,
+                    "error":{"code":"server_error"},
+                    "incomplete_details":{"reason":"max_output_tokens"}
+                }});
+                let result = decoder.feed(format!("data: {response}\n\n").as_bytes());
+                assert_eq!(result.is_ok(), terminal == "response.completed");
+                assert_eq!(decoder.usage_details()["serviceTier"], tier, "{terminal}");
+            }
+        }
+    }
+
+    #[test]
+    fn service_tier_omits_missing_unsafe_and_nonterminal_response_values() {
+        for tier in [
+            None,
+            Some(Value::Null),
+            Some(json!("")),
+            Some(json!("PRIORITY")),
+            Some(json!(" priority ")),
+            Some(json!("Bearer fixture-secret")),
+            Some(json!("unknown")),
+            Some(json!(42)),
+            Some(json!({"service_tier":"priority"})),
+            Some(json!(["priority"])),
+        ] {
+            let mut decoder = Decoder::Responses(ResponsesDecoder::default());
+            decoder.feed(b"data: {\"type\":\"response.created\",\"response\":{\"service_tier\":\"priority\"}}\n\n").unwrap();
+            assert!(decoder.usage_details().get("serviceTier").is_none());
+            let mut response =
+                json!({"type":"response.completed","response":{"status":"completed"}});
+            if let Some(tier) = tier {
+                response["response"]["service_tier"] = tier;
+            }
+            decoder
+                .feed(format!("data: {response}\n\n").as_bytes())
+                .unwrap();
+            assert!(decoder.usage_details().get("serviceTier").is_none());
+        }
+    }
+
     #[test]
     fn response_ids_are_bounded_and_missing_cache_writes_remain_unknown() {
         let mut details = UsageDetails::default();
