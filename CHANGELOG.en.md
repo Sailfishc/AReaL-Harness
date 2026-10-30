@@ -2,6 +2,18 @@
 
 # Changelog
 
+## GUI 0.1.15
+
+### Fixes
+
+- Recognize crash reporters belonging to the current application session during update checks, while retaining blockers for other profiles, independent CLI processes, and unknown users of the installation.
+- Complete safe shutdown and package-use checks before preparing Squirrel installation, so a rejected install does not arm replacement on normal exit.
+- If native preparation fails after shutdown, explain that the backend has stopped and the installation result needs checking. Reopen the app to check its version rather than automatically retrying installation.
+
+### Upgrade
+
+The previous installation checks in 0.1.13 and 0.1.14 can block automatic upgrades. Use the DMG once to migrate to this version. Later formal releases use the product update channel.
+
 ## GUI 0.1.14
 
 ### Fixes

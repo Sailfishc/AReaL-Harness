@@ -78,6 +78,8 @@ Production GUI packages contain `areal-update.json` with the fixed feed `https:/
 
 The macOS `dir` target does not automatically generate native update configuration. Production packaging writes `app-update.yml` before signing, using the same product feed and a fixed download cache name, and verifies the packaged configuration. Automatic builder uploads remain disabled. Discovering an update does not prove download works. The sidebar update button shows download progress, displays failures directly, and allows retries. On update reopen, reconcile the original receipt and confirm the previous backend has exited before resuming initialization. Unknown or unfinished operations retain their recovery references. An explicit backend stop still requires manual reconnection.
 
+Installation checks idle state, safely stops the backend, and checks package users before native Squirrel preparation. Only crash reporters matched to the current session by UID, real executable path, stable process identity, and the corresponding database are excluded. Other profiles, independent CLI processes, and unknown package users still block installation. Download or digest failures preserve the backend. Native preparation failures occur after safe shutdown and require reopening to check the installed version rather than automatic installation retries.
+
 Run from a clean, merged commit:
 
 ```sh
