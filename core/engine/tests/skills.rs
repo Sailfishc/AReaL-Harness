@@ -859,9 +859,11 @@ impl areal_engine::model::Model for ReadSkillPages {
         let events = if results.is_empty() {
             ["SKILL.md","binary.bin"].into_iter().map(|resource|ModelEvent::ToolCall(ToolCall {
                 id:resource.into(),name:"skill_read".into(),arguments:json!({"skill":{"id":"fireworks-tech-graph","revision":"local-v1"},"resource":resource}).to_string()
-            })).collect::<Vec<_>>()
+            })).chain(std::iter::once(ModelEvent::ToolCall(ToolCall {
+                id: "list".into(), name: "skill_list".into(), arguments: "{}".into(),
+            }))).collect::<Vec<_>>()
         } else {
-            assert_eq!(results.len(), 2);
+            assert_eq!(results.len(), 3);
             let pages: Vec<serde_json::Value> = results
                 .iter()
                 .map(|m| serde_json::from_str(&m.text_content()).unwrap())
@@ -873,6 +875,7 @@ impl areal_engine::model::Model for ReadSkillPages {
             assert_eq!(pages[1]["text"], serde_json::Value::Null);
             assert_eq!(pages[1]["dataBase64"], "/wA=");
             assert_eq!(pages[1]["nextOffset"], 2);
+            assert_eq!(pages[2]["data"][0]["id"], "fireworks-tech-graph");
             vec![ModelEvent::text("verified exact text and binary pages")]
         };
         Ok(Box::pin(futures_util::stream::iter(
@@ -887,6 +890,15 @@ async fn model_skill_reads_avoid_duplicate_text_bytes_while_public_api_retains_b
     fs::write(root.path().join("SKILL.md"), "完整技能页").unwrap();
     fs::write(root.path().join("binary.bin"), [0xff, 0]).unwrap();
     let engine = Engine::open(state.path(), Arc::new(ReadSkillPages), Limits::default()).unwrap();
+    engine
+        .set_permissions(
+            areal_config::PermissionConfig {
+                mode: areal_config::PermissionMode::AskPermissions,
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
     engine
         .install_default_skills(vec![local_skill(root.path())])
         .unwrap();
