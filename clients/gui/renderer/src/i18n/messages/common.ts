@@ -181,14 +181,6 @@ export const commonMessages = {
     en: "Line counts unavailable for some files",
   },
   "chat.files.unavailable": { "zh-CN": "行数不可用", en: "Line counts unavailable" },
-  "chat.files.changedLive": {
-    "zh-CN": "{count} 个文件已更改",
-    en: "{count, plural, one {# file changed} other {# files changed}}",
-  },
-  "chat.files.reviewLive": {
-    "zh-CN": "查看本轮已更改的 {count} 个文件",
-    en: "Review {count, plural, one {# changed file} other {# changed files}} in this turn",
-  },
   "chat.files.partialTotals": {
     "zh-CN": "已统计文件新增 {additions} 行，删除 {deletions} 行",
     en: "Counted files: {additions} added, {deletions} deleted",
