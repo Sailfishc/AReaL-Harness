@@ -99,14 +99,16 @@ async fn desktop_schedule_requires_host_skips_busy_and_pauses_only_future_runs()
         .await
         .unwrap();
     engine.advance_task(id).await.unwrap();
-    let run = &engine.task_read(id).await.unwrap().runs[0];
-    assert_eq!(run.status, RunStatus::Failed);
-    assert_eq!(run.reason.as_deref(), Some("hostUnavailable"));
+    assert!(
+        !engine.task_read(id).await.unwrap().runs[0]
+            .status
+            .terminal()
+    );
     engine.shutdown().await;
 }
 
 #[tokio::test]
-async fn interrupted_schedule_run_fails_and_next_trigger_is_admitted() {
+async fn interrupted_schedule_run_stays_resumable_until_the_next_trigger() {
     let dir = tempfile::tempdir().unwrap();
     let engine = Engine::open(dir.path(), Arc::new(Pending), Limits::default()).unwrap();
     engine.task_modes.started.store(true, Ordering::Release);
@@ -130,10 +132,9 @@ async fn interrupted_schedule_run_fails_and_next_trigger_is_admitted() {
     engine.advance_task(&id).await.unwrap();
     engine.wait(run.thread_id.as_ref().unwrap()).await.unwrap();
     engine.advance_task(&id).await.unwrap();
+    // 中断的运行在下一次触发前仍可“重试本次”。
     let run = engine.task_read(&id).await.unwrap().runs[0].clone();
-    assert_eq!(run.status, RunStatus::Failed);
-    assert_eq!(run.reason.as_deref(), Some("serverRestarted"));
-    assert!(run.completed_at.is_some());
+    assert!(!run.status.terminal());
 
     let host = Arc::new(Host {
         closed: AtomicBool::new(false),
@@ -146,6 +147,8 @@ async fn interrupted_schedule_run_fails_and_next_trigger_is_admitted() {
     engine.advance_task(&id).await.unwrap();
     let task = engine.task_read(&id).await.unwrap();
     assert_eq!(task.runs.len(), 2);
+    assert_eq!(task.runs[0].status, RunStatus::Failed);
+    assert!(task.runs[0].completed_at.is_some());
     assert_eq!(task.skipped_runs, 0);
     engine.shutdown().await;
 }
