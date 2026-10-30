@@ -60,6 +60,13 @@ import { Button } from "./components/ui/button.js";
 import { Popover, PopoverContent } from "./components/ui/popover.js";
 import { MessageResponse } from "./components/ai-elements/message.js";
 import { SentAttachment } from "./MessageAttachment.js";
+import {
+  WorkspaceFileCard,
+  WorkspaceImage,
+  isWorkspaceImagePath,
+  opensOutside,
+  workspaceFileCardType,
+} from "./WorkspaceMedia.js";
 import { sentReviewFeedback } from "./reviewComments.js";
 import { SentBrowserAnnotations } from "./BrowserAnnotationAttachments.js";
 import { sentImageAnnotations } from "./imageAnnotations.js";
@@ -68,7 +75,7 @@ import { sentBrowserAnnotations } from "./browserAnnotations.js";
 import { SentReviewComments } from "./ReviewCommentViews.js";
 import { latestScheduleItems, ScheduledTaskCards } from "./ScheduledTasks.js";
 import { TurnFileSummary } from "./TurnFileSummary.js";
-import type { Data, Action } from "./services.js";
+import type { Data, Action, PlatformServices } from "./services.js";
 import { SettingsDisclosure } from "./settings/SettingsDisclosure.js";
 type TranscriptSelectionSnapshot = {
   owner: string;
@@ -142,6 +149,7 @@ export function Messages({
   dark,
   onLink,
   onFile,
+  fileOpen,
   onReview,
   readTurnReview,
   beforeTurns,
@@ -187,6 +195,8 @@ export function Messages({
   dark: boolean;
   onLink: (url: string) => void;
   onFile: (path: string) => void;
+  /** Desktop file host for workspace images and file cards; absent for cloud and previews. */
+  fileOpen?: PlatformServices["fileOpen"];
   onReview: (turnId: string) => void;
   readTurnReview: (turnId: string, itemId?: string) => Promise<Data>;
 }) {
@@ -633,8 +643,28 @@ export function Messages({
           threadId={thread.id}
           action={action}
         />
+      ) : fileOpen && isWorkspaceImagePath(uri) ? (
+        <WorkspaceImage path={uri} alt={name} projectId={project.id} fileOpen={fileOpen} />
+      ) : fileOpen && workspaceFileCardType(uri) ? (
+        <WorkspaceFileCard path={uri} label={name} projectId={project.id} fileOpen={fileOpen} />
       ) : null,
-    [project.id, thread.id, action],
+    [project.id, thread.id, action, fileOpen],
+  );
+  const renderFileCard = useCallback(
+    (path: string, label: string) =>
+      fileOpen && workspaceFileCardType(path) ? (
+        <WorkspaceFileCard path={path} label={label} projectId={project.id} fileOpen={fileOpen} />
+      ) : null,
+    [project.id, fileOpen],
+  );
+  // Binary files cannot be shown in the file pane; hand them to the desktop instead.
+  const openReplyFile = useCallback(
+    (path: string) => {
+      if (fileOpen && opensOutside(path))
+        void fileOpen({ operation: "open", projectId: project.id, path }).catch(() => onFile(path));
+      else onFile(path);
+    },
+    [fileOpen, onFile, project.id],
   );
   const sendGenUi = async (prompt: string) => {
     if (readOnly || !project.state?.connected || localThread.desktop?.archived)
@@ -693,8 +723,10 @@ export function Messages({
               }
               theme={dark ? "dark" : "light"}
               onOpenExternalUrl={onLink}
-              onOpenFileLink={onFile}
+              onOpenFileLink={openReplyFile}
               onRenderImage={renderImage}
+              onRenderFileCard={renderFileCard}
+              fileLinks
               webPreviews
             >
               {text}
