@@ -4664,3 +4664,42 @@ button[aria-label="停止"] {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.trajectory-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.trajectory-filters [role="combobox"] {
+  min-width: 0;
+  width: auto;
+  max-width: 100%;
+}
+.trajectory-filters input {
+  max-width: 90px;
+}
+.trajectory-child {
+  margin: 6px 8px 6px 16px;
+  padding-left: 8px;
+  border-left: 1px solid var(--color-border);
+}
+.trajectory-child button,
+.trajectory-results button {
+  height: auto;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.trajectory-meta {
+  flex-wrap: wrap;
+}
+.trajectory-results,
+.trajectory-raw {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 12px;
+}

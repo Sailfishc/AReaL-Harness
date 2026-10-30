@@ -48,6 +48,8 @@ Linux `exec-native` starts a separate Rust binary provided by the same crate, `a
 
 Engine's `session_name` module owns one-shot asynchronous session naming, durable claims and current-state merges. It reuses shared model capacity and shutdown lifecycle. Clients only project Core names and local manual overrides; they do not schedule naming inference. See the [Core session-name contract](../api/core.en.md#session-names) for fields and failure boundaries.
 
+Engine's `execution_trace` module saves measured activity timing in existing Turn history. Read-only queries reuse history pagination and delegation ownership; the trusted Workgroup factory reads bound isolated-worker history without acquiring a second Store writer. GUI owns query presentation and copying. Local inspection is independent of export settings. See the [Core API](../api/core.en.md#local-execution-trace-inspection) for fields, compatibility, and original-result boundaries.
+
 Engine’s `trajectory` module records model and tool execution content through `tracing`; server’s `telemetry` module assembles the standard OpenTelemetry Traces/Logs SDK and OTLP exporters. Engine does not read telemetry environment variables or depend on an export backend; see [reporting configuration](../guides/configuration.en.md#opentelemetry-trajectory-reporting).
 
 Server injects a shared Engine capture budget when installing telemetry. Engine uses borrowed serialization and bounded streaming buffers for logical messages and final model requests; exhaustion drops only the telemetry copy. The durable event bridge owns Turn sequences and terminal manifests so receivers can distinguish completed execution from complete delivery. See the [Core trajectory contract](../api/core.en.md#durable-trajectory-protocol).

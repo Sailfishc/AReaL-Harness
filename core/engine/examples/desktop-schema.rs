@@ -417,6 +417,13 @@ fn desktop_schema() -> Value {
             vec!["threadId", "executionId", "workerThreadId", "uri"],
         ),
     );
+    methods.insert(
+        "areal/execution/trace".into(),
+        object(
+            json!({"threadId":string,"executionId":string,"workerThreadId":string,"cursor":string}),
+            vec!["threadId"],
+        ),
+    );
     methods.insert("areal/execution/list".into(), object(json!({"parentThreadId":string,"offset":integer,"limit":{"type":"integer","minimum":1,"maximum":100}}), vec!["parentThreadId"]));
     methods.insert(
         "areal/execution/read".into(),

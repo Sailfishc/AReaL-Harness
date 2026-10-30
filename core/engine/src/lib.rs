@@ -31,6 +31,7 @@ pub use task_mode::TaskRunNowAdmission;
 pub use task_mode::{
     PublishedTaskCatalog, PublishedTaskCatalogFallback, read_published_task_catalog,
 };
+mod execution_trace;
 pub mod tools;
 mod trajectory;
 pub use trajectory::{configure_trajectory_capture_budget, record_json as record_trajectory_json};

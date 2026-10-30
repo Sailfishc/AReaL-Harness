@@ -98,6 +98,8 @@ crate::method_catalog! {
     "areal/agent/delegate" => Mutation;
     "areal/execution/list" => Read;
     "areal/execution/read" => Read;
+    "areal/execution/trace" => Read;
+    "areal/execution/traceResult" => Read;
     "areal/execution/wait" => Read;
     "areal/execution/cancel" => Mutation;
     "areal/execution/apply" => Mutation;
@@ -642,6 +644,8 @@ pub struct RequestReceipt {
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QueueItem {
+    #[serde(default)]
+    pub queued_at_ms: Option<i64>,
     pub id: String,
     pub input: Vec<Input>,
     pub configuration: EffectiveConfig,

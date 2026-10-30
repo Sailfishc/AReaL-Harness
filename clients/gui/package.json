@@ -75,6 +75,8 @@
     "test:conversation-flow": "node scripts/conversation-flow-smoke.mjs",
     "test:trajectory": "node --test scripts/trajectory.test.mjs scripts/trajectory-polling.test.mjs scripts/trajectory-toggle.test.mjs",
     "test:trajectory-config": "node scripts/trajectory-config-smoke.mjs",
+    "test:execution-trace-ui": "node scripts/execution-trace-ui-smoke.mjs",
+    "test:execution-trace-desktop": "AREAL_TRACE_SINGLE=1 node scripts/execution-trace-desktop-smoke.mjs",
     "test:trajectory-ui": "node scripts/trajectory-ui-smoke.mjs",
     "test:remote-observation": "node scripts/remote-observation-smoke.mjs",
     "test:remote-pairing-e2e": "node scripts/remote-pairing-e2e.mjs",

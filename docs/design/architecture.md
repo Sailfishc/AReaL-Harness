@@ -46,6 +46,8 @@ Engine 的 `catalog` 模块维护内存中的 UUID 与创建顺序索引，注�
 
 默认使用内存目录；`sqlite` 模式仅持久索引不可变 `(id,created_at)`，由一个有界批量写入线程和两个读取线程访问 WAL 数据库。查询在相同代际下接回当前会话，索引落后时回退到内存；故障或写队列溢出则在本次实例中停用 SQLite。内存索引继续保留用于回退，启动核对全部索引键；全量模式完整恢复文件。`store::lazy` 提供基于 JSON 清单或 SQLite 的可重建元数据缓存，验证事实身份后由 `dormant` 保存紧凑目录；完整历史、工具绑定和事件窗口在首次使用时恢复。`memory-lazy` 与 `sqlite-lazy` 均直接使用内存排序目录查询；后者用 SQLite 持久化元数据，减少大 JSON 清单的整体编解码与重写。复杂所有权与未结算执行仍走原完整恢复，缓存不决定执行事实。所有模式仍枚举文件；未提供自动历史淘汰或全文检索。文件记录继续承担事实与恢复，写入顺序、同步落盘和状态版本不变。配置见[会话目录后端](../guides/configuration.md#会话目录后端)，接口边界见 [Core API](../api/core.md#传输与会话)。
 
+Engine 的 `execution_trace` 模块将实测活动计时保存到现有 Turn 历史；只读查询复用历史分页和委派归属，通过 Workgroup 的可信工厂读取绑定的隔离 worker 历史，不取得第二个 Store 写入所有权。GUI 只组织查询、展示与复制；本地排查独立于采集上传设置。字段、兼容性和原文读取边界见[Core API](../api/core.md#本地执行轨迹查看)。
+
 Engine 的 `trajectory` 模块记录模型和工具的执行内容，通过 `tracing` 暴露轨迹；server 的 `telemetry` 模块装配标准 OpenTelemetry Traces/Logs SDK 和 OTLP 导出。Engine 不读取遥测环境变量，也不依赖上报后端；配置见[轨迹上报](../guides/configuration.md#opentelemetry-轨迹上报)。
 
 server 在安装遥测时为 Engine 注入共享采集预算；Engine 用借用序列化与有界流式缓冲保存逻辑消息和最终模型请求，容量不足只丢弃遥测副本。持久事件桥接层负责 Turn 序号和终态清单，接收端据此区分执行完成与完整送达；协议见[Core 轨迹契约](../api/core.md#持久轨迹协议)。

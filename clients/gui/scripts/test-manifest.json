@@ -421,6 +421,23 @@
     "requires": ["core-binary"]
   },
   {
+    "script": "test:execution-trace-ui",
+    "layer": "e2e",
+    "platforms": ["darwin", "linux"],
+    "areas": ["trajectory", "history"],
+    "requires": ["browser", "gui-build"],
+    "notes": "Real React trace pane with synthetic action responses; does not prove Core or Electron."
+  },
+  {
+    "script": "test:execution-trace-desktop",
+    "layer": "e2e",
+    "platforms": ["darwin"],
+    "platformReason": "The fixed native Runtime and Electron acceptance runner is currently validated on macOS.",
+    "areas": ["trajectory", "history"],
+    "requires": ["electron", "core-binary", "native-runtime", "gui-build"],
+    "notes": "Isolated Electron/Core with a loopback model, single shared delegation, copying and GUI reopen; nested legacy reads have Core and browser coverage."
+  },
+  {
     "script": "test:trajectory-ui",
     "layer": "e2e",
     "platforms": ["darwin", "linux"],

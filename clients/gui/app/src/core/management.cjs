@@ -229,6 +229,10 @@ const reads = {
     "areal/execution/traceResult",
     ["threadId", "executionId", "workerThreadId", "uri"],
   ],
+  executionTrace: [
+    "areal/execution/trace",
+    ["threadId", "executionId", "workerThreadId", "cursor"],
+  ],
   executions: ["areal/execution/list", ["parentThreadId", "offset", "limit"]],
   execution: ["areal/execution/read", ["parentThreadId", "executionId", "offset"]],
   executionArtifact: [

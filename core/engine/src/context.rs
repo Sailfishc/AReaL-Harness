@@ -1021,6 +1021,9 @@ impl Engine {
         if pre.stop.is_some() {
             anyhow::bail!("PreCompact hook stopped compaction");
         }
+        let mut compaction_trace = self
+            .trace_begin(cell, "compaction", "上下文压缩", None, None)
+            .await?;
         let result: anyhow::Result<()> = async {
             let boundary = items[cut - 1].id().to_owned();
             let mut prefix = logical_snapshot.clone();
@@ -1042,6 +1045,7 @@ impl Engine {
             let storage_only = storage_trigger && !token_trigger && !byte_trigger && !force;
             let mut attempt = 0;
             let mut network_retries: usize = 0;
+            let summary_logical_id = id();
             // 只有存储压力时使用已记录证据，不为不可回放的推理再次付费摘要。
             while attempt < 2 && !storage_only {
                 let mut summary = String::new();
@@ -1095,12 +1099,11 @@ impl Engine {
                     })
                 };
                 let request_span = request.span.clone();
+                let mut summary_trace = self.trace_begin(cell, "model", model.name(), None, Some(&summary_logical_id)).await?;
+                let trace_context = crate::execution_trace::RequestTrace { engine: self.clone(), cell: cell.clone(), timer: summary_trace.clone(), logical_id: summary_logical_id.clone() };
                 let response: anyhow::Result<()> = async {
                     // 摘要也使用同一容量；失败后先归还名额再退避。
-                    let permit = tokio::select! {
-                        _ = cancel.cancelled() => anyhow::bail!("cancelled before summary admission"),
-                        permit = self.permits.clone().acquire_owned() => permit?,
-                    };
+                    let permit = self.trace_model_permit(cell, cancel).await?;
                     if budget.window > 0 {
                         let output = model.capabilities().summary_output_tokens.unwrap_or(budget.reserve);
                         anyhow::ensure!(output < budget.window, "summary output reserve exceeds model context window");
@@ -1120,7 +1123,7 @@ impl Engine {
                     let mut response_deadline = watchdog::ResponseDeadline::new(self.limits.model_request_timeout, self.limits.stream_idle_timeout);
                     let pending = tokio::time::timeout_at(response_deadline.deadline(), model::REQUEST_OWNER.scope((snapshot.id.clone(), snapshot.turns.last().map_or_else(String::new, |t| t.id.clone())), permit.scope(async {
                         let meter = crate::request_meter::RequestMeter::new(generation.clone());
-                        model.chat_with_limits(input.clone(), Vec::new(), model::RequestPurpose::Summary, model::ToolCallLimits { require_call: false, max_calls: 0, max_buffer_bytes: self.limits.max_tool_buffer_bytes }, None).await.map(|stream| meter.wrap(stream))
+                        crate::execution_trace::REQUEST_TRACE.scope(trace_context.clone(), model.chat_with_limits(input.clone(), Vec::new(), model::RequestPurpose::Summary, model::ToolCallLimits { require_call: false, max_calls: 0, max_buffer_bytes: self.limits.max_tool_buffer_bytes }, None)).await.map(|stream| meter.wrap(stream))
                     })));
                     tokio::pin!(pending);
                     let mut stream = tokio::select! {
@@ -1142,6 +1145,7 @@ impl Engine {
                         };
                         let Some(event) = event else { break; };
                         let event = event?;
+                        self.trace_content(cell, &mut summary_trace, &event).await?;
                         response_deadline.observe_event();
                         request.observe(&event);
                         match event {
@@ -1170,6 +1174,7 @@ impl Engine {
                     anyhow::ensure!(valid_summary(&summary), "model returned an empty or tool-shaped context summary");
                     Ok(())
                 }.instrument(request_span).await;
+                self.trace_finish(cell, &mut summary_trace, response.as_ref().err().map(|e| e.to_string()).as_deref()).await?;
                 let measured = generation.lock().unwrap().clone();
                 if let Some(turn) = cell.state.lock().await.thread.turns.last_mut() { turn.generation = Some(measured); }
                 if let Err(error) = &response {
@@ -1203,10 +1208,12 @@ impl Engine {
                         delay_ms = delay.as_millis() as u64,
                         "network watchdog retrying context summary"
                     );
+                    let mut retry_trace = self.trace_begin(cell, "retryWait", "摘要重试等待", None, Some(&summary_logical_id)).await?;
                     tokio::select! { biased;
-                        _ = cancel.cancelled() => anyhow::bail!("cancelled"),
+                        _ = cancel.cancelled() => { self.trace_finish(cell, &mut retry_trace, Some("cancelled")).await?; anyhow::bail!("cancelled"); },
                         _ = tokio::time::sleep(delay) => {},
                     }
+                    self.trace_finish(cell, &mut retry_trace, None).await?;
                     continue;
                 }
                 if watchdog::exhausted(self.limits.network_retry_mode, &error, network_retries) {
@@ -1288,6 +1295,12 @@ impl Engine {
             );
             Ok(())
         }.instrument(span).await;
+        self.trace_finish(
+            cell,
+            &mut compaction_trace,
+            result.as_ref().err().map(|e| e.to_string()).as_deref(),
+        )
+        .await?;
         if result.is_ok() {
             let post = self
                 .plugin_hook_event(
