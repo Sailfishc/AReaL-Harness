@@ -118,6 +118,8 @@ function createUpdater({
           "error",
           `后台已安全停止，安装准备结果待核对。请退出并重新打开应用后检查版本。${error.message}`,
         );
+        // 安全退出进度仍覆盖主窗口，原生提示确保用户能看到重开说明。
+        await message("更新安装尚未完成", detail);
         return state();
       }
       installing = false;

@@ -97,7 +97,12 @@ test("download interruption or checksum error preserves Core and supports retry"
 });
 
 test("failed native staging after safe shutdown requires manual reconciliation", async () => {
+  const notices = [];
   const { controller, calls } = fixture({
+    notify: async (options) => {
+      notices.push(options);
+      return { response: 0 };
+    },
     prepareNativeInstall: async () => {
       throw new Error("native signature rejected");
     },
@@ -105,6 +110,9 @@ test("failed native staging after safe shutdown requires manual reconciliation",
   await controller.check();
   assert.equal((await controller.download()).status, "error");
   assert.match(controller.state().detail, /后台已安全停止.*native signature rejected/);
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].message, "更新安装尚未完成");
+  assert.match(notices[0].detail, /后台已安全停止.*退出并重新打开/);
   assert.deepEqual(calls.slice(1), ["download", "stop-core"]);
   await controller.install();
   await controller.download();
