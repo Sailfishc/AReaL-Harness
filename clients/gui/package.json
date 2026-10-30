@@ -160,7 +160,14 @@
     "mobile:ios:live": "node scripts/mobile-live.mjs",
     "mobile:tools": "cd ../.. && pnpm dlx mobilebuildmcp@2.7.1",
     "test:mobile-browser": "pnpm mobile:prepare && node scripts/mobile-browser-smoke.mjs",
-    "mobile:prepare": "pnpm --filter @areal/ui build"
+    "mobile:prepare": "pnpm --filter @areal/ui build",
+    "mobile:android:sync": "pnpm mobile:build && pnpm --filter @areal/mobile sync:android",
+    "mobile:android:open": "pnpm --filter @areal/mobile open:android",
+    "mobile:android:run": "pnpm --filter @areal/mobile run:android",
+    "mobile:android:build": "pnpm mobile:android:sync && pnpm --filter @areal/mobile build:android",
+    "mobile:android:live": "node scripts/mobile-android-live.mjs",
+    "test:mobile-android": "node scripts/mobile-android-smoke.mjs",
+    "test:mobile-android-storage": "node scripts/mobile-android-storage.mjs"
   },
   "devDependencies": {
     "@areal/remote-client": "workspace:*",

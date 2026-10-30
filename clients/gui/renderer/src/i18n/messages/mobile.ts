@@ -1,4 +1,8 @@
 export const mobileMessages = {
+  "mobile.unsupportedWebView": {
+    "zh-CN": "请更新 Android System WebView 或操作系统后重试。当前网页环境缺少安全连接所需的能力。",
+    en: "Update Android System WebView or your operating system and try again. This web environment lacks capabilities required for a secure connection.",
+  },
   "mobile.computerPermissions": { "zh-CN": "电脑权限", en: "Computer permissions" },
   "mobile.modelAdvanced": { "zh-CN": "高级设置", en: "Advanced" },
   "mobile.permissionQuestion": {
