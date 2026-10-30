@@ -404,7 +404,7 @@ async function showModel(name) {
     (item) => item.providerId && (item.displayName === name || item.modelId === name),
   );
   assert.ok(model, `catalog contains ${name}`);
-  const provider = model.providerId || "服务默认";
+  const provider = model.providerName || model.providerId || "服务默认";
   await page.getByRole("tab", { name: provider, exact: true }).click();
   return page.getByRole("radio", { name, exact: true });
 }
