@@ -10,7 +10,7 @@ function protocolFor(operation) {
   if (["providers","profile","skills","skill","providerSave","providerRemove","providerProbe"].includes(operation)) return require("./management-configuration-protocol.cjs");
   if (["inspect","context","inheritedHistory","plan","goal","permissions","interactions","server","archive","unarchive","goalCreate","goalUpdate","goalPause","goalResume","goalClear","planUpdate","contextCompact","permissionsForget","closeResources","serverDrain","serverGc","toolAcknowledge"].includes(operation)) return require("./management-thread-protocol.cjs");
   if (["processes","process","processWait","processOutput","processCloseStdin","processStart","processWrite","processResize","processTerminate"].includes(operation)) return require("./management-processes-protocol.cjs");
-  if (["executions","execution","executionArtifact","executionWait","executionCancel","executionApply"].includes(operation)) return require("./management-execution-protocol.cjs");
+  if (["executionTraceResult","executions","execution","executionArtifact","executionWait","executionCancel","executionApply"].includes(operation)) return require("./management-execution-protocol.cjs");
   if (["agents","agentWait","agentSpawn"].includes(operation)) return require("./management-agents-protocol.cjs");
   if (["workflows","workflow","workgroupPolicy","workgroups","workgroup","workgroupWait","workgroupArtifact","workgroupStart","workflowStart","workgroupRevise","workgroupCancel"].includes(operation)) return require("./management-workgroups-protocol.cjs");
   if (["pluginSetup"].includes(operation)) return require("./management-plugin-setup-protocol.cjs");

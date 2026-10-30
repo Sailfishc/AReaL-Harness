@@ -19743,6 +19743,30 @@
       ],
       "type": "object"
     },
+    "areal/execution/traceResult": {
+      "additionalProperties": false,
+      "properties": {
+        "executionId": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "uri": {
+          "type": "string"
+        },
+        "workerThreadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId",
+        "executionId",
+        "workerThreadId",
+        "uri"
+      ],
+      "type": "object"
+    },
     "areal/execution/wait": {
       "additionalProperties": false,
       "properties": {
@@ -45024,6 +45048,22 @@
         "text",
         "title",
         "verification"
+      ],
+      "type": "object"
+    },
+    "areal/execution/traceResult": {
+      "additionalProperties": true,
+      "properties": {
+        "bytes": {
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "bytes"
       ],
       "type": "object"
     },

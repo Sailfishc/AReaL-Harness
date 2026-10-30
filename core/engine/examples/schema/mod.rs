@@ -460,6 +460,10 @@ pub fn projections() -> (Value, Value) {
         &["execution/list"],
         object(json!({"data":array(execution.clone()),"nextOffset":nullable(number.clone())})),
     );
+    insert(
+        &["execution/traceResult"],
+        object(json!({"bytes":array(number.clone())})),
+    );
     let mut execution_wait = execution;
     execution_wait["properties"]["timedOut"] = boolean.clone();
     execution_wait["required"]
