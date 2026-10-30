@@ -140,7 +140,7 @@ impl Engine {
         } else {
             None
         };
-        if !(content && !measured.first_content) && usage.is_none() {
+        if (!content || measured.first_content) && usage.is_none() {
             return Ok(());
         }
         let mut state = cell.state.lock().await;
