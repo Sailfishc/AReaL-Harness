@@ -76,7 +76,7 @@ GUI versions are declared by `clients/gui/package.json` and `clients/gui/app/pac
 
 Production GUI packages contain `areal-update.json` with the fixed feed `https://github.com/areal-project/AReaL-Harness/releases/download/gui-update-channel/`. The `gui-update-channel` prerelease carries only the current `latest-mac.yml`; that manifest points to the immutable ZIP in `gui-v<version>` and includes size and SHA-512. Only same-repository, same-version assets are accepted. Local ad-hoc packages have no update configuration.
 
-The macOS `dir` target does not automatically generate native update configuration. Production packaging writes `app-update.yml` before signing, using the same product feed and a fixed download cache name, and verifies the packaged configuration. Automatic builder uploads remain disabled. Discovering an update does not prove download works. The sidebar update button shows download progress, displays failures directly, and allows retries.
+The macOS `dir` target does not automatically generate native update configuration. Production packaging writes `app-update.yml` before signing, using the same product feed and a fixed download cache name, and verifies the packaged configuration. Automatic builder uploads remain disabled. Discovering an update does not prove download works. The sidebar update button shows download progress, displays failures directly, and allows retries. On update reopen, reconcile the original receipt and confirm the previous backend has exited before resuming initialization. Unknown or unfinished operations retain their recovery references. An explicit backend stop still requires manual reconnection.
 
 Run from a clean, merged commit:
 

@@ -76,7 +76,7 @@ GUI 版本由 `clients/gui/package.json` 和 `clients/gui/app/package.json` 共�
 
 正式 GUI 包内写入 `areal-update.json`，更新源固定为 `https://github.com/areal-project/AReaL-Harness/releases/download/gui-update-channel/`。`gui-update-channel` 是仅承载当前 `latest-mac.yml` 的预发布频道；清单指向不可变 `gui-v<版本>` Release 中的 ZIP，并包含大小及 SHA-512。仅接受同仓库、同版本的附件地址。本地 ad-hoc 包没有更新配置。
 
-macOS `dir` 目标不会自动生成原生更新配置。正式打包在签名前写入 `app-update.yml`，沿用同一产品更新源和固定下载缓存名，并校验包内配置；仍禁止 builder 自动上传。仅能发现新版本不证明能下载。侧栏更新按钮显示下载进度，失败时直接显示原因并允许重试。
+macOS `dir` 目标不会自动生成原生更新配置。正式打包在签名前写入 `app-update.yml`，沿用同一产品更新源和固定下载缓存名，并校验包内配置；仍禁止 builder 自动上传。仅能发现新版本不证明能下载。侧栏更新按钮显示下载进度，失败时直接显示原因并允许重试。更新重开时先核对原操作回执和旧后台进程退出；已完成的更新继续初始化新后台，未确认或未完成操作仍保留恢复引用。明确停止后台的操作仍需用户主动重连。
 
 在干净、已合并的提交上执行：
 

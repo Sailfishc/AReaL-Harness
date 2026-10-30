@@ -2,6 +2,13 @@
 
 # Changelog
 
+## GUI 0.1.14
+
+### Fixes
+
+- Resume backend startup after a completed automatic update and confirmed exit of the previous backend, avoiding a loading failure on reopen.
+- Preserve recovery safeguards for unknown and unfinished operations. An explicit backend stop still requires manual reconnection.
+
 ## GUI 0.1.13
 
 ### Changes
