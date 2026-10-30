@@ -622,12 +622,18 @@ test("projectless catalog uses declared API and fresh account efforts without a 
   assert.equal(result.models[2].available, true);
 });
 
-test("both subscription transports preserve Fast, explicit Off and omission independently of effort", () => {
+test("subscription transports encode Fast for their endpoint and preserve Off, omission and effort", () => {
   const request = { model: "opaque-model", input: [], stream: true, reasoning: { effort: "high" } };
-  for (const encode of [protocolAdapters.codex.encode, protocolAdapters.openai.encode]) {
-    for (const tier of ["fast", "default"]) {
+  for (const [encode, fastTier] of [
+    [protocolAdapters.codex.encode, "fast"],
+    [protocolAdapters.openai.encode, "priority"],
+  ]) {
+    for (const [tier, expectedTier] of [
+      ["fast", fastTier],
+      ["default", "default"],
+    ]) {
       const encoded = encode({ ...request, service_tier: tier });
-      assert.equal(encoded.service_tier, tier);
+      assert.equal(encoded.service_tier, expectedTier);
       assert.deepEqual(encoded.reasoning, { effort: "high" });
       assert.equal(encoded.model, "opaque-model");
     }
