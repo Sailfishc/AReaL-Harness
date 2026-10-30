@@ -132,12 +132,12 @@ export function WorkspaceImage({
       <Button
         unstyled
         type="button"
-        className="conversation-workspace-image"
+        className="block max-w-full cursor-zoom-in overflow-hidden rounded-xl border border-border bg-surface"
         aria-label={t("content.workspaceImage.preview", { name })}
         title={path.replace(/^\.\//, "")}
         onClick={() => setPreviewOpen(true)}
       >
-        <img src={image.url} alt={name} />
+        <img className="block max-h-90 max-w-full object-contain" src={image.url} alt={name} />
       </Button>
       {previewOpen && (
         <ImagePreview name={name} url={image.url} onClose={() => setPreviewOpen(false)} />
@@ -186,14 +186,12 @@ export function WorkspaceFileCard({
   };
   return (
     <div
-      className="conversation-file-card"
+      className="conversation-web-preview"
       role="group"
       aria-label={t("content.fileCard.label", { name })}
     >
-      <span className="conversation-file-card-icon" aria-hidden="true">
-        <FileReference size={20} />
-      </span>
-      <span className="conversation-file-card-info">
+      <FileReference size={24} />
+      <span className="conversation-web-preview-info">
         <strong title={path.replace(/^\.\//, "")}>{name}</strong>
         <small role={message || notice ? "status" : undefined}>
           {message || notice || (label && label !== name ? label : type)}
@@ -214,7 +212,7 @@ export function WorkspaceFileCard({
             <Button
               size="sm"
               variant="outline"
-              className="conversation-file-card-open"
+              className="gap-1"
               disabled={busy}
               aria-label={t("content.fileCard.chooseApp", { name })}
             >

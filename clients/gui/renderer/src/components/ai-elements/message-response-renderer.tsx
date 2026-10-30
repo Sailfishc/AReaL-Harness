@@ -313,7 +313,7 @@ export const MessageResponse = memo(function MessageResponse({
                   .join("") ?? "",
               )
             : null;
-        if (fileCard) return <div className="conversation-file-card-row">{fileCard}</div>;
+        if (fileCard) return <div className="my-2">{fileCard}</div>;
         if (webPreviews && localUrl && callbacks.current.onOpenExternalUrl) {
           const url = localUrl.href;
           const title =
