@@ -115,7 +115,7 @@ A retained record of processing across turns, including model calls, tool operat
 _Avoid_: Assistant replies alone; treating Side Chat or Fork as delegated agent tasks
 
 **Turn Elapsed Time**:
-The time that actually passes from the start of a turn to its terminal outcome, or from its start to the present while it is still running.
+The time that passes from the actual start of turn execution to its terminal outcome, or from execution start to the present while it is still running. Queue waiting before execution starts is measured separately.
 _Avoid_: The sum of parallel tool or subagent durations; model generation time alone
 
 **Pause Execution**:
