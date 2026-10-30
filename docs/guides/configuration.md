@@ -358,7 +358,7 @@ models = [
 
 JSON 使用 camelCase（`apiKeyEnv`、`displayName`、`maxOutputTokens`、`reasoningEffort`、`serviceTier`），协议仍为 `chat-completions` / `responses`。最多 32 个供应商，每个最多 64 个模型。供应商与模型都支持启停、名称和参数；参数按显式会话、模型、供应商默认值叠加。全局 TOML／环境／CLI 参数仍遵循原优先级。文件默认引用必须指向启用的供应商与模型。旧单模型 TOML 无需立即改写，选中的名称作为目录项；首次共享保存会添加 `catalog_version = 1`。仅含原有字段的旧供应商表可以省略 endpoint，由环境变量或 CLI 补齐，仍遵循 CLI > 环境变量 > 文件的优先级。共享目录读写要求供应商在文件中提供完整 endpoint；未补齐时读取明确失败，不丢弃供应商，也不将临时覆盖写回文件。
 
-供应商与模型的 `parameters.service_tier` 接受 `fast` 或 `default`，JSON 字段为 `serviceTier`。`fast` 请求 Fast，`default` 明确选择标准服务并覆盖继承的 Fast。省略或空值继承模型及供应商默认值。Core 将该值原样作为 `service_tier` 发给 Chat Completions、Responses 和 ChatGPT 订阅传输。供应商决定支持情况与实际处理档位，错误沿原路径返回。
+供应商与模型的 `parameters.service_tier` 接受 `fast` 或 `default`，JSON 字段为 `serviceTier`。`fast` 请求 Fast，`default` 明确选择标准服务并覆盖继承的 Fast。省略或空值继承模型及供应商默认值。Core 将该值原样作为 `service_tier` 发给 Chat Completions 和 Responses。使用 ChatGPT 授权访问 OpenAI API 的适配器把 `fast` 编码为 `priority`；显式 `default`、省略、API Key 供应商和 Codex 订阅传输仍沿用各自原有语义。供应商决定支持情况与实际处理档位，错误沿原路径返回。Responses 终态返回已识别的实际档位时，请求审计在 `usageDetails.serviceTier` 中保留该值；缺失或未知时省略，不按请求补值。即使 Fast 请求成功，实际档位仍可能是 `default`，不能据此认定已获得加速。
 
 桌面 Composer 的思考强度菜单左上角提供 Fast 闪电开关。开启请求 `fast`，关闭请求 `default`。Fast 和思考强度独立保存。会话切换模型保留当前生效的服务档位，包括从模型或供应商继承的 `fast` 或 `default`；当前档位未设置时使用目标模型的默认值。新草稿没有本地覆盖时使用所选模型及供应商默认值。草稿选择随原草稿保存和清理，会话选择沿原配置保存及恢复。入口中的 Fast 标记只表示当前请求选择，Fast 可能消耗更多额度或费用。
 

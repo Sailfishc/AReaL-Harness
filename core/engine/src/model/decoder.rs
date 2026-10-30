@@ -57,6 +57,9 @@ impl Decoder {
         if let Some(tokens) = details.cache_write {
             value["cacheWriteTokens"] = json!(tokens);
         }
+        if let Some(tier) = &details.service_tier {
+            value["serviceTier"] = json!(tier);
+        }
         value
     }
     pub(super) fn feed(&mut self, bytes: &[u8]) -> Result<Vec<ModelEvent>> {
@@ -558,6 +561,20 @@ impl ResponsesDecoder {
         telemetry::response(&event, ModelProtocol::Responses);
         self.usage_details
             .observe_response_id(event["response"].get("id"));
+        if matches!(
+            event["type"].as_str(),
+            Some("response.completed" | "response.failed" | "response.incomplete")
+        ) {
+            self.usage_details.service_tier = event["response"]["service_tier"]
+                .as_str()
+                .filter(|tier| {
+                    matches!(
+                        *tier,
+                        "auto" | "default" | "flex" | "priority" | "fast" | "scale" | "ultrafast"
+                    )
+                })
+                .map(str::to_owned);
+        }
         match event["type"].as_str().unwrap_or_default() {
             kind @ ("response.reasoning_summary_text.delta"
             | "response.reasoning_summary_text.done"
@@ -697,6 +714,7 @@ struct UsageDetails {
     reasoning: Option<u64>,
     response_id: Option<String>,
     cache_write: Option<u64>,
+    service_tier: Option<String>,
 }
 
 impl UsageDetails {

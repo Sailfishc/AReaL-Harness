@@ -381,10 +381,10 @@ impl HttpModel {
                             );
                             state.output.push(event["item"].clone());
                         }
-                        let mut events =
-                            state.decoder.feed(format!("data: {text}\n\n").as_bytes())?;
+                        let events = state.decoder.feed(format!("data: {text}\n\n").as_bytes());
                         state.audit.value["usageDetails"] = state.decoder.usage_details();
                         telemetry::usage(&state.audit.value["usageDetails"]);
+                        let mut events = events?;
                         if is_complete {
                             events.extend(state.decoder.finish()?);
                             state.response_id = event["response"]["id"]
@@ -477,6 +477,10 @@ mod tests {
                     if request["model"]=="disconnect" { return; }
                     if request["model"]=="incomplete" {
                         socket.send(axum::extract::ws::Message::Text(json!({"type":"response.incomplete","response":{"id":"resp_partial","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":9,"output_tokens":2}}}).to_string().into())).await.unwrap();continue;
+                    }
+                    if matches!(request["model"].as_str(), Some("failed-no-usage" | "incomplete-no-usage")) {
+                        let status = if request["model"]=="failed-no-usage" {"failed"} else {"incomplete"};
+                        socket.send(axum::extract::ws::Message::Text(json!({"type":format!("response.{status}"),"response":{"status":status,"service_tier":"default","error":{"code":"server_error"},"incomplete_details":{"reason":"max_output_tokens"}}}).to_string().into())).await.unwrap();continue;
                     }
                     let output=json!({"type":"message","id":"msg_fixture","status":"completed","role":"assistant","content":[{"type":"output_text","text":"ok","annotations":[]}]});
                     for event in [json!({"type":"response.output_text.delta","delta":"ok"}),json!({"type":"response.completed","response":{"id":"resp_fixture","status":"completed","output":if request["model"]=="missing-output" {json!(null)} else {json!([output])},"usage":{"input_tokens":10,"input_tokens_details":{"cached_tokens":8},"output_tokens":1}}})] {
@@ -597,6 +601,38 @@ mod tests {
         assert_eq!(rows[1]["incremental"], true);
         assert!(rows.iter().all(|v| v["usageObserved"] == true));
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn failed_terminal_without_usage_keeps_actual_service_tier_in_audit() {
+        let (endpoint, mut rx, _, server) = fixture().await;
+        for name in ["failed-no-usage", "incomplete-no-usage"] {
+            let data = tempfile::tempdir().unwrap();
+            let model = model(endpoint.clone(), name)
+                .with_options(ModelOptions {
+                    responses_websocket: true,
+                    service_tier: Some("fast".into()),
+                    ..Default::default()
+                })
+                .unwrap()
+                .with_audit_directory(data.path().into());
+            let events = run(&model, (name, "turn"), vec![Message::text("user", "first")]).await;
+            assert!(events.iter().any(Result::is_err));
+            assert!(
+                !events
+                    .iter()
+                    .any(|event| matches!(event, Ok(ModelEvent::Usage(_))))
+            );
+            assert_eq!(rx.recv().await.unwrap()["service_tier"], "fast");
+            let audit_text = std::fs::read_to_string(data.path().join("requests.jsonl")).unwrap();
+            let audit: Value = serde_json::from_str(audit_text.trim()).unwrap();
+            assert_eq!(audit["outcome"], "failed");
+            assert_eq!(audit["usageObserved"], false);
+            assert_eq!(audit["parameters"]["service_tier"], "fast");
+            assert_eq!(audit["usageDetails"]["serviceTier"], "default", "{name}");
+        }
+        server.abort();
+        let _ = server.await;
     }
 
     #[tokio::test]

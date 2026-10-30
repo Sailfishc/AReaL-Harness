@@ -81,6 +81,7 @@ export function openaiRequest(body, hints) {
   if (unsupported.some((field) => body[field] != null))
     throw new Error("ChatGPT 不支持此请求参数；请修改配置后重试");
   const value = subscriptionRequest(body, hints);
+  if (value.service_tier === "fast") value.service_tier = "priority";
   if (body.parallel_tool_calls !== undefined) value.parallel_tool_calls = body.parallel_tool_calls;
   if (value.tools?.length) {
     if (value.tools.some((t) => t.type !== "function")) throw new Error("Unsupported OpenAI tool");
