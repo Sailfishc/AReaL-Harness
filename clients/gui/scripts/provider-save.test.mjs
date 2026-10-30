@@ -15,6 +15,7 @@ function fixture({
   running = false,
   unsupported = false,
   unacceptedError,
+  credentials = {},
 } = {}) {
   const calls = [];
   const original = {
@@ -71,7 +72,7 @@ function fixture({
         assert.equal(method, applyMethod);
         assert.equal(params.expectedGeneration, "generation-p");
         assert.deepEqual(params.expectedApplied, proof.applied);
-        assert.deepEqual(params.credentials, {});
+        assert.deepEqual(params.credentials, credentials);
         if (unacceptedError && applyAttempts++ === 0)
           throw Object.assign(new Error("fixture request rejected before admission"), {
             name: "CoreRpcError",
@@ -941,7 +942,7 @@ test("deferred reconciliation settles applied and changed-generation receipts wh
 });
 
 test("deferred refresh retains credential confirmation and original non-admission settlement", async (t) => {
-  const missing = fixture();
+  const missing = fixture({ credentials: { AREAL_CREDENTIAL_fixture: "synthetic-key" } });
   t.after(() => missing.service.close());
   missing.service.config.value.data[0].apiKeyEnv = "AREAL_CREDENTIAL_fixture";
   missing.service.config.vault.keys.AREAL_CREDENTIAL_fixture = "fixture";
@@ -993,3 +994,42 @@ test("Fast defaults survive provider save at provider and model scopes", async (
     reasoningEffort: "low",
   });
 });
+
+for (const restartSafe of [true, false]) {
+  test(`same-revision reconnect restores missing saved credentials only when Core idle=${restartSafe}`, async () => {
+    const f = fixture({ busy: true, credentials: { AREAL_CREDENTIAL_fixture: "fixture-secret" } });
+    const snapshot = f.service.config.value;
+    snapshot.data[0].apiKeyEnv = "AREAL_CREDENTIAL_fixture";
+    f.service.config.vault.keys.AREAL_CREDENTIAL_fixture = "fixture-encrypted";
+    f.service.config.key = () => "fixture-secret";
+    let restored = false;
+    const native = f.project.client.request;
+    f.project.client.request = async (method, params) => {
+      if (method === "areal/server/status") return { restartSafe };
+      if (method === applyMethod) {
+        assert.deepEqual(params.credentials, { AREAL_CREDENTIAL_fixture: "fixture-secret" });
+        restored = true;
+      }
+      const result = await native(method, params);
+      if ([readMethod, applyMethod].includes(method)) {
+        result.credentialStates.demo = restored ? "available" : "unavailable";
+        if (result.operation?.result)
+          result.operation.result.credentialStates = result.credentialStates;
+      }
+      return result;
+    };
+    await f.service.reconcileProject(f.project);
+    assert.equal(restored, restartSafe);
+    assert.equal(
+      f.calls.some(([method]) => method === "write"),
+      false,
+    );
+    assert.equal(f.backend.providerUpdating, false);
+    if (restartSafe) {
+      assert.equal(f.service.applicationState(f.project).kind, "applied");
+      assert.equal(f.project.providerProof.credentialStates.demo, "available");
+      assert.ok(f.calls.some(([method]) => method === "areal/model/list"));
+    } else assert.equal(f.service.applicationState(f.project).kind, "deferred");
+    await f.service.close();
+  });
+}
