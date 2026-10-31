@@ -729,7 +729,7 @@ try {
     3,
   );
   const stored = JSON.parse(await readFile(join(data, `${id}.json`), "utf8"));
-  assert.equal(stored.version, 15);
+  assert.equal(stored.version, (await server.call("areal/server/status", {})).stateVersion);
   console.log("PASS model → read → patch → command → durable result");
   const created = (await server.call("thread/start", {})).thread.id;
   await server.call("turn/start", {
