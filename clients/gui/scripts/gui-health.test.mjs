@@ -74,6 +74,16 @@ async function fixture(t) {
   };
 }
 
+test("temporary path source audit still counts hardcoded paths", async (t) => {
+  const f = await fixture(t);
+  await f.put("scripts/fixture.mjs", 'export const path = "/private/tmp/case";\n');
+  const result = f.run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).metrics.privateTmpHardcodes.value, 1);
+  await f.put("scripts/fixture.mjs", 'export const path = "portable";\n');
+  assert.equal(JSON.parse(f.run().stdout).metrics.privateTmpHardcodes.value, 0);
+});
+
 test("JSON report counts production code and keeps report-only counts separate", async (t) => {
   const f = await fixture(t);
   await f.put("app/src/vendor/vendor.cjs", "x\n".repeat(1001));

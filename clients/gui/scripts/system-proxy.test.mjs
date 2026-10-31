@@ -658,6 +658,8 @@ for (const kind of ["http", "socks"])
           env: {
             ...env,
             ...proxyEnv,
+            // 由 AppProviders 验证 SOCKS/HTTP 代理，不能继承宿主 Node 的 HTTP-only 启动代理。
+            NODE_USE_ENV_PROXY: "0",
             NODE_EXTRA_CA_CERTS: fileURLToPath(
               new URL("../../../tests/fixtures/proxy/cert.pem", import.meta.url),
             ),

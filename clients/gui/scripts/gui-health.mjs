@@ -214,10 +214,11 @@ export async function collectHealth({ root = gui } = {}) {
       "Existing literal audit baseline total; run its audit separately for current-source validation",
     ),
     privateTmpHardcodes: row(
-      scriptSources.filter((source) => source.includes("/private/tmp")).length,
+      // 这里匹配待审计的源码文本，不是供文件系统访问的临时路径。
+      scriptSources.filter((source) => /\/private\/tmp/.test(source)).length,
       "down",
       "scripts",
-      "Number of script source files containing /private/tmp, including tests",
+      "Number of script source files containing the macOS private temporary-directory literal, including tests",
     ),
     activeDesignDocBytes: row(
       documentMetrics.activeDesignDocBytes,
