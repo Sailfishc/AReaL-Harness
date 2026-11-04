@@ -74,20 +74,7 @@ async function historyCommand(observation, project, request) {
   if (operation === "acquire") {
     const client = window.client;
     const generation = project.connectionGeneration;
-    const registered = window.views.has(viewId);
     window.views.add(viewId);
-    // 新的显式阅读先重建已失效基线；已有 view 的重复注册不能启动恢复循环。
-    if (window.invalidated && !registered) {
-      await observation.refreshHistory(project, window);
-      // 刷新可以替换同一连接的窗口，旧请求不能接管等待期间换代的新连接。
-      if (
-        !observation.host.currentConnection(project, client) ||
-        project.connectionGeneration !== generation
-      )
-        throw historyFailure("历史视图已变化，请重新加载。");
-      window = observation.historyWindow(project, threadId);
-    }
-    if (!window?.views.has(viewId)) throw historyFailure("历史视图已关闭，请重新打开聊天。");
     const acquiredWindow = window;
     const acquiredEpoch = window.epoch;
     await observation.hydrateLatest(project, window);

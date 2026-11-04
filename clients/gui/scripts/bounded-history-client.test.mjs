@@ -131,7 +131,7 @@ function anchorFixture(count = 12, intercept = async () => {}) {
   });
 }
 
-test("acquire refreshes an already invalidated view before bounded hydration", async () => {
+test("invalidated acquire requires explicit reopening without implicit recovery", async () => {
   let observations = 0;
   const f = fixture(async (method) => {
     assert.equal(method, "areal/thread/observe");
@@ -145,13 +145,21 @@ test("acquire refreshes an already invalidated view before bounded hydration", a
   const previous = f.backend.historyWindow(f.project, "thread");
   previous.invalidated = true;
   previous.epoch++;
+  for (const viewId of ["view-a", "view-b"])
+    await assert.rejects(
+      f.history("acquire", { viewId }),
+      (error) => error.code === "HISTORY_VIEW_UNAVAILABLE",
+    );
+  assert.equal(f.backend.historyWindow(f.project, "thread"), previous);
+  assert.equal(observations, 1, "new view identities cannot start implicit recovery");
+  await f.history("release");
+  await f.history("release", { viewId: "view-b" });
+  await f.backend.openThread(f.project, "thread");
   assert.deepEqual(await f.history("acquire"), { supported: true, complete: true });
   const current = f.backend.historyWindow(f.project, "thread");
   assert.notEqual(current, previous);
-  assert.notEqual(current.invalidated, true);
   assert.equal(current.snapshotId, "snapshot-2");
-  assert.equal(current.views.has("view-a"), true);
-  assert.equal(observations, 2, "one explicit acquire refreshes once, without retries");
+  assert.equal(observations, 2, "only explicit reopening reobserves history");
   assert.equal(
     f.calls.some((call) => call.method === "thread/read"),
     false,
@@ -162,55 +170,7 @@ test("acquire refreshes an already invalidated view before bounded hydration", a
 });
 
 for (const keepOtherView of [false, true])
-  test(`release during invalidated acquire cannot resurrect its view (other view: ${keepOtherView})`, async () => {
-    let observations = 0;
-    let enter;
-    let finish;
-    const entered = new Promise((resolve) => {
-      enter = resolve;
-    });
-    const held = new Promise((resolve) => {
-      finish = resolve;
-    });
-    const f = fixture(async (method) => {
-      assert.equal(method, "areal/thread/observe");
-      if (++observations === 2) {
-        enter();
-        await held;
-      }
-      return {
-        ...baseline(),
-        history: { snapshotId: "snapshot", nextCursor: null, complete: true },
-      };
-    });
-    await f.backend.openThread(f.project, "thread");
-    const previous = f.backend.historyWindow(f.project, "thread");
-    previous.invalidated = true;
-    if (keepOtherView) previous.views.add("view-b");
-    const pending = f.history("acquire");
-    const rejected = assert.rejects(pending, /历史视图/);
-    await entered;
-    await f.history("release");
-    finish();
-    await rejected;
-    const current = f.backend.historyWindow(f.project, "thread");
-    assert.equal(current.views.has("view-a"), false);
-    assert.equal(current.views.has("view-b"), keepOtherView);
-    assert.equal(observations, 2);
-  });
-
-for (const replaceClient of [false, true])
-  test(`invalidated acquire cannot adopt a replacement connection window (new client: ${replaceClient})`, async () => {
-    const f = fixture(async (method) => {
-      assert.equal(method, "areal/thread/observe");
-      return {
-        ...baseline(),
-        history: { snapshotId: "initial", nextCursor: null, complete: true },
-      };
-    });
-    await f.backend.openThread(f.project, "thread");
-    const previous = f.backend.historyWindow(f.project, "thread");
-    previous.invalidated = true;
+  test(`release during acquire cannot resurrect its view (other view: ${keepOtherView})`, async () => {
     let enter, finish;
     const entered = new Promise((resolve) => {
       enter = resolve;
@@ -218,18 +178,52 @@ for (const replaceClient of [false, true])
     const held = new Promise((resolve) => {
       finish = resolve;
     });
-    f.project.observationReads.set("thread", {
-      client: f.project.client,
-      generation: f.project.connectionGeneration,
-      get promise() {
-        enter();
-        return held;
-      },
+    const f = fixture(async (method) => {
+      if (method === "areal/thread/observe") return partialBaseline();
+      enter();
+      await held;
+      return page([entry("t2", item("i1"))], null);
     });
+    await f.backend.openThread(f.project, "thread");
+    const previous = f.backend.historyWindow(f.project, "thread");
+    if (keepOtherView) previous.views.add("view-b");
     const pending = f.history("acquire");
     const rejected = assert.rejects(pending, (error) => error.code === "HISTORY_VIEW_UNAVAILABLE");
     await entered;
-    if (replaceClient) f.project.client = { ...f.project.client };
+    await f.history("release");
+    finish();
+    await rejected;
+    const current = f.backend.historyWindow(f.project, "thread");
+    assert.equal(current.views.has("view-a"), false);
+    assert.equal(current.views.has("view-b"), keepOtherView);
+    assert.equal(f.calls.length, 2);
+  });
+
+for (const replaceClient of [false, true])
+  test(`pending acquire cannot adopt a replacement connection window (new client: ${replaceClient})`, async () => {
+    let enter, finish;
+    const entered = new Promise((resolve) => {
+      enter = resolve;
+    });
+    const held = new Promise((resolve) => {
+      finish = resolve;
+    });
+    const f = fixture(async (method) => {
+      if (method === "areal/thread/observe") return partialBaseline();
+      enter();
+      await held;
+      return page([entry("t2", item("i1"))], null);
+    });
+    await f.backend.openThread(f.project, "thread");
+    const previous = f.backend.historyWindow(f.project, "thread");
+    const pending = f.history("acquire");
+    const rejected = assert.rejects(pending, (error) => error.code === "HISTORY_VIEW_UNAVAILABLE");
+    await entered;
+    if (replaceClient) {
+      const oldClient = f.project.client;
+      f.project.client = { ...oldClient };
+      oldClient.closed = true;
+    }
     f.project.connectionGeneration++;
     f.backend.installObservation(f.project, {
       ...baseline(),
@@ -244,8 +238,40 @@ for (const replaceClient of [false, true])
     assert.equal(replacement.snapshotId, "replacement");
     assert.equal(
       f.calls.length,
+      2,
+      "the stale request cannot reobserve or retry on the replacement connection",
+    );
+    await f.history("release");
+  });
+
+for (const replaceClient of [false, true])
+  test(`completed hydration cannot cross a connection generation (new client: ${replaceClient})`, async () => {
+    const f = fixture(async () => ({
+      ...baseline(),
+      history: { snapshotId: "initial", nextCursor: null, complete: true },
+    }));
+    await f.backend.openThread(f.project, "thread");
+    const pending = f.backend.historyCommand(f.project, {
+      threadId: "thread",
+      viewId: "view-a",
+      operation: "acquire",
+    });
+    const rejected = assert.rejects(pending, (error) => error.code === "HISTORY_VIEW_UNAVAILABLE");
+    if (replaceClient) {
+      const oldClient = f.project.client;
+      f.project.client = { ...oldClient };
+      oldClient.closed = true;
+    }
+    f.project.connectionGeneration++;
+    f.backend.installObservation(f.project, {
+      ...baseline(),
+      history: { snapshotId: "replacement", nextCursor: null, complete: true },
+    });
+    await rejected;
+    assert.equal(
+      f.calls.length,
       1,
-      "the stale request does not reobserve or retry on the replacement connection",
+      "completed hydration does not authorize a read on another connection",
     );
     await f.history("release");
   });
