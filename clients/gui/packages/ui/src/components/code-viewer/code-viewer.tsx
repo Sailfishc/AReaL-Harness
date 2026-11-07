@@ -769,7 +769,7 @@ export function CodeViewer({
         options={options}
         lineAnnotations={lineAnnotations}
         selectedLines={selectedLines}
-        className="min-h-full w-full"
+        className="min-h-full w-full bg-background"
         style={viewerStyle}
         renderAnnotation={(annotation) =>
           annotation.metadata.kind === "draft" ? (
